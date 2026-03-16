@@ -10,26 +10,26 @@ import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
-  SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 
-type AppPage = 'chat' | 'cowork' | 'settings';
+type AppPage = 'chat' | 'cowork' | 'scheduled' | 'settings';
 
 type AppSidebarProps = {
   sidebarOpen: boolean;
   activeMenuItem: string;
   activePage: AppPage;
   onSelectMenuItem: (item: string) => void;
+  onSelectPage: (page: AppPage) => void;
   onOpenSettings: () => void;
 };
 
 const navItems = [
-  { label: 'New task', icon: Plus },
+  { label: 'New task', icon: Plus, page: 'cowork' as const },
   { label: 'Search', icon: Search },
-  { label: 'Scheduled', icon: CalendarClock },
+  { label: 'Scheduled', icon: CalendarClock, page: 'scheduled' as const },
   { label: 'Ideas', icon: Lightbulb },
   { label: 'Customize', icon: BriefcaseBusiness },
 ] as const;
@@ -44,18 +44,20 @@ const recentTasks = [
   'Review sales pipeline and next actions',
 ];
 
-export function AppSidebar({ sidebarOpen, activeMenuItem, activePage, onSelectMenuItem, onOpenSettings }: AppSidebarProps) {
+export function AppSidebar({
+  sidebarOpen,
+  activeMenuItem,
+  activePage,
+  onSelectMenuItem,
+  onSelectPage,
+  onOpenSettings,
+}: AppSidebarProps) {
   return (
     <Sidebar
       className={`rounded-none border-y-0 border-l-0 transition-all duration-200 ${
         sidebarOpen ? 'w-full opacity-100' : 'w-0 opacity-0 pointer-events-none'
       }`}
     >
-      <SidebarHeader>
-        <h2 className="text-sm font-semibold">OpenClawCowork</h2>
-        <p className="font-sans text-xs text-muted-foreground">Agentic desktop workbench</p>
-      </SidebarHeader>
-
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>
@@ -65,7 +67,12 @@ export function AppSidebar({ sidebarOpen, activeMenuItem, activePage, onSelectMe
                   <SidebarMenuButton
                     type="button"
                     active={item.label === activeMenuItem}
-                    onClick={() => onSelectMenuItem(item.label)}
+                    onClick={() => {
+                      onSelectMenuItem(item.label);
+                      if (item.page) {
+                        onSelectPage(item.page);
+                      }
+                    }}
                     className="gap-2 font-sans text-[13px]"
                   >
                     <item.icon className="size-3.5 text-muted-foreground" />

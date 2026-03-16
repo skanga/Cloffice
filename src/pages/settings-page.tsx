@@ -1,37 +1,41 @@
 import type { FormEvent } from 'react';
 
-import type { AppConfig, BackendMode, HealthCheckResult } from '@/app-types';
+import type { HealthCheckResult } from '@/app-types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 
 type SettingsPageProps = {
-  config: AppConfig;
-  draftUrl: string;
+  draftGatewayUrl: string;
+  draftGatewayToken: string;
   health: HealthCheckResult | null;
   status: string;
   saving: boolean;
   checking: boolean;
-  hasBridge: boolean;
-  onModeChange: (mode: BackendMode) => void;
-  onDraftUrlChange: (value: string) => void;
+  pairingRequestId: string | null;
+  onDraftGatewayUrlChange: (value: string) => void;
+  onDraftGatewayTokenChange: (value: string) => void;
   onSave: (event: FormEvent) => void;
   onHealthCheck: () => void | Promise<void>;
+  onRequestPairing: () => void | Promise<void>;
+  onResetPairing: () => void | Promise<void>;
 };
 
 export function SettingsPage({
-  config,
-  draftUrl,
+  draftGatewayUrl,
+  draftGatewayToken,
   health,
   status,
   saving,
   checking,
-  hasBridge,
-  onModeChange,
-  onDraftUrlChange,
+  pairingRequestId,
+  onDraftGatewayUrlChange,
+  onDraftGatewayTokenChange,
   onSave,
   onHealthCheck,
+  onRequestPairing,
+  onResetPairing,
 }: SettingsPageProps) {
   return (
     <section className="mx-auto w-full max-w-[860px]">
@@ -45,7 +49,7 @@ export function SettingsPage({
 
       <Card className="rounded-xl border-border bg-card shadow-[0_8px_22px_rgba(51,43,30,0.06)]">
         <CardHeader className="mb-1 flex flex-row items-center justify-between gap-2 border-b border-border/70 pb-3">
-          <CardTitle>Backend routing</CardTitle>
+          <CardTitle>Gateway connection</CardTitle>
           <Badge
             variant="outline"
             className={
@@ -61,29 +65,22 @@ export function SettingsPage({
         <CardContent className="pt-1">
           <form className="grid gap-3" onSubmit={onSave}>
             <label>
-              <span className="mb-1 block font-sans text-xs text-muted-foreground">Backend mode</span>
-              <div className="grid grid-cols-3 gap-2">
-                {(['local', 'vps', 'custom'] as BackendMode[]).map((mode) => (
-                  <Button
-                    key={mode}
-                    type="button"
-                    variant="outline"
-                    className={mode === config.mode ? 'bg-muted' : ''}
-                    onClick={() => onModeChange(mode)}
-                  >
-                    {mode}
-                  </Button>
-                ))}
-              </div>
+              <span className="mb-1 block font-sans text-xs text-muted-foreground">Gateway URL (WebSocket)</span>
+              <Input
+                value={draftGatewayUrl}
+                onChange={(event) => onDraftGatewayUrlChange(event.target.value)}
+                placeholder="ws://127.0.0.1:18789"
+                className="font-sans"
+              />
             </label>
 
             <label>
-              <span className="mb-1 block font-sans text-xs text-muted-foreground">Base URL</span>
+              <span className="mb-1 block font-sans text-xs text-muted-foreground">Gateway token (optional)</span>
               <Input
-                type="url"
-                value={draftUrl}
-                onChange={(event) => onDraftUrlChange(event.target.value)}
-                placeholder="https://your-openclaw-host"
+                type="password"
+                value={draftGatewayToken}
+                onChange={(event) => onDraftGatewayTokenChange(event.target.value)}
+                placeholder="Paste token from OpenClaw setup"
                 className="font-sans"
               />
             </label>
@@ -92,18 +89,32 @@ export function SettingsPage({
               <Button className="flex-1 border-0 bg-[linear-gradient(120deg,#ea9f7d,#de825e)] text-[#fffefb]" type="submit" disabled={saving}>
                 {saving ? 'Saving...' : 'Save configuration'}
               </Button>
-              <Button className="flex-1" variant="outline" type="button" onClick={() => void onHealthCheck()} disabled={checking || !hasBridge}>
-                {checking ? 'Checking...' : 'Test connection'}
+              <Button className="flex-1" variant="outline" type="button" onClick={() => void onHealthCheck()} disabled={checking}>
+                {checking ? 'Checking...' : 'Connect'}
+              </Button>
+              <Button className="flex-1" variant="outline" type="button" onClick={() => void onRequestPairing()} disabled={checking}>
+                {checking ? 'Requesting...' : 'Request pairing'}
+              </Button>
+              <Button className="flex-1" variant="outline" type="button" onClick={() => void onResetPairing()} disabled={checking}>
+                {checking ? 'Resetting...' : 'Reset pairing'}
               </Button>
             </div>
           </form>
 
           <div className="mt-3 grid gap-2 rounded-xl border border-dashed border-border p-3">
             <p className="font-sans text-sm text-muted-foreground">{status}</p>
-            {!hasBridge && (
-              <p className="font-sans text-sm text-muted-foreground">
-                Bridge unavailable. Open in Electron to enable persistence and health checks.
-              </p>
+            <p className="font-sans text-xs text-muted-foreground">
+              For most OpenClaw setups, only Gateway URL and token are required.
+            </p>
+            {pairingRequestId && (
+              <div className="rounded-lg border border-[rgba(222,130,94,0.35)] bg-[rgba(222,130,94,0.08)] p-2">
+                <p className="font-sans text-xs text-[#7a4a38]">
+                  Pairing request ID: <span className="font-semibold">{pairingRequestId}</span>
+                </p>
+                <p className="mt-1 font-sans text-xs text-[#7a4a38]">
+                  Approve on gateway host: openclaw devices approve {pairingRequestId}
+                </p>
+              </div>
             )}
           </div>
         </CardContent>

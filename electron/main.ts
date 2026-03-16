@@ -1,12 +1,10 @@
-import { app, BrowserWindow, ipcMain, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, session } from 'electron';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 
-type BackendMode = 'local' | 'vps' | 'custom';
-
 type AppConfig = {
-  mode: BackendMode;
-  baseUrl: string;
+  gatewayUrl: string;
+  gatewayToken: string;
 };
 
 type HealthCheckResult = {
@@ -16,8 +14,8 @@ type HealthCheckResult = {
 };
 
 const defaultConfig: AppConfig = {
-  mode: 'local',
-  baseUrl: 'http://127.0.0.1:3000',
+  gatewayUrl: 'ws://127.0.0.1:18789',
+  gatewayToken: '',
 };
 
 const configPath = () => path.join(app.getPath('userData'), 'openclaw-config.json');
@@ -26,14 +24,55 @@ const isDev = !app.isPackaged;
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const isLoopbackHost = (host: string) => host === 'localhost' || host === '127.0.0.1' || host === '::1';
+
+function registerDevWebSocketOriginRewrite() {
+  if (!isDev) {
+    return;
+  }
+
+  const filter = {
+    urls: ['ws://*/*', 'wss://*/*'],
+  };
+
+  // In dev, renderer origin is localhost:5173; rewrite only remote WS handshakes to target origin.
+  session.defaultSession.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
+    const currentOrigin = details.requestHeaders.Origin ?? details.requestHeaders.origin;
+    if (typeof currentOrigin !== 'string' || !currentOrigin.startsWith('http://localhost:5173')) {
+      callback({ requestHeaders: details.requestHeaders });
+      return;
+    }
+
+    try {
+      const target = new URL(details.url);
+      if (isLoopbackHost(target.hostname)) {
+        callback({ requestHeaders: details.requestHeaders });
+        return;
+      }
+
+      const rewrittenOrigin = `${target.protocol === 'wss:' ? 'https:' : 'http:'}//${target.host}`;
+      details.requestHeaders.Origin = rewrittenOrigin;
+      details.requestHeaders.origin = rewrittenOrigin;
+      callback({ requestHeaders: details.requestHeaders });
+    } catch {
+      callback({ requestHeaders: details.requestHeaders });
+    }
+  });
+}
+
 async function readConfig(): Promise<AppConfig> {
   try {
     const raw = await fs.readFile(configPath(), 'utf8');
-    const parsed = JSON.parse(raw) as Partial<AppConfig>;
+    const parsed = JSON.parse(raw) as Partial<AppConfig> & { baseUrl?: string; mode?: string };
+    const inferredGatewayUrl =
+      parsed.gatewayUrl ??
+      (parsed.baseUrl
+        ? parsed.baseUrl.replace(/^https?:\/\//, (value) => (value === 'https://' ? 'wss://' : 'ws://'))
+        : defaultConfig.gatewayUrl);
 
     return {
-      mode: parsed.mode ?? defaultConfig.mode,
-      baseUrl: parsed.baseUrl ?? defaultConfig.baseUrl,
+      gatewayUrl: inferredGatewayUrl,
+      gatewayToken: parsed.gatewayToken ?? defaultConfig.gatewayToken,
     };
   } catch {
     return defaultConfig;
@@ -41,9 +80,11 @@ async function readConfig(): Promise<AppConfig> {
 }
 
 async function writeConfig(config: AppConfig): Promise<AppConfig> {
+  const normalizedGatewayUrl = config.gatewayUrl.trim();
+
   const normalized = {
-    mode: config.mode,
-    baseUrl: config.baseUrl.trim().replace(/\/$/, ''),
+    gatewayUrl: normalizedGatewayUrl,
+    gatewayToken: config.gatewayToken.trim(),
   };
 
   await fs.mkdir(path.dirname(configPath()), { recursive: true });
@@ -51,8 +92,11 @@ async function writeConfig(config: AppConfig): Promise<AppConfig> {
   return normalized;
 }
 
-async function runHealthCheck(baseUrl: string): Promise<HealthCheckResult> {
-  const normalizedBaseUrl = baseUrl.trim().replace(/\/$/, '');
+async function runHealthCheck(gatewayUrl: string): Promise<HealthCheckResult> {
+  const normalizedBaseUrl = gatewayUrl
+    .trim()
+    .replace(/^wss?:\/\//, (value) => (value === 'wss://' ? 'https://' : 'http://'))
+    .replace(/\/$/, '');
   const candidates = ['/health', '/api/health', '/'];
 
   for (const candidate of candidates) {
@@ -125,6 +169,7 @@ async function createWindow() {
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
+  registerDevWebSocketOriginRewrite();
 
   ipcMain.handle('config:get', async () => readConfig());
   ipcMain.handle('config:save', async (_event, config: AppConfig) => writeConfig(config));

@@ -2,7 +2,7 @@ import type { CSSProperties, MouseEvent } from 'react';
 
 import { Button } from '@/components/ui/button';
 
-type AppPage = 'chat' | 'cowork' | 'settings';
+type AppPage = 'chat' | 'cowork' | 'scheduled' | 'settings';
 
 type AppTitlebarProps = {
   sidebarOpen: boolean;
@@ -56,7 +56,7 @@ export function AppTitlebar({
   };
 
   return (
-    <header className="relative flex items-center justify-between border-b border-border bg-background/90 pl-1">
+    <header className="relative flex h-[44px] items-center justify-between border-b border-border bg-background/90 pl-1">
       <div
         className="inline-flex min-w-[124px] items-center gap-1 [-webkit-app-region:no-drag]"
         style={noDragStyle}
@@ -119,7 +119,7 @@ export function AppTitlebar({
       >
         <button
           type="button"
-          className="h-[34px] w-[42px] border-0 bg-transparent text-[16px] leading-none text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="h-[44px] w-[42px] border-0 bg-transparent text-[16px] leading-none text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           style={noDragStyle}
           onMouseDown={preventTitlebarDragCapture}
           onClick={() => void onMinimize()}
@@ -129,7 +129,7 @@ export function AppTitlebar({
         </button>
         <button
           type="button"
-          className="h-[34px] w-[42px] border-0 bg-transparent text-[13px] leading-none text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="h-[44px] w-[42px] border-0 bg-transparent text-[13px] leading-none text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           style={noDragStyle}
           onMouseDown={preventTitlebarDragCapture}
           onClick={() => void onToggleMaximize()}
@@ -139,7 +139,7 @@ export function AppTitlebar({
         </button>
         <button
           type="button"
-          className="h-[34px] w-[42px] border-0 bg-transparent text-[16px] leading-none text-muted-foreground transition-colors hover:bg-[#dd5f4c] hover:text-white"
+          className="h-[44px] w-[42px] border-0 bg-transparent text-[16px] leading-none text-muted-foreground transition-colors hover:bg-[#dd5f4c] hover:text-white"
           style={noDragStyle}
           onMouseDown={preventTitlebarDragCapture}
           onClick={() => void onClose()}
