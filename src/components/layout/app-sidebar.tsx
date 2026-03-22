@@ -28,12 +28,19 @@ import {
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 
-type AppPage = 'chat' | 'cowork' | 'scheduled' | 'settings';
+type AppPage = 'chat' | 'cowork' | 'settings';
 
 type RecentSidebarItem = {
   id: string;
   label: string;
   sessionKey: string;
+};
+
+type ScheduledSidebarItem = {
+  id: string;
+  name: string;
+  schedule: string;
+  enabled: boolean;
 };
 
 type AppSidebarProps = {
@@ -44,18 +51,22 @@ type AppSidebarProps = {
   userEmail: string;
   guestMode: boolean;
   recentItems: RecentSidebarItem[];
+  scheduledItems: ScheduledSidebarItem[];
+  scheduledLoading: boolean;
   onSelectRecentChat: (sessionKey: string) => void;
   onStartNewChat: () => void;
+  onStartNewTask: () => void;
   onSelectMenuItem: (item: string) => void;
-  onSelectPage: (page: AppPage) => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
   onLogout: () => void;
 };
 
-const navItems = [
+const chatNavItems = [{ label: 'Search', icon: Search }] as const;
+
+const coworkNavItems = [
   { label: 'Search', icon: Search },
-  { label: 'Scheduled', icon: CalendarClock, page: 'scheduled' as const },
+  { label: 'Scheduled', icon: CalendarClock },
   { label: 'Ideas', icon: Lightbulb },
   { label: 'Customize', icon: BriefcaseBusiness },
 ] as const;
@@ -68,15 +79,20 @@ export function AppSidebar({
   userEmail,
   guestMode,
   recentItems,
+  scheduledItems,
+  scheduledLoading,
   onSelectRecentChat,
   onStartNewChat,
+  onStartNewTask,
   onSelectMenuItem,
-  onSelectPage,
   onOpenSearch,
   onOpenSettings,
   onLogout,
 }: AppSidebarProps) {
   const isChatView = activePage === 'chat';
+  const navItems = isChatView ? chatNavItems : coworkNavItems;
+  const safeRecentItems = recentItems ?? [];
+  const safeScheduledItems = scheduledItems ?? [];
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const userInitials = useMemo(() => {
@@ -123,12 +139,12 @@ export function AppSidebar({
                 <SidebarMenuButton
                   type="button"
                   className="gap-2 font-sans text-[13px]"
-                  title="New Chat"
-                  aria-label="Start a new chat"
-                  onClick={onStartNewChat}
+                  title={isChatView ? 'New Chat' : 'New Task'}
+                  aria-label={isChatView ? 'Start a new chat' : 'Start a new task'}
+                  onClick={isChatView ? onStartNewChat : onStartNewTask}
                 >
                   <Plus data-icon="inline-start" />
-                  <span>New Chat</span>
+                  <span>{isChatView ? 'New Chat' : 'New Task'}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               {navItems.map((item) => (
@@ -143,9 +159,6 @@ export function AppSidebar({
                         return;
                       }
                       onSelectMenuItem(item.label);
-                      if (item.page) {
-                        onSelectPage(item.page);
-                      }
                     }}
                     className="gap-2 font-sans text-[13px]"
                     title={item.label}
@@ -164,14 +177,14 @@ export function AppSidebar({
           <SidebarGroupContent className="min-h-0">
             <ScrollArea className="h-full min-h-0">
               <SidebarMenu className="pr-0.5">
-                {recentItems.length === 0 ? (
+                {safeRecentItems.length === 0 ? (
                   <SidebarMenuItem>
                     <SidebarMenuButton type="button" className="w-full justify-start font-sans text-[12px] text-muted-foreground" disabled>
-                      No recent chats yet
+                      {isChatView ? 'No recent chats yet' : 'No recent runs yet'}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ) : (
-                  recentItems.map((item) => (
+                  safeRecentItems.map((item) => (
                     <SidebarMenuItem key={item.id}>
                       <SidebarMenuButton
                         type="button"
@@ -193,6 +206,44 @@ export function AppSidebar({
             </ScrollArea>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {!isChatView && (
+          <SidebarGroup className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] mt-1">
+            <SidebarGroupLabel>Scheduled</SidebarGroupLabel>
+            <SidebarGroupContent className="min-h-0">
+              <ScrollArea className="h-full min-h-0">
+                <SidebarMenu className="pr-0.5">
+                  {scheduledLoading ? (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton type="button" className="w-full justify-start font-sans text-[12px] text-muted-foreground" disabled>
+                        Loading scheduled jobs...
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ) : safeScheduledItems.length === 0 ? (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton type="button" className="w-full justify-start font-sans text-[12px] text-muted-foreground" disabled>
+                        No scheduled jobs
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ) : (
+                    safeScheduledItems.map((item) => (
+                      <SidebarMenuItem key={item.id}>
+                        <SidebarMenuButton
+                          type="button"
+                          className="w-full items-start gap-2 font-sans text-[12px]"
+                          onClick={() => onSelectMenuItem('Scheduled')}
+                        >
+                          <span className="block truncate font-medium text-foreground">{item.name}</span>
+                          <span className="text-[11px] text-muted-foreground">{item.schedule}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))
+                  )}
+                </SidebarMenu>
+              </ScrollArea>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarFooter>

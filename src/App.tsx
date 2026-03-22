@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
 import type {
@@ -28,7 +28,6 @@ import { ChatPage } from './pages/chat-page';
 import { CoworkPage } from './pages/cowork-page';
 import { LoginPage } from './pages/login-page';
 import { OnboardingPage } from './pages/onboarding-page';
-import { ScheduledPage } from './pages/scheduled-page';
 import { SettingsPage } from './pages/settings-page';
 import {
   getSupabaseAuthConfigError,
@@ -50,7 +49,7 @@ const defaultConfig: AppConfig = {
   gatewayToken: '',
 };
 
-type AppPage = 'chat' | 'cowork' | 'scheduled' | 'settings';
+type AppPage = 'chat' | 'cowork' | 'settings';
 
 type AuthSession = {
   email: string;
@@ -122,6 +121,7 @@ const MAX_THREAD_STORE_ITEMS = 100;
 const DEFAULT_THREAD_TITLE = 'New chat';
 const MAIN_SESSION_KEY = 'main';
 const MAIN_THREAD_TITLE = 'Main chat';
+const COWORK_SEND_SPINNER_MS = 300;
 
 function truncateForContext(text: string, maxChars: number): string {
   if (text.length <= maxChars) {
@@ -316,6 +316,8 @@ export default function App() {
   );
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [coworkResetKey, setCoworkResetKey] = useState(0);
+  const [coworkSending, setCoworkSending] = useState(false);
 
   const recentChatItems = toRecentSidebarItems(chatThreads);
 
@@ -1004,16 +1006,20 @@ export default function App() {
     }
   };
 
-  const handlePlanTask = (event: FormEvent) => {
+  const handlePlanTask = async (event: FormEvent) => {
     event.preventDefault();
+    setCoworkSending(true);
 
     if (!taskPrompt.trim()) {
       setStatus('Describe the outcome first so OpenClaw can plan the work.');
+      setCoworkSending(false);
       return;
     }
 
     setTaskState('planned');
     setStatus('Plan drafted. Review and approve before execution.');
+    await new Promise((resolve) => setTimeout(resolve, COWORK_SEND_SPINNER_MS));
+    setCoworkSending(false);
   };
 
   const handleCreateLocalPlan = async () => {
@@ -1271,7 +1277,7 @@ export default function App() {
     void loadChatSession(normalized, 'Opened chat');
   };
 
-  const loadScheduledJobs = async () => {
+  const loadScheduledJobs = useCallback(async () => {
     const client = gatewayClientRef.current;
     if (!client) {
       setStatus('Gateway client not initialized.');
@@ -1286,7 +1292,6 @@ export default function App() {
       });
       const rows = await client.listCronJobs();
       setScheduledJobs(rows);
-      setStatus(`Loaded ${rows.length} scheduled job${rows.length === 1 ? '' : 's'} from OpenClaw.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to load scheduled jobs.';
       setStatus(message || 'Unable to load scheduled jobs.');
@@ -1294,22 +1299,17 @@ export default function App() {
     } finally {
       setScheduledLoading(false);
     }
-  };
+  }, [draftGatewayToken, draftGatewayUrl]);
 
   useEffect(() => {
-    if (activePage !== 'scheduled') {
+    if (activePage !== 'cowork') {
       return;
     }
 
     void loadScheduledJobs();
-  }, [activePage]);
+  }, [activePage, loadScheduledJobs]);
 
   useEffect(() => {
-    if (activePage === 'scheduled') {
-      setActiveMenuItem('Scheduled');
-      return;
-    }
-
     if (activePage === 'chat' || activePage === 'settings' || activePage === 'cowork') {
       setActiveMenuItem('');
     }
@@ -1438,6 +1438,16 @@ export default function App() {
     setActivePage('chat');
   };
 
+  const handleStartNewTask = () => {
+    setActivePage('cowork');
+    setTaskPrompt('');
+    setTaskState('idle');
+    setLocalPlanActions([]);
+    setLocalPlanRootPath('');
+    setStatus('Ready for a new task.');
+    setCoworkResetKey((current) => current + 1);
+  };
+
   const userIdentityLabel = authSession?.email ?? 'Guest (local mode)';
   const canUseAppShell = Boolean(authSession) || guestMode;
   const needsOnboarding = canUseAppShell && !onboardingComplete;
@@ -1460,7 +1470,7 @@ export default function App() {
       setActiveMenuItem('Search');
       return;
     }
-    setActiveMenuItem(activePage === 'scheduled' ? 'Scheduled' : '');
+    setActiveMenuItem('');
   };
 
   return (
@@ -1505,10 +1515,12 @@ export default function App() {
             userEmail={userIdentityLabel}
             guestMode={guestMode}
             recentItems={recentChatItems}
+            scheduledItems={scheduledJobs}
+            scheduledLoading={scheduledLoading}
             onSelectRecentChat={handleOpenRecentChat}
             onStartNewChat={handleStartNewChat}
+            onStartNewTask={handleStartNewTask}
             onSelectMenuItem={setActiveMenuItem}
-            onSelectPage={setActivePage}
             onOpenSearch={() => handleSearchOpenChange(true)}
             onOpenSettings={() => setActivePage('settings')}
             onLogout={handleLogout}
@@ -1555,6 +1567,7 @@ export default function App() {
             </CommandDialog>
             {activePage === 'cowork' ? (
               <CoworkPage
+                key={`cowork-${coworkResetKey}`}
                 taskPrompt={taskPrompt}
                 workingFolder={workingFolder}
                 taskState={taskState}
@@ -1563,6 +1576,7 @@ export default function App() {
                 localPlanActions={localPlanActions}
                 localPlanLoading={localPlanLoading}
                 localApplyLoading={localApplyLoading}
+                sending={coworkSending}
                 onTaskPromptChange={setTaskPrompt}
                 onWorkingFolderChange={setWorkingFolder}
                 onPickWorkingFolder={handlePickWorkingFolder}
@@ -1588,10 +1602,6 @@ export default function App() {
                     onSubmit={handleSendChat}
                     onStartNewChat={handleStartNewChat}
                   />
-                )}
-
-                {activePage === 'scheduled' && (
-                  <ScheduledPage jobs={scheduledJobs} loading={scheduledLoading} status={status} onRefresh={loadScheduledJobs} />
                 )}
 
                 {activePage === 'settings' && (

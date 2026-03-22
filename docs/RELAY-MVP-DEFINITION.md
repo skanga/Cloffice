@@ -1,9 +1,12 @@
 # RELAY MVP SPECIFICATION
 
+**Canonical spec:** Use [docs/RELAY-MVP-QUICK-REFERENCE-REVISED.md](docs/RELAY-MVP-QUICK-REFERENCE-REVISED.md) as the source of truth. See [docs/RELAY-MVP-ALIGNMENT-CHECKLIST.md](docs/RELAY-MVP-ALIGNMENT-CHECKLIST.md) for implementation guardrails.
+
 **Created:** Sunday, March 22, 2026, 11:15 AM UTC  
 **Scope:** 4-week build (2 engineers)  
 **Target:** Pilots live by early May 2026  
 **Workflow:** Finance spend approvals (ONLY this workflow for MVP)
+**Access model:** Local no-login default; optional sign-in for hosted services only
 
 ---
 
@@ -47,13 +50,13 @@ Finance approval workflow:
 ### Frontend (What Users See)
 
 ```
-Desktop App (Electron)
+Desktop App (Electron + Vite + React)
 ├─ Window: 1200x800px
-├─ Dark theme (modern, clean)
+├─ Chat-first cowork UI (light, warm theme)
 └─ Layout:
-   ├─ Left sidebar (nav)
-   ├─ Main content area (workflow)
-   └─ Right panel (details)
+   ├─ Left sidebar (nav + history)
+   ├─ Main chat area (conversation + steering)
+   └─ Right panel (details + execution)
 ```
 
 ### Backend (What Powers It)
@@ -64,8 +67,8 @@ Relay connects to:
 │  ├─ Claude (reasoning)
 │  ├─ Policy engine (rules)
 │  └─ MCP connectors (SAP, etc)
-└─ seventeenlabs.io API (cloud)
-   ├─ Auth (OAuth)
+└─ seventeenlabs.io API (optional hosted services)
+   ├─ Auth (optional)
    ├─ Data storage
    └─ Audit logging
 ```
@@ -76,280 +79,16 @@ Relay connects to:
 1. User opens Relay
 2. User types: "Process pending spend approvals > €5K"
 3. Relay sends task to OpenClaw
-4. OpenClaw (brain):
-   ├─ Connects to SAP via MCP
-   ├─ Fetches pending requests
-   ├─ Analyzes against policy
-   ├─ Generates recommendation
-   └─ Returns: "3 ready to approve, 1 needs review"
-5. Relay shows results in UI
-6. User clicks [Approve all] or [Review #2]
-7. OpenClaw executes:
-   ├─ SAP purchase orders created
-   ├─ Email notifications sent
-   ├─ Audit trail recorded
-   └─ Done
-```
+## RELAY MVP SCREENS (6 TOTAL)
 
----
-
-## RELAY MVP SCREENS
-
-### Screen 1: Login
-
-```
-┌─────────────────────────────────┐
-│         RELAY LOGIN             │
-├─────────────────────────────────┤
-│                                 │
-│  [Login with Anthropic]         │
-│  [Login with seventeenlabs.io]  │
-│                                 │
-│  Remember me: [ ]               │
-│                                 │
-│  "Open-source AI OS"            │
-│  (Relay logo)                   │
-│                                 │
-└─────────────────────────────────┘
-```
-
-**Features:**
-- OAuth login (seventeenlabs.io)
-- Remember login
-- Error handling (invalid credentials)
-- "Remember me" checkbox (local storage)
-
----
-
-### Screen 2: Dashboard (Home)
-
-```
-┌────────────────────────────────────────────────┐
-│ RELAY                      [Settings] [Help]    │
-├─────┬──────────────────────────────────────────┤
-│     │  Welcome back, Finance Team               │
-│ [×] │                                           │
-│ [≡] │  Your workload:                           │
-│     │  ├─ 5 pending approvals (€12K–€500K)     │
-│ [→] │  ├─ 2 need review (policy questions)    │
-│     │  └─ Waiting: 3 requests (other teams)    │
-│     │                                           │
-│ Nav │  [Start Workflow]                         │
-│ ├─ H│                                           │
-│ ├─ P│  Recent activity:                         │
-│ ├─ A│  • Approved: PO#2043 (€50K)              │
-│ ├─ S│  • Rejected: PO#2044 (budget fail)       │
-│ ├─ M│  • Escalated: PO#2045 (needs CFO)       │
-│ └─ ?│                                           │
-│     │                                           │
-└────────────────────────────────────────────────┘
-```
-
-**Sections:**
-- Quick stats (pending, in-progress, waiting)
-- Primary action: [Start Workflow]
-- Recent activity log
-- Sidebar navigation
-
----
-
-### Screen 3: Workflow — Step 1 (Task Input)
-
-```
-┌────────────────────────────────────────────────┐
-│ RELAY / Workflow                               │
-├─────┬──────────────────────────────────────────┤
-│ [×] │  Process Pending Approvals               │
-│ [≡] │                                           │
-│ [→] │  What do you want to do?                 │
-│     │                                           │
-│ Nav │  ┌────────────────────────────────────┐  │
-│ ├─ H│  │ Process all pending spend          │  │
-│ ├─ P│  │ approvals over €5K that pass       │  │
-│ ├─ A│  │ policy check                       │  │
-│ ├─ S│  │                                    │  │
-│ ├─ M│  │ ↓ [ANALYZE]                       │  │
-│ └─ ?│  └────────────────────────────────────┘  │
-│     │                                           │
-│     │  💭 Claude is analyzing...               │
-│     │     (spinning indicator)                 │
-│     │                                           │
-└────────────────────────────────────────────────┘
-```
-
-**Features:**
-- Text input (task description)
-- Pre-filled templates (quick start)
-- Analyze button
-- Loading state (spinner)
-
----
-
-### Screen 4: Workflow — Step 2 (Plan Review)
-
-```
-┌────────────────────────────────────────────────┐
-│ RELAY / Workflow                               │
-├─────┬──────────────────────────────────────────┤
-│ [×] │  Process Pending Approvals               │
-│     │                                           │
-│     │  🧠 Claude's plan:                       │
-│     │  ┌────────────────────────────────────┐  │
-│     │  │ I'll fetch pending requests from   │  │
-│     │  │ SAP, check each against your       │  │
-│     │  │ €50K 2-approval policy, and        │  │
-│     │  │ recommend approvals.               │  │
-│     │  │                                    │  │
-│     │  │ Found:                             │  │
-│     │  │ • PO#2040: €12K (approve)         │  │
-│     │  │ • PO#2041: €75K (needs 2 sign)    │  │
-│     │  │ • PO#2042: €500K (CFO block)      │  │
-│     │  │ • PO#2043: €3K (under limit)      │  │
-│     │  │                                    │  │
-│     │  │ Ready to proceed? → [YES] [NO]    │  │
-│     │  └────────────────────────────────────┘  │
-│     │                                           │
-│     │  /help  /edit  /details                  │
-│     │                                           │
-└────────────────────────────────────────────────┘
-```
-
-**Features:**
-- Claude's reasoning displayed
-- List of items found
-- Slash commands (/help, /edit, /details)
-- Yes/No buttons to proceed
-
----
-
-### Screen 5: Workflow — Step 3 (Execution)
-
-```
-┌────────────────────────────────────────────────┐
-│ RELAY / Workflow                               │
-├─────┬──────────────────────────────────────────┤
-│     │  Processing...                           │
-│     │                                           │
-│     │  ✓ Fetched 4 requests from SAP           │
-│     │  ✓ Analyzed against policy               │
-│     │  ⏳ Creating purchase orders (2/3)...    │
-│     │  ⏳ Sending notifications                │
-│     │                                           │
-│     │  Progress: ███████░░░░░░░░░░ 65%        │
-│     │                                           │
-│     │  Estimated: 12 seconds remaining         │
-│     │                                           │
-└────────────────────────────────────────────────┘
-```
-
-**Features:**
-- Step-by-step progress
-- Checkmarks for completed steps
-- Progress bar
-- Time estimate
-- Can't interrupt (or confirm interruption)
-
----
-
-### Screen 6: Workflow — Step 4 (Results)
-
-```
-┌────────────────────────────────────────────────┐
-│ RELAY / Workflow                               │
-├─────┬──────────────────────────────────────────┤
-│     │  ✅ COMPLETE                             │
-│     │                                           │
-│     │  Summary:                                │
-│     │  ├─ Approved: 2 orders (€15K total)     │
-│     │  ├─ Flagged: 1 order (needs 2nd sign)   │
-│     │  ├─ Blocked: 1 order (over policy)      │
-│     │  └─ Skipped: 1 order (under minimum)    │
-│     │                                           │
-│     │  Actions taken:                          │
-│     │  ├─ SAP: PO#2040, PO#2043 created       │
-│     │  ├─ Email: Sent 3 notifications         │
-│     │  └─ Log: Audit trail recorded (ID#542)  │
-│     │                                           │
-│     │  [Save to PDF] [View Audit Log]          │
-│     │                                           │
-│     │  ⏱ Execution time: 47 seconds           │
-│     │  💾 Saved to history                    │
-│     │                                           │
-│     │  [← Back]  [New Workflow]                │
-│     │                                           │
-└────────────────────────────────────────────────┘
-```
-
-**Features:**
-- Summary of actions
-- Breakdown by status (approved, flagged, blocked, skipped)
-- Execution time
-- Save/export options
-- Navigation (back, new workflow)
-
----
-
-### Screen 7: Approvals List (Dashboard Tab)
-
-```
-┌────────────────────────────────────────────────┐
-│ RELAY / Approvals                              │
-├─────┬──────────────────────────────────────────┤
-│ [×] │  Pending Approvals                       │
-│ [≡] │                                           │
-│ [→] │  Sort: [Newest ▼] | Filter: [All ▼]    │
-│     │                                           │
-│ Nav │  ┌─────────────────────────────────────┐ │
-│ ├─ H│  │ PO#2048  €150K  Needs 2nd sign      │ │
-│ ├─ P│  │ Finance Team | 2 hours old          │ │
-│ ├─ A│  │ [Details] [Approve] [Reject]        │ │
-│ ├─ S│  │                                     │ │
-│ ├─ M│  ├─────────────────────────────────────┤ │
-│ └─ ?│  │ PO#2047  €45K  Ready to approve     │ │
-│     │  │ Finance Team | 15 min ago           │ │
-│     │  │ [Details] [Approve] [Reject]        │ │
-│     │  │                                     │ │
-│     │  ├─────────────────────────────────────┤ │
-│     │  │ PO#2046  €8K  Skipped (under limit) │ │
-│     │  │ Finance Team | 42 min ago           │ │
-│     │  │ [Details] [Archive]                 │ │
-│     │  │                                     │ │
-│     │  └─────────────────────────────────────┘ │
-│     │                                           │
-│     │  Showing 3 of 12 | [Load More]           │
-│     │                                           │
-└────────────────────────────────────────────────┘
-```
-
-**Features:**
-- List of pending approvals
-- Status, amount, time
-- Quick actions (Approve, Reject, Details)
-- Sorting and filtering
-- Pagination
-
----
-
-### Screen 8: Audit Log
-
-```
-┌────────────────────────────────────────────────┐
-│ RELAY / Audit Log                              │
-├─────┬──────────────────────────────────────────┤
-│     │  Workflow History                        │
-│     │                                           │
-│     │  Search: [________]  Export: [PDF]       │
-│     │                                           │
-│     │  ┌─────────────────────────────────────┐ │
-│     │  │ Workflow #542                       │ │
-│     │  │ 2026-03-22 14:35 UTC                │ │
-│     │  │ User: sarah@company.com             │ │
-│     │  │ Action: Approved 2, Flagged 1       │ │
-│     │  │                                     │ │
-│     │  │ • PO#2040 €12K ✓ Approved           │ │
-│     │  │ • PO#2041 €75K ⚠ Flagged            │ │
-│     │  │ • PO#2043 €3K ✓ Approved            │ │
-│     │  │                                     │ │
+| Screen | What It Does |
+|--------|---|
+| **Chat** | Message history + streaming response |
+| **Steering** | /yes /no /modify /details /hold + free input |
+| **Details** | Right panel with full context + reasoning |
+| **Execution** | Real-time progress (non-blocking, user can chat) |
+| **Results** | Summary + OpenClaw suggests next steps |
+| **History** | Past conversations + audit log |
 │     │  │ Claude reasoning:                   │ │
 │     │  │ "Analyzed 4 requests..."            │ │
 │     │  │ (Click to expand)                   │ │
@@ -376,9 +115,9 @@ Relay connects to:
 
 ```
 1. User Authentication
-   ├─ OAuth login (seventeenlabs.io)
+   ├─ Local mode (no login) by default
+   ├─ Optional hosted sign-in for cloud features
    ├─ Session management (local storage)
-   ├─ Logout + session recovery
    └─ Error handling (invalid token, expired)
 
 2. Task Input

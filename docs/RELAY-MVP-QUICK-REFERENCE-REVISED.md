@@ -1,5 +1,7 @@
 # RELAY MVP — QUICK REFERENCE (ARCHITECTURE CORRECTED)
 
+**Canonical spec:** This document is the source of truth for MVP scope. Use [docs/RELAY-MVP-ALIGNMENT-CHECKLIST.md](docs/RELAY-MVP-ALIGNMENT-CHECKLIST.md) to validate implementation.
+
 **Build Time:** 4 weeks  
 **Team:** 2 engineers  
 **Tagline:** Claude Cowork for Your Company  

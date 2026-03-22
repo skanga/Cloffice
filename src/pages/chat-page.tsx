@@ -1,5 +1,7 @@
-import type { FormEvent } from 'react';
+import { useRef } from 'react';
+import type { FormEvent, KeyboardEvent } from 'react';
 
+import { ArrowUp, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
@@ -76,6 +78,20 @@ export function ChatPage({
   const isInitial = messages.length === 0;
   const firstUserMessage = messages.find((message) => message.role === 'user')?.text.trim() ?? '';
   const threadTitle = firstUserMessage ? firstUserMessage.slice(0, 64) : 'New conversation';
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const canSend = taskPrompt.trim().length > 0 && !sending;
+
+  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== 'Enter' || event.shiftKey) {
+      return;
+    }
+
+    event.preventDefault();
+    if (!canSend) {
+      return;
+    }
+    formRef.current?.requestSubmit();
+  };
 
   if (isInitial) {
     return (
@@ -86,12 +102,15 @@ export function ChatPage({
             <form
               className="rounded-3xl border border-[rgba(31,31,28,0.12)] bg-[rgba(255,255,255,0.9)] p-4 shadow-[0_8px_24px_rgba(31,31,28,0.05)]"
               onSubmit={onSubmit}
+              ref={formRef}
             >
               <Textarea
                 value={taskPrompt}
                 onChange={(event) => onTaskPromptChange(event.target.value)}
                 placeholder="Wie kann ich dir heute helfen?"
                 rows={2}
+                onKeyDown={handleComposerKeyDown}
+                aria-label="Message"
                 className="min-h-[72px] resize-none border-0 bg-transparent px-0 py-1 font-sans shadow-none focus-visible:ring-0"
               />
 
@@ -120,14 +139,19 @@ export function ChatPage({
                     ))}
                   </select>
                   <Button
-                    className="h-8 min-w-[84px] border-0 bg-[linear-gradient(120deg,#e5a48a,#d98765)] px-3 text-[#fffefb]"
                     type="submit"
-                    disabled={sending}
+                    size="icon"
+                    aria-label={sending ? 'Sending' : 'Send message'}
+                    disabled={!canSend}
+                    className="h-8 w-8 border-0 bg-[linear-gradient(120deg,#e5a48a,#d98765)] text-[#fffefb]"
                   >
-                    {sending ? 'Sending...' : 'Queue'}
+                    {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
                   </Button>
                 </div>
               </div>
+              <p className="mt-2 text-right font-sans text-[11px] text-muted-foreground">
+                Enter senden, Shift+Enter neue Zeile
+              </p>
             </form>
 
             <div className="mt-3 flex flex-wrap justify-center gap-2">
@@ -198,12 +222,18 @@ export function ChatPage({
       </ScrollArea>
 
       <div className="px-4 pb-3 pt-1">
-        <form className="mx-auto w-full max-w-[760px] rounded-3xl border border-[rgba(31,31,28,0.12)] bg-[rgba(255,255,255,0.9)] p-4 shadow-[0_8px_24px_rgba(31,31,28,0.05)]" onSubmit={onSubmit}>
+        <form
+          className="mx-auto w-full max-w-[760px] rounded-3xl border border-[rgba(31,31,28,0.12)] bg-[rgba(255,255,255,0.9)] p-4 shadow-[0_8px_24px_rgba(31,31,28,0.05)]"
+          onSubmit={onSubmit}
+          ref={formRef}
+        >
           <Textarea
             value={taskPrompt}
             onChange={(event) => onTaskPromptChange(event.target.value)}
             placeholder="Antworten..."
             rows={2}
+            onKeyDown={handleComposerKeyDown}
+            aria-label="Message"
             className="min-h-[72px] resize-none border-0 bg-transparent px-0 py-1 font-sans shadow-none focus-visible:ring-0"
           />
 
@@ -227,14 +257,19 @@ export function ChatPage({
                 ))}
               </select>
               <Button
-                className="h-8 min-w-[84px] border-0 bg-[linear-gradient(120deg,#e5a48a,#d98765)] px-3 text-[#fffefb]"
                 type="submit"
-                disabled={sending}
+                size="icon"
+                aria-label={sending ? 'Sending' : 'Send message'}
+                disabled={!canSend}
+                className="h-8 w-8 border-0 bg-[linear-gradient(120deg,#e5a48a,#d98765)] text-[#fffefb]"
               >
-                {sending ? 'Sending...' : 'Queue'}
+                {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
               </Button>
             </div>
           </div>
+          <p className="mt-2 text-right font-sans text-[11px] text-muted-foreground">
+            Enter senden, Shift+Enter neue Zeile
+          </p>
         </form>
 
         <p className="mt-2 text-center font-sans text-[11px] text-muted-foreground">{trimmedStatus || 'Claude ist eine KI und kann Fehler machen. Bitte ueberpruefe die zitierten Quellen.'}</p>

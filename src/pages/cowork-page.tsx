@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, KeyboardEvent } from 'react';
 
+import { ArrowUp, Loader2 } from 'lucide-react';
 import type { LocalFilePlanAction } from '@/app-types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -54,6 +55,7 @@ type CoworkPageProps = {
   localPlanActions: LocalFilePlanAction[];
   localPlanLoading: boolean;
   localApplyLoading: boolean;
+  sending: boolean;
   onTaskPromptChange: (value: string) => void;
   onWorkingFolderChange: (value: string) => void;
   onPickWorkingFolder: () => void | Promise<void>;
@@ -173,6 +175,7 @@ export function CoworkPage({
   localPlanActions,
   localPlanLoading,
   localApplyLoading,
+  sending,
   onTaskPromptChange,
   onWorkingFolderChange,
   onPickWorkingFolder,
@@ -190,8 +193,28 @@ export function CoworkPage({
   const [latestRun, setLatestRun] = useState<RunSummary | null>(null);
   const [runHistory, setRunHistory] = useState<RunSummary[]>([]);
   const [showDetails, setShowDetails] = useState(true);
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const messageSequenceRef = useRef(0);
   const executionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentStepIndexRef = useRef(-1);
+  const canSend = taskPrompt.trim().length > 0 && !sending;
+
+  const nextMessageId = (role: CoworkMessage['role']) => {
+    messageSequenceRef.current += 1;
+    return `${role}-${Date.now()}-${messageSequenceRef.current}`;
+  };
+
+  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== 'Enter' || event.shiftKey) {
+      return;
+    }
+
+    event.preventDefault();
+    if (!canSend) {
+      return;
+    }
+    formRef.current?.requestSubmit();
+  };
 
   useEffect(() => {
     return () => {
@@ -212,11 +235,11 @@ export function CoworkPage({
   }, [planItems]);
 
   const appendAssistantMessage = (text: string) => {
-    setCoworkMessages((current) => [...current, { id: `assistant-${Date.now()}`, role: 'assistant', text }]);
+    setCoworkMessages((current) => [...current, { id: nextMessageId('assistant'), role: 'assistant', text }]);
   };
 
   const appendUserMessage = (text: string) => {
-    setCoworkMessages((current) => [...current, { id: `user-${Date.now()}`, role: 'user', text }]);
+    setCoworkMessages((current) => [...current, { id: nextMessageId('user'), role: 'user', text }]);
   };
 
   const handleDraftPlan = (event: FormEvent) => {
@@ -380,12 +403,14 @@ export function CoworkPage({
                   </p>
                 </div>
 
-                <form className="mt-4 rounded-3xl border border-[rgba(31,31,28,0.12)] bg-white px-4 py-3" onSubmit={handleDraftPlan}>
+                <form className="mt-4 rounded-3xl border border-[rgba(31,31,28,0.12)] bg-white px-4 py-3" onSubmit={handleDraftPlan} ref={formRef}>
                   <Textarea
                     value={taskPrompt}
                     onChange={(event) => onTaskPromptChange(event.target.value)}
                     placeholder="How can I help you today?"
                     rows={2}
+                    onKeyDown={handleComposerKeyDown}
+                    aria-label="Task prompt"
                     className="min-h-[58px] resize-none border-0 bg-transparent px-0 py-1 font-sans text-[22px] text-foreground shadow-none focus-visible:ring-0"
                   />
                   <div className="mt-1 flex items-center justify-between gap-2">
@@ -409,13 +434,19 @@ export function CoworkPage({
                       </select>
 
                       <Button
-                        className="h-8 min-w-[90px] border-0 bg-[linear-gradient(120deg,#e5a48a,#d98765)] px-3 text-[#fffefb]"
                         type="submit"
+                        size="icon"
+                        aria-label={sending ? 'Sending' : 'Send task'}
+                        disabled={!canSend}
+                        className="h-8 w-8 border-0 bg-[linear-gradient(120deg,#e5a48a,#d98765)] text-[#fffefb]"
                       >
-                        Let's go
+                        {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
                       </Button>
                     </div>
                   </div>
+                  <p className="mt-2 text-right font-sans text-[11px] text-muted-foreground">
+                    Enter senden, Shift+Enter neue Zeile
+                  </p>
                 </form>
               </div>
             </div>
@@ -447,12 +478,14 @@ export function CoworkPage({
         {!isInitialWorkspace ? (
           <div className="px-2 pb-3 pt-1">
             <div className="mx-auto grid w-full max-w-[860px] gap-2">
-              <form className="rounded-3xl border border-[rgba(31,31,28,0.12)] bg-white px-4 py-3" onSubmit={handleDraftPlan}>
+              <form className="rounded-3xl border border-[rgba(31,31,28,0.12)] bg-white px-4 py-3" onSubmit={handleDraftPlan} ref={formRef}>
                 <Textarea
                   value={taskPrompt}
                   onChange={(event) => onTaskPromptChange(event.target.value)}
                   placeholder="How can I help you today?"
                   rows={2}
+                  onKeyDown={handleComposerKeyDown}
+                  aria-label="Task prompt"
                   className="min-h-[58px] resize-none border-0 bg-transparent px-0 py-1 font-sans text-[22px] text-foreground shadow-none focus-visible:ring-0"
                 />
                 <div className="mt-1 flex items-center justify-between gap-2">
@@ -476,13 +509,19 @@ export function CoworkPage({
                     </select>
 
                     <Button
-                      className="h-8 min-w-[90px] border-0 bg-[linear-gradient(120deg,#e5a48a,#d98765)] px-3 text-[#fffefb]"
                       type="submit"
+                      size="icon"
+                      aria-label={sending ? 'Sending' : 'Send task'}
+                      disabled={!canSend}
+                      className="h-8 w-8 border-0 bg-[linear-gradient(120deg,#e5a48a,#d98765)] text-[#fffefb]"
                     >
-                      Let's go
+                      {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
                     </Button>
                   </div>
                 </div>
+                <p className="mt-2 text-right font-sans text-[11px] text-muted-foreground">
+                  Enter senden, Shift+Enter neue Zeile
+                </p>
               </form>
             </div>
           </div>

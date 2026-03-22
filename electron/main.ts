@@ -314,7 +314,7 @@ async function createWindow() {
     frame: false,
     autoHideMenuBar: true,
     webPreferences: {
-      preload: path.join(app.getAppPath(), 'dist-electron', 'electron', 'preload.js'),
+      preload: path.join(app.getAppPath(), 'dist-electron', 'electron', 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
     },

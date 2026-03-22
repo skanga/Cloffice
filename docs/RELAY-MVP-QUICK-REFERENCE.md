@@ -1,22 +1,23 @@
 # RELAY MVP — QUICK REFERENCE
 
+**Canonical spec:** Use [docs/RELAY-MVP-QUICK-REFERENCE-REVISED.md](docs/RELAY-MVP-QUICK-REFERENCE-REVISED.md) as the source of truth. See [docs/RELAY-MVP-ALIGNMENT-CHECKLIST.md](docs/RELAY-MVP-ALIGNMENT-CHECKLIST.md) for implementation guardrails.
+
 **Build Time:** 4 weeks  
-**Team:** 2 engineers + you (strategy/support)  
+**Team:** 2 engineers  
 **Target:** Pilots live by May 1, 2026  
 **Workflow:** Finance spend approvals (ONE workflow only)
+**Access Model:** Local no-login default; optional hosted sign-in only
 
 ---
 
-## WHAT TO BUILD (8 Screens)
+## WHAT TO BUILD (6 Screens)
 
-1. **Login** — OAuth, remember me, error handling
-2. **Dashboard** — Stats, pending items, recent activity
-3. **Task Input** — Text input, templates, send button
-4. **Plan Review** — Claude's reasoning, breakdown, approve/reject
-5. **Execution** — Progress steps, checkmarks, time estimate
-6. **Results** — Summary, actions taken, audit ID
-7. **History** — List of all workflows, timestamps, Claude reasoning
-8. **Audit Log** — Detailed view of what happened, export to PDF
+1. **Chat** — Message history + streaming response
+2. **Steering** — /yes /no /modify /details /hold + free input
+3. **Details** — Right panel with full context + reasoning
+4. **Execution** — Real-time progress (non-blocking, user can chat)
+5. **Results** — Summary + OpenClaw suggests next steps
+6. **History** — Past conversations + audit log
 
 ---
 
@@ -37,11 +38,11 @@
 
 | Layer | Tech | Why |
 |-------|------|-----|
-| **Frontend** | Next.js + Electron | Fast, familiar, can package |
+| **Frontend** | Electron + Vite + React + TypeScript | Fast, familiar, can package |
 | **UI** | shadcn/ui + Tailwind | Components ready, fast |
-| **State** | TanStack Query | API calls, caching |
+| **State** | React state (MVP), TanStack Query optional | API calls, caching |
 | **Backend** | OpenClaw API | Claude + orchestration |
-| **Cloud** | seventeenlabs.io API | Auth, audit logging, SAP |
+| **Cloud** | seventeenlabs.io API (optional) | Hosted auth + audit logging |
 
 ---
 
