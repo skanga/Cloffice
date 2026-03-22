@@ -10,6 +10,7 @@ type AppTitlebarProps = {
   activePage: AppPage;
   isMaximized: boolean;
   usageModeLabel: string;
+  minimal?: boolean;
   onToggleSidebar: () => void;
   onSelectPage: (page: 'chat' | 'cowork') => void;
   onMinimize: () => void | Promise<void>;
@@ -25,6 +26,7 @@ export function AppTitlebar({
   activePage,
   isMaximized,
   usageModeLabel,
+  minimal,
   onToggleSidebar,
   onSelectPage,
   onMinimize,
@@ -60,6 +62,7 @@ export function AppTitlebar({
 
   return (
     <header className="relative flex h-[44px] items-center justify-between border-b border-border bg-background/90 pl-1">
+      {!minimal && (
       <div
         className="inline-flex min-w-[124px] items-center gap-1 [-webkit-app-region:no-drag]"
         style={noDragStyle}
@@ -85,6 +88,7 @@ export function AppTitlebar({
           →
         </Button>
       </div>
+      )}
 
       <div
         className="flex h-full flex-1 items-center justify-center px-2 pr-[126px]"
@@ -92,6 +96,7 @@ export function AppTitlebar({
         onDoubleClick={handleTitlebarDoubleClick}
         onContextMenu={handleTitlebarContextMenu}
       >
+        {!minimal && (
         <div className="inline-flex items-center" style={noDragStyle} aria-label="workspace mode">
           <Tabs
             value={activePage === 'chat' || activePage === 'cowork' ? activePage : 'chat'}
@@ -116,6 +121,7 @@ export function AppTitlebar({
             </TabsList>
           </Tabs>
         </div>
+        )}
       </div>
 
       <div

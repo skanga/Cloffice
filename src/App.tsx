@@ -18,6 +18,7 @@ import { GatewayRequestError, OpenClawGatewayClient } from './lib/openclaw-gatew
 import { ChatPage } from './pages/chat-page';
 import { CoworkPage } from './pages/cowork-page';
 import { LoginPage } from './pages/login-page';
+import { OnboardingPage } from './pages/onboarding-page';
 import { ScheduledPage } from './pages/scheduled-page';
 import { SettingsPage } from './pages/settings-page';
 import {
@@ -33,6 +34,7 @@ const LOCAL_CONFIG_KEY = 'relay.config';
 const AUTH_LOCAL_STORAGE_KEY = 'relay.auth.local';
 const AUTH_SESSION_STORAGE_KEY = 'relay.auth.session';
 const RELAY_USAGE_MODE_KEY = 'relay.usage.mode';
+const RELAY_ONBOARDING_KEY = 'relay.onboarding.complete';
 
 const defaultConfig: AppConfig = {
   gatewayUrl: DEFAULT_GATEWAY_URL,
@@ -300,6 +302,9 @@ export default function App() {
   const [authenticating, setAuthenticating] = useState(false);
   const [authError, setAuthError] = useState('');
   const [guestMode, setGuestMode] = useState(false);
+  const [onboardingComplete, setOnboardingComplete] = useState(
+    () => localStorage.getItem(RELAY_ONBOARDING_KEY) === 'true',
+  );
 
   const recentChatItems = toRecentSidebarItems(chatThreads);
 
@@ -815,6 +820,11 @@ export default function App() {
         token: draftGatewayToken,
       })
       .then(async () => {
+        setHealth({ ok: true, message: `Connected to ${draftGatewayUrl}` });
+        if (!onboardingComplete) {
+          localStorage.setItem(RELAY_ONBOARDING_KEY, 'true');
+          setOnboardingComplete(true);
+        }
         await loadRecentChatsFromBackend(client);
       })
       .catch((error: unknown) => {
@@ -1400,8 +1410,15 @@ export default function App() {
     setStatus('Running in local mode. Sign in anytime for hosted cloud features.');
   };
 
+  const handleCompleteOnboarding = () => {
+    localStorage.setItem(RELAY_ONBOARDING_KEY, 'true');
+    setOnboardingComplete(true);
+    setActivePage('chat');
+  };
+
   const userIdentityLabel = authSession?.email ?? 'Guest (local mode)';
   const canUseAppShell = Boolean(authSession) || guestMode;
+  const needsOnboarding = canUseAppShell && !onboardingComplete;
   const usageModeLabel = guestMode ? 'Local mode' : authSession ? 'Cloud mode' : 'Signed out';
 
   return (
@@ -1411,6 +1428,7 @@ export default function App() {
         activePage={activePage}
         isMaximized={isMaximized}
         usageModeLabel={usageModeLabel}
+        minimal={needsOnboarding || !canUseAppShell}
         onToggleSidebar={() => setSidebarOpen((current) => !current)}
         onSelectPage={setActivePage}
         onMinimize={handleMinimize}
@@ -1419,7 +1437,19 @@ export default function App() {
         onShowSystemMenu={handleShowSystemMenu}
       />
 
-      {canUseAppShell ? (
+      {needsOnboarding ? (
+        <OnboardingPage
+          draftGatewayUrl={draftGatewayUrl}
+          draftGatewayToken={draftGatewayToken}
+          health={health}
+          saving={saving}
+          pairingRequestId={pairingRequestId}
+          onDraftGatewayUrlChange={setDraftGatewayUrl}
+          onDraftGatewayTokenChange={setDraftGatewayToken}
+          onSave={handleSave}
+          onComplete={handleCompleteOnboarding}
+        />
+      ) : canUseAppShell ? (
         <SidebarProvider
           className={`grid h-full overflow-hidden transition-[grid-template-columns] duration-200 ${
             sidebarOpen ? 'grid-cols-[280px_minmax(0,1fr)]' : 'grid-cols-[0px_minmax(0,1fr)]'
