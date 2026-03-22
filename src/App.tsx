@@ -224,6 +224,40 @@ function toRecentSidebarItems(threads: ChatThread[]): RecentChatEntry[] {
     }));
 }
 
+/** Try to extract a UUID from an error message (e.g. pairing request IDs). */
+function extractUuidFromMessage(msg?: string): string | undefined {
+  if (!msg) return undefined;
+  const match = msg.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+  return match?.[0];
+}
+
+function readGatewayError(error: unknown): { message: string; code?: string; requestId?: string } {
+  if (!(error instanceof Error)) {
+    return { message: 'Gateway connection failed.' };
+  }
+
+  if (error instanceof GatewayRequestError) {
+    console.log('[Relay] GatewayRequestError details:', JSON.stringify(error.details));
+    const d = error.details as Record<string, unknown> | undefined;
+    const requestId =
+      (typeof d?.requestId === 'string' && d.requestId) ||
+      (typeof d?.request_id === 'string' && d.request_id) ||
+      (typeof d?.pairingRequestId === 'string' && d.pairingRequestId) ||
+      extractUuidFromMessage(error.message) ||
+      undefined;
+    return {
+      message: error.message,
+      code: error.code,
+      requestId,
+    };
+  }
+
+  return {
+    message: error.message || 'Gateway connection failed.',
+    requestId: extractUuidFromMessage(error.message),
+  };
+}
+
 export default function App() {
   const bridge = window.relay;
   const gatewayClientRef = useRef<OpenClawGatewayClient | null>(null);
@@ -783,8 +817,22 @@ export default function App() {
       .then(async () => {
         await loadRecentChatsFromBackend(client);
       })
-      .catch(() => {
-        // recents will populate after next successful connection
+      .catch((error: unknown) => {
+        console.error('[Relay] auto-connect error:', error);
+        const info = readGatewayError(error);
+        const isPairing =
+          info.code === 'PAIRING_REQUIRED' ||
+          /pairing.required/i.test(info.message);
+        if (isPairing) {
+          setPairingRequestId(info.requestId ?? null);
+          const approvalHint = info.requestId
+            ? ` Approve with: openclaw devices approve ${info.requestId}`
+            : ' Approve the pending request on the gateway host.';
+          setHealth({ ok: false, message: `Pairing required.${approvalHint}` });
+          setStatus(`Pairing required.${approvalHint}`);
+        } else {
+          setHealth({ ok: false, message: info.message || 'Gateway connection failed.' });
+        }
       });
   }, [draftGatewayUrl, draftGatewayToken]);
 
@@ -814,55 +862,29 @@ export default function App() {
       gatewayToken: draftGatewayToken,
     };
 
-    if (!bridge) {
+    setSaving(true);
+    setStatus('Saving and connecting...');
+    setPairingRequestId(null);
+
+    // Persist config
+    if (bridge) {
+      try {
+        const savedConfig = await bridge.saveConfig(nextConfig);
+        setConfig(savedConfig);
+        setDraftGatewayUrl(savedConfig.gatewayUrl);
+        setDraftGatewayToken(savedConfig.gatewayToken);
+        persistLocalConfig(savedConfig);
+      } catch {
+        setStatus('Failed to save configuration.');
+        setSaving(false);
+        return;
+      }
+    } else {
       setConfig(nextConfig);
       persistLocalConfig(nextConfig);
-      setStatus('Bridge unavailable. Configuration saved locally for this browser profile.');
-      return;
     }
 
-    setSaving(true);
-    setStatus('Saving backend configuration...');
-
-    try {
-      const savedConfig = await bridge.saveConfig(nextConfig);
-      setConfig(savedConfig);
-      setDraftGatewayUrl(savedConfig.gatewayUrl);
-      setDraftGatewayToken(savedConfig.gatewayToken);
-      persistLocalConfig(savedConfig);
-      setStatus('Backend configuration saved.');
-    } catch {
-      setStatus('Failed to save backend configuration.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const readGatewayError = (error: unknown): { message: string; code?: string; requestId?: string } => {
-    if (!(error instanceof Error)) {
-      return { message: 'Gateway connection failed.' };
-    }
-
-    if (error instanceof GatewayRequestError) {
-      const requestId =
-        typeof error.details?.requestId === 'string'
-          ? error.details.requestId
-          : undefined;
-      return {
-        message: error.message,
-        code: error.code,
-        requestId,
-      };
-    }
-
-    return { message: error.message || 'Gateway connection failed.' };
-  };
-
-  const handleHealthCheck = async () => {
-    setChecking(true);
-    setPairingRequestId(null);
-    setStatus('Checking OpenClaw Gateway connection...');
-
+    // Connect
     try {
       const client = gatewayClientRef.current;
       if (!client) {
@@ -870,8 +892,8 @@ export default function App() {
       }
 
       await client.connect({
-        gatewayUrl: draftGatewayUrl,
-        token: draftGatewayToken,
+        gatewayUrl: nextConfig.gatewayUrl,
+        token: nextConfig.gatewayToken,
       });
 
       const sessionKey = normalizeSessionKey(activeSessionKeyRef.current);
@@ -882,60 +904,27 @@ export default function App() {
         setSelectedModel('');
       }
 
-      setHealth({ ok: true, message: `Connected to ${draftGatewayUrl}` });
-      setStatus('Gateway connection successful.');
+      setHealth({ ok: true, message: `Connected to ${nextConfig.gatewayUrl}` });
+      setStatus('Configuration saved. Connected to Gateway.');
     } catch (error) {
+      console.error('[Relay] connect error:', error);
       const info = readGatewayError(error);
-      if (info.code === 'PAIRING_REQUIRED') {
+      const isPairing =
+        info.code === 'PAIRING_REQUIRED' ||
+        /pairing.required/i.test(info.message);
+      if (isPairing) {
         setPairingRequestId(info.requestId ?? null);
         const approvalHint = info.requestId
           ? ` Approve with: openclaw devices approve ${info.requestId}`
-          : ' Approve the pending request with: openclaw devices list then openclaw devices approve <requestId>.';
+          : ' Approve the pending request on the gateway host.';
         setHealth({ ok: false, message: `Pairing required.${approvalHint}` });
-        setStatus(`Pairing required.${approvalHint}`);
+        setStatus(`Configuration saved. Pairing required.${approvalHint}`);
       } else {
-        setHealth({ ok: false, message: info.message || 'Gateway connection failed. Check URL and token.' });
-        setStatus(info.message || 'Gateway connection failed.');
+        setHealth({ ok: false, message: info.message || 'Gateway connection failed.' });
+        setStatus(`Configuration saved. ${info.message || 'Gateway connection failed.'}`);
       }
     } finally {
-      setChecking(false);
-    }
-  };
-
-  const handleRequestPairing = async () => {
-    setChecking(true);
-    setPairingRequestId(null);
-    setStatus('Requesting device pairing from OpenClaw Gateway...');
-
-    try {
-      const client = gatewayClientRef.current;
-      if (!client) {
-        throw new Error('Gateway client not initialized.');
-      }
-
-      client.disconnect();
-      await client.connect({
-        gatewayUrl: draftGatewayUrl,
-        token: draftGatewayToken,
-      });
-
-      setHealth({ ok: true, message: `Connected to ${draftGatewayUrl}` });
-      setStatus('Already paired and connected.');
-    } catch (error) {
-      const info = readGatewayError(error);
-      if (info.code === 'PAIRING_REQUIRED') {
-        setPairingRequestId(info.requestId ?? null);
-        const approvalHint = info.requestId
-          ? `openclaw devices approve ${info.requestId}`
-          : 'openclaw devices list then openclaw devices approve <requestId>';
-        setHealth({ ok: false, message: 'Pairing request created. Approve it on the gateway host.' });
-        setStatus(`Pairing request created. Run: ${approvalHint}`);
-      } else {
-        setHealth({ ok: false, message: info.message || 'Unable to request pairing.' });
-        setStatus(info.message || 'Unable to request pairing.');
-      }
-    } finally {
-      setChecking(false);
+      setSaving(false);
     }
   };
 
@@ -973,8 +962,12 @@ export default function App() {
       setHealth({ ok: true, message: `Re-paired and connected to ${draftGatewayUrl}` });
       setStatus('Re-pair complete. If operator.admin is still missing, approve the new request with admin scope on the gateway host.');
     } catch (error) {
+      console.error('[Relay] reset pairing error:', error);
       const info = readGatewayError(error);
-      if (info.code === 'PAIRING_REQUIRED') {
+      const isPairing =
+        info.code === 'PAIRING_REQUIRED' ||
+        /pairing.required/i.test(info.message);
+      if (isPairing) {
         setPairingRequestId(info.requestId ?? null);
         const approvalHint = info.requestId
           ? `openclaw devices approve ${info.requestId}`
@@ -1497,13 +1490,10 @@ export default function App() {
                     health={health}
                     status={status}
                     saving={saving}
-                    checking={checking}
                     pairingRequestId={pairingRequestId}
                     onDraftGatewayUrlChange={setDraftGatewayUrl}
                     onDraftGatewayTokenChange={setDraftGatewayToken}
                     onSave={handleSave}
-                    onHealthCheck={handleHealthCheck}
-                    onRequestPairing={handleRequestPairing}
                     onResetPairing={handleResetPairing}
                   />
                 )}
