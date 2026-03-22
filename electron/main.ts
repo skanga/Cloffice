@@ -2,7 +2,16 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, session } from 'electron';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import type { LocalFileApplyResult, LocalFilePlanAction, LocalFilePlanResult } from '../src/app-types.js';
+import type {
+  LocalFileApplyResult,
+  LocalFileAppendResult,
+  LocalFileCreateResult,
+  LocalFileExistsResult,
+  LocalFileListResult,
+  LocalFilePlanAction,
+  LocalFilePlanResult,
+  LocalFileReadResult,
+} from '../src/app-types.js';
 
 type AppConfig = {
   gatewayUrl: string;
@@ -70,6 +79,9 @@ const extensionCategories: Record<string, string> = {
 const configPath = () => path.join(app.getPath('userData'), 'openclaw-config.json');
 
 const isDev = !app.isPackaged;
+const MAX_READ_FILE_BYTES = 256 * 1024;
+const MAX_LIST_DIR_ITEMS = 200;
+const BLOCKED_BASENAMES = new Set(['desktop.ini', 'thumbs.db']);
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -114,6 +126,15 @@ function isPathInside(rootPath: string, targetPath: string): boolean {
   const target = path.resolve(targetPath);
   const relative = path.relative(root, target);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function isHiddenOrBlockedPath(targetPath: string): boolean {
+  const parts = targetPath.split(/[\\/]+/).filter((part) => part.length > 0);
+  return parts.some((part) => part.startsWith('.') || BLOCKED_BASENAMES.has(part.toLowerCase()));
+}
+
+function normalizeRelativePath(relativePath: string): string {
+  return relativePath.replaceAll('\\', '/').trim();
 }
 
 function slugifyName(value: string): string {
@@ -236,6 +257,256 @@ async function applyFolderOrganizationPlan(rootPath: string, actions: LocalFileP
   }
 
   return result;
+}
+
+async function createFileInFolder(rootPath: string, relativePath: string, content: string): Promise<LocalFileCreateResult> {
+  const root = await ensurePathAllowed(rootPath);
+
+  const normalizedRelative = normalizeRelativePath(relativePath);
+  if (!normalizedRelative) {
+    throw new Error('A file path is required.');
+  }
+
+  if (path.isAbsolute(normalizedRelative)) {
+    throw new Error('Use a path relative to the working folder.');
+  }
+
+  const resolvedTargetPath = path.resolve(root, normalizedRelative);
+  if (!isPathInside(root, resolvedTargetPath)) {
+    throw new Error('Target file must remain inside the working folder.');
+  }
+
+  if (isHiddenOrBlockedPath(normalizedRelative)) {
+    throw new Error('Target path is blocked by local safety rules.');
+  }
+
+  await fs.mkdir(path.dirname(resolvedTargetPath), { recursive: true });
+
+  try {
+    await fs.access(resolvedTargetPath);
+    throw new Error('A file already exists at that path.');
+  } catch (error) {
+    if (error instanceof Error && error.message === 'A file already exists at that path.') {
+      throw error;
+    }
+    // target does not exist, continue
+  }
+
+  await fs.writeFile(resolvedTargetPath, content, 'utf8');
+  return {
+    filePath: resolvedTargetPath,
+    created: true,
+  };
+}
+
+async function writeFileInFolder(
+  rootPath: string,
+  relativePath: string,
+  content: string,
+  options?: { overwrite?: boolean },
+): Promise<LocalFileCreateResult> {
+  const root = await ensurePathAllowed(rootPath);
+
+  const normalizedRelative = normalizeRelativePath(relativePath);
+  if (!normalizedRelative) {
+    throw new Error('A file path is required.');
+  }
+
+  if (path.isAbsolute(normalizedRelative)) {
+    throw new Error('Use a path relative to the working folder.');
+  }
+
+  if (isHiddenOrBlockedPath(normalizedRelative)) {
+    throw new Error('Target path is blocked by local safety rules.');
+  }
+
+  const resolvedTargetPath = path.resolve(root, normalizedRelative);
+  if (!isPathInside(root, resolvedTargetPath)) {
+    throw new Error('Target file must remain inside the working folder.');
+  }
+
+  await fs.mkdir(path.dirname(resolvedTargetPath), { recursive: true });
+
+  const overwrite = Boolean(options?.overwrite);
+  if (!overwrite) {
+    try {
+      await fs.access(resolvedTargetPath);
+      throw new Error('A file already exists at that path.');
+    } catch (error) {
+      if (error instanceof Error && error.message === 'A file already exists at that path.') {
+        throw error;
+      }
+    }
+  }
+
+  await fs.writeFile(resolvedTargetPath, content, 'utf8');
+  return {
+    filePath: resolvedTargetPath,
+    created: true,
+  };
+}
+
+async function readFileInFolder(rootPath: string, relativePath: string): Promise<LocalFileReadResult> {
+  const root = await ensurePathAllowed(rootPath);
+
+  const normalizedRelative = normalizeRelativePath(relativePath);
+  if (!normalizedRelative) {
+    throw new Error('A file path is required.');
+  }
+
+  if (path.isAbsolute(normalizedRelative)) {
+    throw new Error('Use a path relative to the working folder.');
+  }
+
+  const resolvedTargetPath = path.resolve(root, normalizedRelative);
+  if (!isPathInside(root, resolvedTargetPath)) {
+    throw new Error('Target file must remain inside the working folder.');
+  }
+
+  if (isHiddenOrBlockedPath(normalizedRelative)) {
+    throw new Error('Target path is blocked by local safety rules.');
+  }
+
+  const stats = await fs.stat(resolvedTargetPath);
+  if (!stats.isFile()) {
+    throw new Error('Target path is not a file.');
+  }
+
+  if (stats.size > MAX_READ_FILE_BYTES) {
+    throw new Error(`File exceeds ${MAX_READ_FILE_BYTES} byte safety limit.`);
+  }
+
+  const content = await fs.readFile(resolvedTargetPath, 'utf8');
+  return {
+    filePath: resolvedTargetPath,
+    content,
+  };
+}
+
+async function appendFileInFolder(rootPath: string, relativePath: string, content: string): Promise<LocalFileAppendResult> {
+  const root = await ensurePathAllowed(rootPath);
+
+  const normalizedRelative = normalizeRelativePath(relativePath);
+  if (!normalizedRelative) {
+    throw new Error('A file path is required.');
+  }
+
+  if (path.isAbsolute(normalizedRelative)) {
+    throw new Error('Use a path relative to the working folder.');
+  }
+
+  if (isHiddenOrBlockedPath(normalizedRelative)) {
+    throw new Error('Target path is blocked by local safety rules.');
+  }
+
+  const resolvedTargetPath = path.resolve(root, normalizedRelative);
+  if (!isPathInside(root, resolvedTargetPath)) {
+    throw new Error('Target file must remain inside the working folder.');
+  }
+
+  await fs.mkdir(path.dirname(resolvedTargetPath), { recursive: true });
+  await fs.appendFile(resolvedTargetPath, content, 'utf8');
+  return {
+    filePath: resolvedTargetPath,
+    appended: true,
+    bytesAppended: Buffer.byteLength(content, 'utf8'),
+  };
+}
+
+async function listDirInFolder(rootPath: string, relativePath?: string): Promise<LocalFileListResult> {
+  const root = await ensurePathAllowed(rootPath);
+  const normalizedRelative = normalizeRelativePath(relativePath ?? '');
+  if (normalizedRelative && path.isAbsolute(normalizedRelative)) {
+    throw new Error('Use a path relative to the working folder.');
+  }
+
+  if (normalizedRelative && isHiddenOrBlockedPath(normalizedRelative)) {
+    throw new Error('Target path is blocked by local safety rules.');
+  }
+
+  const targetPath = normalizedRelative ? path.resolve(root, normalizedRelative) : root;
+  if (!isPathInside(root, targetPath)) {
+    throw new Error('Target directory must remain inside the working folder.');
+  }
+
+  const stat = await fs.stat(targetPath);
+  if (!stat.isDirectory()) {
+    throw new Error('Target path is not a directory.');
+  }
+
+  const entries = await fs.readdir(targetPath, { withFileTypes: true });
+  const items: LocalFileListResult['items'] = [];
+
+  for (const entry of entries) {
+    const entryRelative = normalizeRelativePath(path.relative(root, path.join(targetPath, entry.name)));
+    if (isHiddenOrBlockedPath(entryRelative)) {
+      continue;
+    }
+
+    if (items.length >= MAX_LIST_DIR_ITEMS) {
+      break;
+    }
+
+    const absolute = path.join(targetPath, entry.name);
+    if (entry.isDirectory()) {
+      items.push({
+        path: entryRelative,
+        kind: 'directory',
+      });
+      continue;
+    }
+
+    if (entry.isFile()) {
+      const fileStat = await fs.stat(absolute);
+      items.push({
+        path: entryRelative,
+        kind: 'file',
+        size: fileStat.size,
+      });
+    }
+  }
+
+  return {
+    rootPath: root,
+    items,
+    truncated: entries.length > items.length,
+  };
+}
+
+async function existsInFolder(rootPath: string, relativePath: string): Promise<LocalFileExistsResult> {
+  const root = await ensurePathAllowed(rootPath);
+  const normalizedRelative = normalizeRelativePath(relativePath);
+  if (!normalizedRelative) {
+    throw new Error('A file path is required.');
+  }
+
+  if (path.isAbsolute(normalizedRelative)) {
+    throw new Error('Use a path relative to the working folder.');
+  }
+
+  if (isHiddenOrBlockedPath(normalizedRelative)) {
+    throw new Error('Target path is blocked by local safety rules.');
+  }
+
+  const resolvedTargetPath = path.resolve(root, normalizedRelative);
+  if (!isPathInside(root, resolvedTargetPath)) {
+    throw new Error('Target path must remain inside the working folder.');
+  }
+
+  try {
+    const stat = await fs.stat(resolvedTargetPath);
+    return {
+      path: resolvedTargetPath,
+      exists: true,
+      kind: stat.isDirectory() ? 'directory' : 'file',
+    };
+  } catch {
+    return {
+      path: resolvedTargetPath,
+      exists: false,
+      kind: 'none',
+    };
+  }
 }
 
 async function readConfig(): Promise<AppConfig> {
@@ -452,6 +723,77 @@ app.whenReady().then(async () => {
     }
 
     return applyFolderOrganizationPlan(rootPath, actions);
+  });
+  ipcMain.handle('local:create-file-in-folder', async (_event, payload: { rootPath: string; relativePath: string; content: string; overwrite?: boolean }) => {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('Invalid create-file payload.');
+    }
+
+    const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath : '';
+    const relativePath = typeof payload.relativePath === 'string' ? payload.relativePath : '';
+    const content = typeof payload.content === 'string' ? payload.content : '';
+    const overwrite = typeof payload.overwrite === 'boolean' ? payload.overwrite : false;
+
+    if (!rootPath.trim()) {
+      throw new Error('A folder path is required.');
+    }
+
+    return writeFileInFolder(rootPath, relativePath, content, { overwrite });
+  });
+  ipcMain.handle('local:append-file-in-folder', async (_event, payload: { rootPath: string; relativePath: string; content: string }) => {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('Invalid append-file payload.');
+    }
+
+    const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath : '';
+    const relativePath = typeof payload.relativePath === 'string' ? payload.relativePath : '';
+    const content = typeof payload.content === 'string' ? payload.content : '';
+
+    if (!rootPath.trim()) {
+      throw new Error('A folder path is required.');
+    }
+
+    return appendFileInFolder(rootPath, relativePath, content);
+  });
+  ipcMain.handle('local:read-file-in-folder', async (_event, payload: { rootPath: string; relativePath: string }) => {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('Invalid read-file payload.');
+    }
+
+    const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath : '';
+    const relativePath = typeof payload.relativePath === 'string' ? payload.relativePath : '';
+
+    if (!rootPath.trim()) {
+      throw new Error('A folder path is required.');
+    }
+
+    return readFileInFolder(rootPath, relativePath);
+  });
+  ipcMain.handle('local:list-dir-in-folder', async (_event, payload: { rootPath: string; relativePath?: string }) => {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('Invalid list-dir payload.');
+    }
+
+    const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath : '';
+    const relativePath = typeof payload.relativePath === 'string' ? payload.relativePath : '';
+    if (!rootPath.trim()) {
+      throw new Error('A folder path is required.');
+    }
+
+    return listDirInFolder(rootPath, relativePath);
+  });
+  ipcMain.handle('local:exists-in-folder', async (_event, payload: { rootPath: string; relativePath: string }) => {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('Invalid exists payload.');
+    }
+
+    const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath : '';
+    const relativePath = typeof payload.relativePath === 'string' ? payload.relativePath : '';
+    if (!rootPath.trim()) {
+      throw new Error('A folder path is required.');
+    }
+
+    return existsInFolder(rootPath, relativePath);
   });
 
   await createWindow();

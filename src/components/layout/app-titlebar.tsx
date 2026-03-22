@@ -1,5 +1,5 @@
 import type { CSSProperties, MouseEvent } from 'react';
-import { Copy, Minus, PanelLeftClose, PanelLeftOpen, Square, X } from 'lucide-react';
+import { Copy, Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Square, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -9,10 +9,12 @@ type AppPage = 'chat' | 'cowork' | 'settings';
 type AppTitlebarProps = {
   sidebarOpen: boolean;
   activePage: AppPage;
+  coworkRightPanelOpen?: boolean;
   isMaximized: boolean;
   usageModeLabel: string;
   minimal?: boolean;
   onToggleSidebar: () => void;
+  onToggleCoworkRightPanel?: () => void;
   onSelectPage: (page: 'chat' | 'cowork') => void;
   onMinimize: () => void | Promise<void>;
   onToggleMaximize: () => void | Promise<void>;
@@ -25,10 +27,12 @@ const modeOptions = ['chat', 'cowork'] as const;
 export function AppTitlebar({
   sidebarOpen,
   activePage,
+  coworkRightPanelOpen = true,
   isMaximized,
   usageModeLabel,
   minimal,
   onToggleSidebar,
+  onToggleCoworkRightPanel,
   onSelectPage,
   onMinimize,
   onToggleMaximize,
@@ -135,6 +139,20 @@ export function AppTitlebar({
         onMouseDown={preventTitlebarDragCapture}
         onDoubleClick={preventTitlebarDragCapture}
       >
+        {!minimal && activePage === 'cowork' && onToggleCoworkRightPanel ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="mr-1 size-6 text-muted-foreground"
+            style={noDragStyle}
+            onClick={onToggleCoworkRightPanel}
+            aria-label={coworkRightPanelOpen ? 'Hide cowork panel' : 'Show cowork panel'}
+            title={coworkRightPanelOpen ? 'Hide cowork panel' : 'Show cowork panel'}
+          >
+            {coworkRightPanelOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
+          </Button>
+        ) : null}
         <button
           type="button"
           className={`${windowControlBaseClass} ${neutralWindowControlClass}`}

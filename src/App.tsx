@@ -6,6 +6,7 @@ import type {
   ChatMessage,
   ChatModelOption,
   HealthCheckResult,
+  LocalActionReceipt,
   LocalFilePlanAction,
   ScheduledJob,
 } from './app-types';
@@ -59,10 +60,11 @@ type AuthSession = {
   expiresAt: number;
 };
 
-type RecentChatEntry = {
+type RecentWorkspaceEntry = {
   id: string;
   label: string;
   sessionKey: string;
+  kind: 'chat' | 'cowork';
 };
 
 type ChatThread = {
@@ -71,6 +73,38 @@ type ChatThread = {
   title: string;
   updatedAt: number;
 };
+
+type RelayFileAction =
+  | {
+      id: string | undefined;
+      type: 'create_file';
+      path: string;
+      content: string;
+      overwrite?: boolean;
+    }
+  | {
+      id: string | undefined;
+      type: 'append_file';
+      path: string;
+      content: string;
+    }
+  | {
+      id: string | undefined;
+      type: 'read_file';
+      path: string;
+    }
+  | {
+      id: string | undefined;
+      type: 'list_dir';
+      path: string | undefined;
+    }
+  | {
+      id: string | undefined;
+      type: 'exists';
+      path: string;
+    };
+
+type CoworkRunPhase = 'idle' | 'sending' | 'streaming' | 'completed' | 'error';
 
 function extractChatText(message: unknown): string {
   if (!message || typeof message !== 'object') {
@@ -122,6 +156,7 @@ const DEFAULT_THREAD_TITLE = 'New chat';
 const MAIN_SESSION_KEY = 'main';
 const MAIN_THREAD_TITLE = 'Main chat';
 const COWORK_SEND_SPINNER_MS = 300;
+const MAX_LOCAL_ACTIONS_PER_RUN = 20;
 
 function truncateForContext(text: string, maxChars: number): string {
   if (text.length <= maxChars) {
@@ -224,7 +259,7 @@ function mergeChatThreads(existing: ChatThread[], incoming: ChatThread[]): ChatT
     .slice(0, MAX_THREAD_STORE_ITEMS);
 }
 
-function toRecentSidebarItems(threads: ChatThread[]): RecentChatEntry[] {
+function toRecentSidebarItems(threads: ChatThread[], kind: 'chat' | 'cowork'): RecentWorkspaceEntry[] {
   return [...threads]
     .sort((left, right) => right.updatedAt - left.updatedAt)
     .slice(0, SIDEBAR_RECENTS_LIMIT)
@@ -232,6 +267,7 @@ function toRecentSidebarItems(threads: ChatThread[]): RecentChatEntry[] {
       id: thread.id,
       label: thread.title,
       sessionKey: thread.sessionKey,
+      kind,
     }));
 }
 
@@ -269,13 +305,243 @@ function readGatewayError(error: unknown): { message: string; code?: string; req
   };
 }
 
+function parseRelayFileActions(rawInput: unknown): RelayFileAction[] {
+  const normalizeRelayActions = (value: unknown): RelayFileAction[] => {
+    let rawActions: unknown = value;
+
+    if (typeof rawActions === 'string') {
+      try {
+        rawActions = JSON.parse(rawActions);
+      } catch {
+        return [];
+      }
+    }
+
+    const actionArray = Array.isArray(rawActions) ? rawActions : rawActions ? [rawActions] : [];
+
+    return actionArray.reduce<RelayFileAction[]>((acc, action) => {
+        if (!action || typeof action !== 'object') {
+          return acc;
+        }
+
+        const record = action as Record<string, unknown>;
+        const type = record.type;
+        if (type !== 'create_file' && type !== 'append_file' && type !== 'read_file' && type !== 'list_dir' && type !== 'exists') {
+          return acc;
+        }
+
+        const id = typeof record.id === 'string' && record.id.trim() ? record.id.trim() : undefined;
+
+        const filePath = typeof record.path === 'string' ? record.path.trim() : '';
+        if ((type === 'create_file' || type === 'append_file' || type === 'read_file' || type === 'exists') && !filePath) {
+          return acc;
+        }
+
+        if (type === 'read_file') {
+          acc.push({
+            id,
+            type: 'read_file' as const,
+            path: filePath,
+          });
+          return acc;
+        }
+
+        if (type === 'list_dir') {
+          acc.push({
+            id,
+            type: 'list_dir' as const,
+            path: filePath || undefined,
+          });
+          return acc;
+        }
+
+        if (type === 'exists') {
+          acc.push({
+            id,
+            type: 'exists' as const,
+            path: filePath,
+          });
+          return acc;
+        }
+
+        const content = typeof record.content === 'string' ? record.content : '';
+        const overwrite = typeof record.overwrite === 'boolean' ? record.overwrite : undefined;
+
+        if (type === 'append_file') {
+          acc.push({
+            id,
+            type: 'append_file' as const,
+            path: filePath,
+            content,
+          });
+          return acc;
+        }
+
+        acc.push({
+          id,
+          type: 'create_file' as const,
+          path: filePath,
+          content,
+          overwrite,
+        });
+
+        return acc;
+      }, []);
+  };
+
+  const tryParseCandidateText = (candidate: string): RelayFileAction[] => {
+    const text = candidate.trim();
+    if (!text) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      const direct = normalizeRelayActions(parsed.relay_actions ?? parsed.relayActions);
+      if (direct.length > 0) {
+        return direct;
+      }
+    } catch {
+      // Continue with fallbacks.
+    }
+
+    const jsonObjectWithRelayActionsPattern = /\{[\s\S]*?"relay_actions"[\s\S]*?\}/gi;
+    let objectMatch: RegExpExecArray | null;
+    while ((objectMatch = jsonObjectWithRelayActionsPattern.exec(text)) !== null) {
+      const payload = objectMatch[0]?.trim();
+      if (!payload) {
+        continue;
+      }
+
+      try {
+        const parsed = JSON.parse(payload) as Record<string, unknown>;
+        const direct = normalizeRelayActions(parsed.relay_actions ?? parsed.relayActions);
+        if (direct.length > 0) {
+          return direct;
+        }
+      } catch {
+        // Keep scanning.
+      }
+    }
+
+    const jsonCodeBlockPattern = /```json\s*([\s\S]*?)```/gi;
+    let codeBlockMatch: RegExpExecArray | null;
+    while ((codeBlockMatch = jsonCodeBlockPattern.exec(text)) !== null) {
+      const payload = codeBlockMatch[1]?.trim();
+      if (!payload) {
+        continue;
+      }
+
+      try {
+        const parsed = JSON.parse(payload) as Record<string, unknown>;
+        const direct = normalizeRelayActions(parsed.relay_actions ?? parsed.relayActions);
+        if (direct.length > 0) {
+          return direct;
+        }
+      } catch {
+        // Continue trying other candidates.
+      }
+    }
+
+    const genericCodeBlockPattern = /```\s*([\s\S]*?)```/gi;
+    while ((codeBlockMatch = genericCodeBlockPattern.exec(text)) !== null) {
+      const payload = codeBlockMatch[1]?.trim();
+      if (!payload) {
+        continue;
+      }
+
+      try {
+        const parsed = JSON.parse(payload) as Record<string, unknown>;
+        const direct = normalizeRelayActions(parsed.relay_actions ?? parsed.relayActions);
+        if (direct.length > 0) {
+          return direct;
+        }
+      } catch {
+        // Keep trying.
+      }
+    }
+
+    return [];
+  };
+
+  const queue: unknown[] = [rawInput];
+  const seen = new Set<unknown>();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (current === undefined || current === null) {
+      continue;
+    }
+
+    if (typeof current === 'string') {
+      const fromText = tryParseCandidateText(current);
+      if (fromText.length > 0) {
+        return fromText;
+      }
+      continue;
+    }
+
+    if (typeof current !== 'object') {
+      continue;
+    }
+
+    if (seen.has(current)) {
+      continue;
+    }
+    seen.add(current);
+
+    if (Array.isArray(current)) {
+      for (const item of current) {
+        queue.push(item);
+      }
+      continue;
+    }
+
+    const record = current as Record<string, unknown>;
+    const direct = normalizeRelayActions(record.relay_actions ?? record.relayActions);
+    if (direct.length > 0) {
+      return direct;
+    }
+
+    for (const value of Object.values(record)) {
+      queue.push(value);
+    }
+  }
+
+  return [];
+}
+
+function stripRelayActionPayloadFromText(rawText: string): string {
+  if (!rawText.trim()) {
+    return '';
+  }
+
+  let sanitized = rawText;
+
+  // Remove explicit relay_actions JSON code blocks.
+  sanitized = sanitized.replace(/```json\s*[\s\S]*?"relay_actions"[\s\S]*?```/gi, '');
+
+  // Remove generic code blocks that contain relay_actions payload.
+  sanitized = sanitized.replace(/```[\s\S]*?"relay_actions"[\s\S]*?```/gi, '');
+
+  // Remove inline JSON objects containing relay_actions.
+  sanitized = sanitized.replace(/\{[\s\S]*?"relay_actions"[\s\S]*?\}/gi, '');
+
+  return sanitized.replace(/\n{3,}/g, '\n\n').trim();
+}
+
 export default function App() {
   const bridge = window.relay;
   const gatewayClientRef = useRef<OpenClawGatewayClient | null>(null);
   const activeSessionKeyRef = useRef('');
+  const coworkSessionKeyRef = useRef('');
+  const workingFolderRef = useRef('');
   const chatLoadRequestRef = useRef(0);
+  const coworkLoadRequestRef = useRef(0);
   const skipNextChatEffectLoadRef = useRef(false);
   const threadMessageCache = useRef<Map<string, ChatMessage[]>>(new Map());
+  const coworkMessageCache = useRef<Map<string, ChatMessage[]>>(new Map());
+  const executedCoworkActionRunsRef = useRef<Set<string>>(new Set());
 
   const [config, setConfig] = useState<AppConfig>(defaultConfig);
   const [draftGatewayUrl, setDraftGatewayUrl] = useState(DEFAULT_GATEWAY_URL);
@@ -285,7 +551,9 @@ export default function App() {
   const [sendingChat, setSendingChat] = useState(false);
   const [awaitingChatStream, setAwaitingChatStream] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [coworkMessages, setCoworkMessages] = useState<ChatMessage[]>([]);
   const [chatThreads, setChatThreads] = useState<ChatThread[]>([]);
+  const [coworkThreads, setCoworkThreads] = useState<ChatThread[]>([]);
 
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -299,9 +567,13 @@ export default function App() {
   const [localPlanActions, setLocalPlanActions] = useState<LocalFilePlanAction[]>([]);
   const [localPlanLoading, setLocalPlanLoading] = useState(false);
   const [localApplyLoading, setLocalApplyLoading] = useState(false);
+  const [localFileDraftPath, setLocalFileDraftPath] = useState('notes/todo.md');
+  const [localFileDraftContent, setLocalFileDraftContent] = useState('');
+  const [localFileCreateLoading, setLocalFileCreateLoading] = useState(false);
   const [localPlanRootPath, setLocalPlanRootPath] = useState('');
   const [isMaximized, setIsMaximized] = useState(false);
   const [activeSessionKey, setActiveSessionKey] = useState('');
+  const [coworkSessionKey, setCoworkSessionKey] = useState('');
   const [chatModels, setChatModels] = useState<ChatModelOption[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -318,14 +590,31 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [coworkResetKey, setCoworkResetKey] = useState(0);
+  const [coworkRightPanelOpen, setCoworkRightPanelOpen] = useState(true);
   const [coworkSending, setCoworkSending] = useState(false);
+  const [coworkAwaitingStream, setCoworkAwaitingStream] = useState(false);
+  const [coworkStreamingText, setCoworkStreamingText] = useState('');
+  const [coworkModel, setCoworkModel] = useState('');
+  const [coworkRunPhase, setCoworkRunPhase] = useState<CoworkRunPhase>('idle');
+  const [coworkRunStatus, setCoworkRunStatus] = useState('Ready for a new task.');
+  const [localActionReceipts, setLocalActionReceipts] = useState<LocalActionReceipt[]>([]);
+  const [localActionSmokeRunning, setLocalActionSmokeRunning] = useState(false);
 
-  const recentChatItems = toRecentSidebarItems(chatThreads);
+  const recentChatItems = toRecentSidebarItems(chatThreads, 'chat');
+  const recentCoworkItems = toRecentSidebarItems(coworkThreads, 'cowork');
+  const recentItems = activePage === 'cowork' ? recentCoworkItems : recentChatItems;
 
   const commitActiveSessionKey = (nextSessionKey: string) => {
     const normalized = normalizeSessionKey(nextSessionKey);
     activeSessionKeyRef.current = normalized;
     setActiveSessionKey(normalized);
+    return normalized;
+  };
+
+  const commitCoworkSessionKey = (nextSessionKey: string) => {
+    const normalized = normalizeSessionKey(nextSessionKey);
+    coworkSessionKeyRef.current = normalized;
+    setCoworkSessionKey(normalized);
     return normalized;
   };
 
@@ -354,6 +643,41 @@ export default function App() {
 
       return mergeChatThreads(current, [nextThread]);
     });
+  };
+
+  const upsertCoworkThread = (sessionKey: string, options?: { title?: string; touchedAt?: number }) => {
+    const normalizedSessionKey = normalizeSessionKey(sessionKey);
+    if (!normalizedSessionKey) {
+      return;
+    }
+
+    const incomingTitle = options?.title ? toRecentSidebarLabel(options.title) : '';
+    const touchedAt = options?.touchedAt;
+
+    setCoworkThreads((current) => {
+      const existing = current.find((thread) => thread.sessionKey === normalizedSessionKey);
+      const canReplaceTitle = !existing || !existing.title || existing.title === DEFAULT_THREAD_TITLE;
+      const fallbackTitle = toFallbackThreadTitle(normalizedSessionKey);
+      const title = canReplaceTitle && incomingTitle ? incomingTitle : existing?.title || fallbackTitle;
+      const updatedAt = touchedAt ?? existing?.updatedAt ?? Date.now();
+
+      const nextThread: ChatThread = {
+        id: getThreadIdForSession(normalizedSessionKey),
+        sessionKey: normalizedSessionKey,
+        title,
+        updatedAt,
+      };
+
+      return mergeChatThreads(current, [nextThread]);
+    });
+  };
+
+  const pushLocalActionReceipts = (entries: LocalActionReceipt[]) => {
+    if (entries.length === 0) {
+      return;
+    }
+
+    setLocalActionReceipts((current) => [...entries, ...current].slice(0, 30));
   };
 
   const rekeyChatThread = (fromSessionKey: string, toSessionKey: string) => {
@@ -468,6 +792,57 @@ export default function App() {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to load chat session.';
+      setStatus(message);
+    }
+  };
+
+  const loadCoworkSession = async (sessionKeyInput: string, statusMessage?: string) => {
+    const client = gatewayClientRef.current;
+    if (!client) {
+      return;
+    }
+
+    const requestedSessionKey = normalizeSessionKey(sessionKeyInput);
+    if (!requestedSessionKey) {
+      setStatus('Invalid cowork session key.');
+      return;
+    }
+
+    commitCoworkSessionKey(requestedSessionKey);
+    const requestId = coworkLoadRequestRef.current + 1;
+    coworkLoadRequestRef.current = requestId;
+
+    try {
+      await client.connect({
+        gatewayUrl: draftGatewayUrl,
+        token: draftGatewayToken,
+      });
+
+      const history = await client.getHistory(requestedSessionKey, 50);
+
+      if (requestId !== coworkLoadRequestRef.current) {
+        return;
+      }
+
+      setCoworkMessages(history);
+      if (history.length > 0) {
+        coworkMessageCache.current.set(requestedSessionKey, history);
+      }
+
+      const titleFromHistory = deriveThreadTitleFromMessages(history);
+      upsertCoworkThread(requestedSessionKey, {
+        title: titleFromHistory || undefined,
+      });
+
+      if (statusMessage) {
+        setStatus(
+          titleFromHistory
+            ? `${statusMessage}: ${titleFromHistory}`
+            : `${statusMessage}: ${toFallbackThreadTitle(requestedSessionKey)}`,
+        );
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to load cowork session.';
       setStatus(message);
     }
   };
@@ -749,6 +1124,14 @@ export default function App() {
   }, [activeSessionKey]);
 
   useEffect(() => {
+    coworkSessionKeyRef.current = normalizeSessionKey(coworkSessionKey);
+  }, [coworkSessionKey]);
+
+  useEffect(() => {
+    workingFolderRef.current = workingFolder.trim();
+  }, [workingFolder]);
+
+  useEffect(() => {
     const client = new OpenClawGatewayClient();
     client.setConnectionHandler((_connected, message) => {
       setStatus(message);
@@ -757,15 +1140,373 @@ export default function App() {
       if (event.type === 'event' && event.event === 'chat') {
         const payload = (event.payload ?? {}) as Record<string, unknown>;
         const eventSessionKey = typeof payload.sessionKey === 'string' ? payload.sessionKey.trim() : '';
-        if (eventSessionKey && eventSessionKey !== activeSessionKeyRef.current) {
-          return;
-        }
 
+        const isCoworkEvent = !!eventSessionKey && eventSessionKey === coworkSessionKeyRef.current;
         const runId = typeof payload.runId === 'string' ? payload.runId : `evt-${Date.now()}`;
         const state = typeof payload.state === 'string' ? payload.state : 'final';
         const message = payload.message ?? payload;
         const text = extractChatText(message);
+        const visibleText = stripRelayActionPayloadFromText(text);
         const role = extractChatRole(message);
+
+        if (isCoworkEvent) {
+          if (state === 'error') {
+            setCoworkAwaitingStream(false);
+            setCoworkRunPhase('error');
+            const errorMessage =
+              typeof payload.errorMessage === 'string' && payload.errorMessage.trim()
+                ? payload.errorMessage
+                : 'Cowork stream failed.';
+            setCoworkRunStatus(errorMessage);
+            setStatus(errorMessage);
+            return;
+          }
+
+          if (state === 'delta' && text) {
+            setCoworkAwaitingStream(false);
+            setCoworkRunPhase('streaming');
+            setCoworkRunStatus('Cowork is streaming a response.');
+            setCoworkStreamingText(visibleText);
+            const streamId = `cowork-stream-${runId}`;
+            setCoworkMessages((current) => {
+              if (!visibleText) {
+                return current;
+              }
+              const index = current.findIndex((entry) => entry.id === streamId);
+              if (index >= 0) {
+                const next = [...current];
+                next[index] = { ...next[index], text: visibleText, role };
+                if (eventSessionKey) {
+                  coworkMessageCache.current.set(eventSessionKey, next);
+                }
+                return next;
+              }
+              const next = [...current, { id: streamId, role, text: visibleText }];
+              if (eventSessionKey) {
+                coworkMessageCache.current.set(eventSessionKey, next);
+              }
+              return next;
+            });
+            return;
+          }
+
+          if (state === 'final' || state === 'aborted') {
+            setCoworkAwaitingStream(false);
+            setCoworkRunPhase('completed');
+            setCoworkRunStatus(state === 'aborted' ? 'Cowork run ended early.' : 'Cowork run completed.');
+            setCoworkStreamingText(visibleText);
+            const streamId = `cowork-stream-${runId}`;
+            const finalId = `cowork-final-${runId}`;
+            setCoworkMessages((current) => {
+              const withoutStream = current.filter((entry) => entry.id !== streamId);
+              if (withoutStream.some((entry) => entry.id === finalId)) {
+                return withoutStream;
+              }
+              const next = visibleText ? [...withoutStream, { id: finalId, role, text: visibleText }] : withoutStream;
+              if (eventSessionKey) {
+                coworkMessageCache.current.set(eventSessionKey, next);
+              }
+              return next;
+            });
+            if (eventSessionKey) {
+              upsertCoworkThread(eventSessionKey, {
+                touchedAt: Date.now(),
+              });
+            }
+
+            const relayActions = parseRelayFileActions({
+              text,
+              message,
+              payload,
+            });
+            const actionRunKey = `${eventSessionKey || 'unknown'}:${runId}`;
+            if (
+              relayActions.length > 0 &&
+              !executedCoworkActionRunsRef.current.has(actionRunKey)
+            ) {
+              executedCoworkActionRunsRef.current.add(actionRunKey);
+              void (async () => {
+                const postActionReceipt = (
+                  summary: string,
+                  actionReceipts: LocalActionReceipt[],
+                  previews: string[],
+                  errors: string[],
+                ) => {
+                  setCoworkRunStatus(summary);
+                  setStatus(summary);
+                  pushLocalActionReceipts(actionReceipts);
+
+                  const machineReadableReceipt = {
+                    relay_action_receipts: actionReceipts,
+                  };
+
+                  const receiptLines = [
+                    summary,
+                    ...previews,
+                    ...errors.map((line) => `! ${line}`),
+                    '```json',
+                    JSON.stringify(machineReadableReceipt, null, 2),
+                    '```',
+                  ];
+
+                  const receiptMessage: ChatMessage = {
+                    id: `cowork-actions-${runId}`,
+                    role: 'system',
+                    text: receiptLines.join('\n'),
+                  };
+
+                  setCoworkMessages((current) => {
+                    if (current.some((entry) => entry.id === receiptMessage.id)) {
+                      return current;
+                    }
+
+                    const next = [...current, receiptMessage];
+                    if (eventSessionKey) {
+                      coworkMessageCache.current.set(eventSessionKey, next);
+                    }
+                    return next;
+                  });
+                };
+
+                if (!bridge) {
+                  const noBridgeMessage = 'AI requested local file actions, but Electron desktop bridge is unavailable.';
+                  postActionReceipt(noBridgeMessage, [], [], []);
+                  return;
+                }
+
+                const rootPath = workingFolderRef.current;
+                if (!rootPath) {
+                  const noFolderMessage = 'AI requested local file actions, but no working folder is selected.';
+                  postActionReceipt(noFolderMessage, [], [], []);
+                  return;
+                }
+
+                setCoworkRunStatus('Applying AI file actions...');
+
+                const boundedActions = relayActions.slice(0, MAX_LOCAL_ACTIONS_PER_RUN);
+                const actionReceipts: LocalActionReceipt[] = [];
+                const previews: string[] = [];
+                const errors: string[] = [];
+
+                if (relayActions.length > MAX_LOCAL_ACTIONS_PER_RUN) {
+                  errors.push(
+                    `Action limit exceeded: received ${relayActions.length}, executed ${MAX_LOCAL_ACTIONS_PER_RUN}.`,
+                  );
+                }
+
+                const formatPreviewContent = (value: string) => {
+                  const trimmed = value.trim();
+                  if (!trimmed) {
+                    return '(empty)';
+                  }
+                  const maxChars = 1200;
+                  if (trimmed.length <= maxChars) {
+                    return trimmed;
+                  }
+                  return `${trimmed.slice(0, maxChars)}\n... (truncated)`;
+                };
+
+                for (let index = 0; index < boundedActions.length; index += 1) {
+                  const action = boundedActions[index];
+                  const actionId = action.id || `action-${index + 1}`;
+                  const actionPath = action.path ?? '.';
+                  try {
+                    if (action.type === 'create_file') {
+                      if (!bridge.createFileInFolder) {
+                        const message = `${actionPath}: create_file is unavailable in this app context.`;
+                        errors.push(message);
+                        actionReceipts.push({
+                          id: actionId,
+                          type: 'create_file',
+                          path: actionPath,
+                          status: 'error',
+                          errorCode: 'UNAVAILABLE',
+                          message,
+                        });
+                        continue;
+                      }
+
+                      const result = await bridge.createFileInFolder(rootPath, action.path, action.content, action.overwrite);
+                      actionReceipts.push({
+                        id: actionId,
+                        type: 'create_file',
+                        path: result.filePath,
+                        status: 'ok',
+                      });
+                      previews.push(`+ ${result.filePath}`);
+                      continue;
+                    }
+
+                    if (action.type === 'append_file') {
+                      if (!bridge.appendFileInFolder) {
+                        const message = `${actionPath}: append_file is unavailable in this app context.`;
+                        errors.push(message);
+                        actionReceipts.push({
+                          id: actionId,
+                          type: 'append_file',
+                          path: actionPath,
+                          status: 'error',
+                          errorCode: 'UNAVAILABLE',
+                          message,
+                        });
+                        continue;
+                      }
+
+                      const result = await bridge.appendFileInFolder(rootPath, action.path, action.content);
+                      actionReceipts.push({
+                        id: actionId,
+                        type: 'append_file',
+                        path: result.filePath,
+                        status: 'ok',
+                        message: `Appended ${result.bytesAppended} bytes`,
+                      });
+                      previews.push(`+ appended ${result.bytesAppended} bytes -> ${result.filePath}`);
+                      continue;
+                    }
+
+                    if (action.type === 'read_file') {
+                      if (!bridge.readFileInFolder) {
+                        const message = `${actionPath}: read_file is unavailable in this app context.`;
+                        errors.push(message);
+                        actionReceipts.push({
+                          id: actionId,
+                          type: 'read_file',
+                          path: actionPath,
+                          status: 'error',
+                          errorCode: 'UNAVAILABLE',
+                          message,
+                        });
+                        continue;
+                      }
+
+                      const result = await bridge.readFileInFolder(rootPath, action.path);
+                      actionReceipts.push({
+                        id: actionId,
+                        type: 'read_file',
+                        path: result.filePath,
+                        status: 'ok',
+                      });
+                      previews.push(`> ${result.filePath}`);
+                      previews.push('```');
+                      previews.push(formatPreviewContent(result.content));
+                      previews.push('```');
+                      continue;
+                    }
+
+                    if (action.type === 'list_dir') {
+                      if (!bridge.listDirInFolder) {
+                        const message = `${actionPath}: list_dir is unavailable in this app context.`;
+                        errors.push(message);
+                        actionReceipts.push({
+                          id: actionId,
+                          type: 'list_dir',
+                          path: actionPath,
+                          status: 'error',
+                          errorCode: 'UNAVAILABLE',
+                          message,
+                        });
+                        continue;
+                      }
+
+                      const result = await bridge.listDirInFolder(rootPath, action.path || '');
+                      actionReceipts.push({
+                        id: actionId,
+                        type: 'list_dir',
+                        path: action.path || '.',
+                        status: 'ok',
+                        message: `Listed ${result.items.length} items${result.truncated ? ' (truncated)' : ''}`,
+                      });
+                      previews.push(`# list_dir ${action.path || '.'}`);
+                      previews.push(...result.items.slice(0, 20).map((item) => `${item.kind === 'directory' ? '[dir]' : '[file]'} ${item.path}`));
+                      if (result.truncated) {
+                        previews.push('... (truncated)');
+                      }
+                      continue;
+                    }
+
+                    if (action.type === 'exists') {
+                      if (!bridge.existsInFolder) {
+                        const message = `${actionPath}: exists is unavailable in this app context.`;
+                        errors.push(message);
+                        actionReceipts.push({
+                          id: actionId,
+                          type: 'exists',
+                          path: actionPath,
+                          status: 'error',
+                          errorCode: 'UNAVAILABLE',
+                          message,
+                        });
+                        continue;
+                      }
+
+                      const result = await bridge.existsInFolder(rootPath, action.path);
+                      actionReceipts.push({
+                        id: actionId,
+                        type: 'exists',
+                        path: result.path,
+                        status: 'ok',
+                        message: result.exists ? result.kind : 'none',
+                      });
+                      previews.push(`? ${result.path} => ${result.exists ? result.kind : 'none'}`);
+                    }
+                  } catch (error) {
+                    const message = error instanceof Error ? error.message : 'Unknown local file action error.';
+                    const fullMessage = `${actionPath}: ${message}`;
+                    errors.push(fullMessage);
+                    actionReceipts.push({
+                      id: actionId,
+                      type: action.type,
+                      path: actionPath,
+                      status: 'error',
+                      errorCode: 'ACTION_FAILED',
+                      message,
+                    });
+                  }
+                }
+
+                const summaryParts: string[] = [];
+                const okCount = actionReceipts.filter((item) => item.status === 'ok').length;
+                const errorCount = actionReceipts.filter((item) => item.status === 'error').length;
+                if (okCount > 0) {
+                  summaryParts.push(`Executed ${okCount} local action${okCount === 1 ? '' : 's'}.`);
+                }
+                if (errorCount > 0) {
+                  summaryParts.push(`Failed ${errorCount} action${errorCount === 1 ? '' : 's'}.`);
+                }
+                summaryParts.push(`Folder: ${rootPath}`);
+
+                const summary = summaryParts.join(' ') || 'No file actions were applied.';
+                postActionReceipt(summary, actionReceipts, previews, errors);
+              })();
+            } else if (relayActions.length === 0) {
+              const noActionMessage: ChatMessage = {
+                id: `cowork-actions-missing-${runId}`,
+                role: 'system',
+                text: [
+                  'No executable relay_actions were found in the cowork final event.',
+                  `Folder: ${workingFolderRef.current || '(not set)'}`,
+                ].join('\n'),
+              };
+
+              setCoworkMessages((current) => {
+                if (current.some((entry) => entry.id === noActionMessage.id)) {
+                  return current;
+                }
+
+                const next = [...current, noActionMessage];
+                if (eventSessionKey) {
+                  coworkMessageCache.current.set(eventSessionKey, next);
+                }
+                return next;
+              });
+            }
+            return;
+          }
+        }
+
+        if (eventSessionKey && eventSessionKey !== activeSessionKeyRef.current) {
+          return;
+        }
 
         if (state === 'error') {
           setAwaitingChatStream(false);
@@ -1012,18 +1753,87 @@ export default function App() {
 
   const handlePlanTask = async (event: FormEvent) => {
     event.preventDefault();
+    workingFolderRef.current = workingFolder.trim();
     setCoworkSending(true);
+    setCoworkAwaitingStream(false);
+    setCoworkStreamingText('');
+    setCoworkRunPhase('sending');
+    setCoworkRunStatus('Sending cowork task...');
 
-    if (!taskPrompt.trim()) {
+    const text = taskPrompt.trim();
+    if (!text) {
       setStatus('Describe the outcome first so OpenClaw can plan the work.');
       setCoworkSending(false);
       return;
     }
 
-    setTaskState('planned');
-    setStatus('Plan drafted. Review and approve before execution.');
-    await new Promise((resolve) => setTimeout(resolve, COWORK_SEND_SPINNER_MS));
-    setCoworkSending(false);
+    const client = gatewayClientRef.current;
+    if (!client) {
+      setStatus('Gateway client not initialized.');
+      setCoworkSending(false);
+      return;
+    }
+
+    try {
+      await ensureConnectedClient(client);
+
+      let sessionKey = normalizeSessionKey(coworkSessionKeyRef.current);
+      if (!sessionKey) {
+        sessionKey = normalizeSessionKey(await client.createChatSession());
+        if (!sessionKey) {
+          throw new Error('No cowork session key returned from Gateway.');
+        }
+        commitCoworkSessionKey(sessionKey);
+      }
+
+      setTaskState('planned');
+      setCoworkAwaitingStream(true);
+      const outboundMessageId = `cowork-user-${Date.now()}`;
+      setCoworkMessages((current) => {
+        const next = [...current, { id: outboundMessageId, role: 'user' as const, text }];
+        coworkMessageCache.current.set(sessionKey, next);
+        return next;
+      });
+      upsertCoworkThread(sessionKey, {
+        title: text,
+        touchedAt: Date.now(),
+      });
+
+      if (coworkModel.trim()) {
+        await client.setSessionModel(sessionKey, coworkModel.trim());
+      }
+
+      const folderContext = workingFolderRef.current;
+      const relayFileInstruction = [
+        'If local file actions are required, include ONE JSON code block in your response with this schema only:',
+        '```json',
+        '{"relay_actions":[{"id":"a1","type":"create_file","path":"relative/path.ext","content":"file contents","overwrite":false},{"id":"a2","type":"append_file","path":"relative/path.ext","content":"more text"},{"id":"a3","type":"read_file","path":"relative/path.ext"},{"id":"a4","type":"list_dir","path":"relative/folder"},{"id":"a5","type":"exists","path":"relative/path.ext"}]}',
+        '```',
+        'Only include relay_actions when local file actions are required.',
+      ].join('\n');
+      const outboundMessage = [
+        folderContext ? `Working folder context: ${folderContext}` : '',
+        relayFileInstruction,
+        '',
+        text,
+      ]
+        .filter((part) => part.length > 0)
+        .join('\n\n');
+
+      setCoworkRunPhase('streaming');
+      setCoworkRunStatus('Waiting for cowork stream...');
+      setStatus('Cowork message sent. Waiting for stream...');
+      await client.sendChat(sessionKey, outboundMessage);
+      await new Promise((resolve) => setTimeout(resolve, COWORK_SEND_SPINNER_MS));
+    } catch (error) {
+      setCoworkAwaitingStream(false);
+      setCoworkRunPhase('error');
+      const message = error instanceof Error ? error.message : 'Failed to send cowork task.';
+      setCoworkRunStatus(message);
+      setStatus(message);
+    } finally {
+      setCoworkSending(false);
+    }
   };
 
   const handleCreateLocalPlan = async () => {
@@ -1115,6 +1925,125 @@ export default function App() {
       setStatus(message);
     } finally {
       setLocalApplyLoading(false);
+    }
+  };
+
+  const handleWorkingFolderChange = (value: string) => {
+    setWorkingFolder(value);
+    workingFolderRef.current = value.trim();
+  };
+
+  const handleCreateFileInWorkingFolder = async () => {
+    if (!bridge?.createFileInFolder) {
+      setStatus('Creating local files is available in the Electron desktop app only.');
+      return;
+    }
+
+    const rootPath = workingFolder.trim();
+    const relativePath = localFileDraftPath.trim();
+    if (!rootPath) {
+      setStatus('Select a working folder first.');
+      return;
+    }
+
+    if (!relativePath) {
+      setStatus('Provide a relative file path (for example: notes/todo.md).');
+      return;
+    }
+
+    setLocalFileCreateLoading(true);
+    try {
+      const result = await bridge.createFileInFolder(rootPath, relativePath, localFileDraftContent);
+      setStatus(`Created file: ${result.filePath}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create file in working folder.';
+      setStatus(message);
+    } finally {
+      setLocalFileCreateLoading(false);
+    }
+  };
+
+  const handleRunLocalActionSmokeTest = async () => {
+    if (!bridge) {
+      setStatus('Local action smoke test is available in the Electron desktop app only.');
+      return;
+    }
+
+    const rootPath = workingFolder.trim();
+    if (!rootPath) {
+      setStatus('Select a working folder first.');
+      return;
+    }
+
+    const relativePath = 'relay-smoke-test.md';
+    setLocalActionSmokeRunning(true);
+
+    const receipts: LocalActionReceipt[] = [];
+    const errors: string[] = [];
+
+    try {
+      if (bridge.createFileInFolder) {
+        await bridge.createFileInFolder(rootPath, relativePath, '# Relay Smoke Test\n', true);
+        receipts.push({ id: 'smoke-create', type: 'create_file', path: relativePath, status: 'ok' });
+      }
+
+      if (bridge.appendFileInFolder) {
+        await bridge.appendFileInFolder(rootPath, relativePath, '\nAppended line from smoke test.\n');
+        receipts.push({ id: 'smoke-append', type: 'append_file', path: relativePath, status: 'ok' });
+      }
+
+      if (bridge.readFileInFolder) {
+        const readResult = await bridge.readFileInFolder(rootPath, relativePath);
+        receipts.push({
+          id: 'smoke-read',
+          type: 'read_file',
+          path: readResult.filePath,
+          status: 'ok',
+          message: `Read ${readResult.content.length} chars`,
+        });
+      }
+
+      if (bridge.existsInFolder) {
+        const exists = await bridge.existsInFolder(rootPath, relativePath);
+        receipts.push({
+          id: 'smoke-exists',
+          type: 'exists',
+          path: exists.path,
+          status: exists.exists ? 'ok' : 'error',
+          errorCode: exists.exists ? undefined : 'NOT_FOUND',
+          message: exists.exists ? exists.kind : 'none',
+        });
+      }
+
+      if (bridge.listDirInFolder) {
+        const listing = await bridge.listDirInFolder(rootPath, '');
+        receipts.push({
+          id: 'smoke-list',
+          type: 'list_dir',
+          path: '.',
+          status: 'ok',
+          message: `Listed ${listing.items.length} item${listing.items.length === 1 ? '' : 's'}`,
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown smoke test failure.';
+      errors.push(message);
+      receipts.push({
+        id: 'smoke-error',
+        type: 'exists',
+        path: relativePath,
+        status: 'error',
+        errorCode: 'SMOKE_FAILED',
+        message,
+      });
+    } finally {
+      pushLocalActionReceipts(receipts);
+      if (errors.length > 0) {
+        setStatus(`Local action smoke test failed: ${errors[0]}`);
+      } else {
+        setStatus(`Local action smoke test passed. File: ${rootPath}\\${relativePath}`);
+      }
+      setLocalActionSmokeRunning(false);
     }
   };
 
@@ -1301,6 +2230,32 @@ export default function App() {
     void loadChatSession(normalized, 'Opened chat');
   };
 
+  const handleOpenRecentCowork = (sessionKey: string) => {
+    const normalized = sessionKey.trim();
+    if (!normalized) {
+      return;
+    }
+
+    setActivePage('cowork');
+    commitCoworkSessionKey(normalized);
+    setTaskPrompt('');
+    setCoworkAwaitingStream(false);
+    setCoworkRunPhase('idle');
+    setCoworkRunStatus('Opened previous cowork session.');
+
+    const cached = coworkMessageCache.current.get(normalized);
+    if (cached && cached.length > 0) {
+      setCoworkMessages(cached);
+      const titleFromCache = deriveThreadTitleFromMessages(cached);
+      setStatus(titleFromCache ? `Opened task: ${titleFromCache}` : 'Opened task.');
+      return;
+    }
+
+    setCoworkMessages([]);
+    setStatus('Loading recent cowork task...');
+    void loadCoworkSession(normalized, 'Opened task');
+  };
+
   const loadScheduledJobs = useCallback(async () => {
     const client = gatewayClientRef.current;
     if (!client) {
@@ -1466,6 +2421,12 @@ export default function App() {
     setActivePage('cowork');
     setTaskPrompt('');
     setTaskState('idle');
+    commitCoworkSessionKey('');
+    setCoworkMessages([]);
+    setCoworkAwaitingStream(false);
+    setCoworkStreamingText('');
+    setCoworkRunPhase('idle');
+    setCoworkRunStatus('Ready for a new task.');
     setLocalPlanActions([]);
     setLocalPlanRootPath('');
     setStatus('Ready for a new task.');
@@ -1477,11 +2438,12 @@ export default function App() {
   const needsOnboarding = canUseAppShell && !onboardingComplete;
   const usageModeLabel = guestMode ? 'Local mode' : authSession ? 'Cloud mode' : 'Signed out';
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
-  const searchCandidates = (normalizedSearchQuery ? chatThreads : recentChatItems).map((item) => ({
+  const searchCandidates = (normalizedSearchQuery ? chatThreads : recentItems).map((item) => ({
     id: item.id,
     sessionKey: item.sessionKey,
     label: 'title' in item ? item.title : item.label,
     updatedAt: 'updatedAt' in item ? item.updatedAt : undefined,
+    kind: 'kind' in item ? item.kind : 'chat',
   }));
   const matchingChats = searchCandidates.filter((thread) =>
     thread.label.toLowerCase().includes(normalizedSearchQuery),
@@ -1502,10 +2464,12 @@ export default function App() {
       <AppTitlebar
         sidebarOpen={sidebarOpen}
         activePage={activePage}
+        coworkRightPanelOpen={coworkRightPanelOpen}
         isMaximized={isMaximized}
         usageModeLabel={usageModeLabel}
         minimal={needsOnboarding || !canUseAppShell}
         onToggleSidebar={() => setSidebarOpen((current) => !current)}
+        onToggleCoworkRightPanel={() => setCoworkRightPanelOpen((current) => !current)}
         onSelectPage={setActivePage}
         onMinimize={handleMinimize}
         onToggleMaximize={handleToggleMaximize}
@@ -1536,12 +2500,19 @@ export default function App() {
             activeMenuItem={activeMenuItem}
             activePage={activePage}
             activeSessionKey={activeSessionKey}
+            activeCoworkSessionKey={coworkSessionKey}
             userEmail={userIdentityLabel}
             guestMode={guestMode}
-            recentItems={recentChatItems}
+            recentItems={recentItems}
             scheduledItems={scheduledJobs}
             scheduledLoading={scheduledLoading}
-            onSelectRecentChat={handleOpenRecentChat}
+            onSelectRecentItem={(item) => {
+              if (item.kind === 'cowork') {
+                handleOpenRecentCowork(item.sessionKey);
+                return;
+              }
+              handleOpenRecentChat(item.sessionKey);
+            }}
             onStartNewChat={handleStartNewChat}
             onStartNewTask={handleStartNewTask}
             onSelectMenuItem={setActiveMenuItem}
@@ -1572,7 +2543,11 @@ export default function App() {
                         key={thread.id}
                         value={thread.label}
                         onSelect={() => {
-                          handleOpenRecentChat(thread.sessionKey);
+                          if (thread.kind === 'cowork') {
+                            handleOpenRecentCowork(thread.sessionKey);
+                          } else {
+                            handleOpenRecentChat(thread.sessionKey);
+                          }
                           handleSearchOpenChange(false);
                         }}
                         className="flex items-center justify-between gap-3"
@@ -1596,17 +2571,35 @@ export default function App() {
                 workingFolder={workingFolder}
                 taskState={taskState}
                 status={status}
+                messages={coworkMessages}
+                rightPanelOpen={coworkRightPanelOpen}
+                awaitingStream={coworkAwaitingStream}
+                streamingAssistantText={coworkStreamingText}
+                runPhase={coworkRunPhase}
+                runStatus={coworkRunStatus}
+                sessionKey={coworkSessionKey}
+                selectedModel={coworkModel}
                 desktopBridgeAvailable={Boolean(bridge)}
                 localPlanActions={localPlanActions}
                 localPlanLoading={localPlanLoading}
                 localApplyLoading={localApplyLoading}
+                fileCreateLoading={localFileCreateLoading}
+                localActionReceipts={localActionReceipts}
+                localActionSmokeRunning={localActionSmokeRunning}
+                fileDraftPath={localFileDraftPath}
+                fileDraftContent={localFileDraftContent}
                 sending={coworkSending}
                 onTaskPromptChange={setTaskPrompt}
-                onWorkingFolderChange={setWorkingFolder}
+                onWorkingFolderChange={handleWorkingFolderChange}
+                onModelChange={setCoworkModel}
+                onFileDraftPathChange={setLocalFileDraftPath}
+                onFileDraftContentChange={setLocalFileDraftContent}
                 onPickWorkingFolder={handlePickWorkingFolder}
                 onSubmit={handlePlanTask}
                 onCreateLocalPlan={handleCreateLocalPlan}
                 onApplyLocalPlan={handleApplyLocalPlan}
+                onCreateFileInWorkingFolder={handleCreateFileInWorkingFolder}
+                onRunLocalActionSmokeTest={handleRunLocalActionSmokeTest}
               />
             ) : (
               <ScrollArea className="h-full">

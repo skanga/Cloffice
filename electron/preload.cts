@@ -3,6 +3,11 @@ import type {
   AppConfig,
   HealthCheckResult,
   LocalFileApplyResult,
+  LocalFileAppendResult,
+  LocalFileCreateResult,
+  LocalFileExistsResult,
+  LocalFileListResult,
+  LocalFileReadResult,
   LocalFilePlanAction,
   LocalFilePlanResult,
 } from '../src/app-types.js';
@@ -26,6 +31,34 @@ const api = {
       rootPath,
       actions,
     }) as Promise<LocalFileApplyResult>,
+  createFileInFolder: (rootPath: string, relativePath: string, content: string, overwrite?: boolean) =>
+    ipcRenderer.invoke('local:create-file-in-folder', {
+      rootPath,
+      relativePath,
+      content,
+      overwrite,
+    }) as Promise<LocalFileCreateResult>,
+  appendFileInFolder: (rootPath: string, relativePath: string, content: string) =>
+    ipcRenderer.invoke('local:append-file-in-folder', {
+      rootPath,
+      relativePath,
+      content,
+    }) as Promise<LocalFileAppendResult>,
+  readFileInFolder: (rootPath: string, relativePath: string) =>
+    ipcRenderer.invoke('local:read-file-in-folder', {
+      rootPath,
+      relativePath,
+    }) as Promise<LocalFileReadResult>,
+  listDirInFolder: (rootPath: string, relativePath?: string) =>
+    ipcRenderer.invoke('local:list-dir-in-folder', {
+      rootPath,
+      relativePath,
+    }) as Promise<LocalFileListResult>,
+  existsInFolder: (rootPath: string, relativePath: string) =>
+    ipcRenderer.invoke('local:exists-in-folder', {
+      rootPath,
+      relativePath,
+    }) as Promise<LocalFileExistsResult>,
 };
 
 contextBridge.exposeInMainWorld('relay', api);

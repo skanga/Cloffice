@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 
-import { ArrowUp, Loader2 } from 'lucide-react';
-import type { LocalFilePlanAction } from '@/app-types';
+import { ArrowUp, ChevronRight, Clock3, FileText, Loader2 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import type { Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import type { LocalActionReceipt, LocalFilePlanAction } from '@/app-types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,39 +14,19 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 
 type TaskState = 'idle' | 'planned';
-type RecommendationState = 'approve' | 'needs-second-sign' | 'block' | 'skip';
-
-type PlanItem = {
-  id: string;
-  title: string;
-  state: RecommendationState;
-  rationale: string;
-  confidence: number;
-  policyRef: string;
-};
+type CoworkRunPhase = 'idle' | 'sending' | 'streaming' | 'completed' | 'error';
 
 type CoworkMessage = {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   text: string;
 };
 
-type ExecutionStep = {
+type InlineActivityCard = {
   id: string;
   label: string;
-  detail: string;
-  status: 'pending' | 'running' | 'done';
-};
-
-type RunSummary = {
-  id: string;
-  prompt: string;
-  completedAt: string;
-  approved: number;
-  escalated: number;
-  blocked: number;
-  skipped: number;
-  receiptId: string;
+  details: string;
+  tone: 'neutral' | 'success' | 'danger';
 };
 
 type CoworkPageProps = {
@@ -51,119 +34,197 @@ type CoworkPageProps = {
   workingFolder: string;
   taskState: TaskState;
   status: string;
+  messages: CoworkMessage[];
+  rightPanelOpen: boolean;
+  awaitingStream: boolean;
+  streamingAssistantText: string;
+  runPhase: CoworkRunPhase;
+  runStatus: string;
+  sessionKey: string;
+  selectedModel: string;
   desktopBridgeAvailable: boolean;
   localPlanActions: LocalFilePlanAction[];
   localPlanLoading: boolean;
   localApplyLoading: boolean;
+  fileCreateLoading: boolean;
+  localActionReceipts: LocalActionReceipt[];
+  localActionSmokeRunning: boolean;
+  fileDraftPath: string;
+  fileDraftContent: string;
   sending: boolean;
   onTaskPromptChange: (value: string) => void;
   onWorkingFolderChange: (value: string) => void;
+  onModelChange: (value: string) => void;
+  onFileDraftPathChange: (value: string) => void;
+  onFileDraftContentChange: (value: string) => void;
   onPickWorkingFolder: () => void | Promise<void>;
-  onSubmit: (event: FormEvent) => void;
+  onSubmit: (event: FormEvent) => void | Promise<void>;
   onCreateLocalPlan: () => void | Promise<void>;
   onApplyLocalPlan: () => void | Promise<void>;
+  onCreateFileInWorkingFolder: () => void | Promise<void>;
+  onRunLocalActionSmokeTest: () => void | Promise<void>;
 };
 
 const connectors = ['Web search', 'Desktop files', 'Gateway tools'];
 
-const baseExecutionSteps: ExecutionStep[] = [
-  {
-    id: 'step-analyze',
-    label: 'Analyze task context',
-    detail: 'Build structured understanding of the request and constraints.',
-    status: 'pending',
-  },
-  {
-    id: 'step-policy',
-    label: 'Apply policy checks',
-    detail: 'Classify recommendations by approval policy and risk threshold.',
-    status: 'pending',
-  },
-  {
-    id: 'step-orchestrate',
-    label: 'Prepare execution payload',
-    detail: 'Assemble actions and escalation routing before run approval.',
-    status: 'pending',
-  },
-  {
-    id: 'step-execute',
-    label: 'Execute approved actions',
-    detail: 'Apply approved items and produce receipts.',
-    status: 'pending',
-  },
-];
-
-function parsePromptToPlan(prompt: string): PlanItem[] {
-  const normalized = prompt.toLowerCase();
-
-  const hasLargeSpendSignal =
-    normalized.includes('large') || normalized.includes('high value') || normalized.includes('cfo');
-  const hasVendorRiskSignal = normalized.includes('vendor') || normalized.includes('new supplier');
-  const hasUrgencySignal = normalized.includes('urgent') || normalized.includes('today') || normalized.includes('asap');
-
-  const items: PlanItem[] = [
-    {
-      id: 'item-1',
-      title: 'PO-2040 Office Ops Renewal',
-      state: 'approve',
-      rationale: 'Within threshold and matches existing contract metadata.',
-      confidence: 0.92,
-      policyRef: 'FIN-APP-01',
-    },
-    {
-      id: 'item-2',
-      title: hasLargeSpendSignal ? 'PO-2041 Annual Platform Commitment' : 'PO-2041 Department Software Upgrade',
-      state: 'needs-second-sign',
-      rationale: 'Amount crosses manager-only threshold and requires secondary sign-off.',
-      confidence: 0.86,
-      policyRef: 'FIN-APP-03',
-    },
-    {
-      id: 'item-3',
-      title: hasVendorRiskSignal ? 'PO-2042 New Vendor Onboarding' : 'PO-2042 Security Service Expansion',
-      state: hasVendorRiskSignal ? 'block' : 'skip',
-      rationale: hasVendorRiskSignal
-        ? 'Missing vendor verification packet and legal review confirmation.'
-        : 'Not enough attached evidence to approve in this run.',
-      confidence: hasVendorRiskSignal ? 0.84 : 0.72,
-      policyRef: hasVendorRiskSignal ? 'FIN-RISK-05' : 'FIN-APP-04',
-    },
-  ];
-
-  if (hasUrgencySignal) {
-    items.push({
-      id: 'item-4',
-      title: 'PO-2043 Urgent Contractor Extension',
-      state: 'approve',
-      rationale: 'Urgent extension validated against prior approved envelope.',
-      confidence: 0.88,
-      policyRef: 'FIN-APP-02',
-    });
+function runPhaseClasses(phase: CoworkRunPhase): string {
+  if (phase === 'completed') {
+    return 'border-[rgba(47,122,88,0.35)] bg-[rgba(47,122,88,0.08)] text-[#2f7a58]';
   }
-
-  return items;
-}
-
-function buildPlanSummary(items: PlanItem[]): string {
-  const approved = items.filter((item) => item.state === 'approve').length;
-  const escalated = items.filter((item) => item.state === 'needs-second-sign').length;
-  const blocked = items.filter((item) => item.state === 'block').length;
-  const skipped = items.filter((item) => item.state === 'skip').length;
-
-  return `Plan ready: ${items.length} items reviewed. ${approved} approve, ${escalated} needs second sign, ${blocked} block, ${skipped} skip.`;
-}
-
-function stateToneClasses(state: RecommendationState): string {
-  if (state === 'approve') {
-    return 'border-[rgba(47,122,88,0.3)] bg-[rgba(47,122,88,0.08)] text-[#2f7a58]';
+  if (phase === 'streaming' || phase === 'sending') {
+    return 'border-[rgba(222,130,94,0.45)] bg-[rgba(222,130,94,0.12)] text-[#8a4b31]';
   }
-  if (state === 'needs-second-sign') {
-    return 'border-[rgba(173,132,46,0.34)] bg-[rgba(173,132,46,0.1)] text-[#7a5e1d]';
-  }
-  if (state === 'block') {
+  if (phase === 'error') {
     return 'border-[rgba(173,56,56,0.34)] bg-[rgba(173,56,56,0.1)] text-[#7f2c2c]';
   }
   return 'border-[rgba(98,96,90,0.3)] bg-[rgba(98,96,90,0.09)] text-[#4d4b45]';
+}
+
+function runPhaseLabel(phase: CoworkRunPhase): string {
+  if (phase === 'sending') return 'Sending';
+  if (phase === 'streaming') return 'Streaming';
+  if (phase === 'completed') return 'Completed';
+  if (phase === 'error') return 'Error';
+  return 'Idle';
+}
+
+const markdownComponents: Components = {
+  h1: ({ children }) => <h1 className="mb-2 mt-4 text-xl font-semibold leading-7 first:mt-0">{children}</h1>,
+  h2: ({ children }) => <h2 className="mb-2 mt-4 text-lg font-semibold leading-7 first:mt-0">{children}</h2>,
+  h3: ({ children }) => <h3 className="mb-2 mt-4 text-base font-semibold leading-6 first:mt-0">{children}</h3>,
+  p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+  ul: ({ children }) => <ul className="mb-3 list-disc space-y-1 pl-6 last:mb-0">{children}</ul>,
+  ol: ({ children }) => <ol className="mb-3 list-decimal space-y-1 pl-6 last:mb-0">{children}</ol>,
+  li: ({ children }) => <li className="leading-6">{children}</li>,
+  blockquote: ({ children }) => (
+    <blockquote className="mb-3 border-l-2 border-[rgba(31,31,28,0.15)] pl-3 italic text-muted-foreground">{children}</blockquote>
+  ),
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noreferrer" className="underline decoration-[rgba(31,31,28,0.35)] underline-offset-2 hover:text-foreground">
+      {children}
+    </a>
+  ),
+  code: ({ className, children }) => {
+    const isBlock = className?.includes('language-');
+
+    if (isBlock) {
+      return (
+        <code className="block overflow-x-auto rounded-lg bg-[rgba(31,31,28,0.08)] px-3 py-2 font-mono text-[13px] leading-6 text-foreground">
+          {children}
+        </code>
+      );
+    }
+
+    return <code className="rounded bg-[rgba(31,31,28,0.08)] px-1 py-0.5 font-mono text-[13px] text-foreground">{children}</code>;
+  },
+  pre: ({ children }) => <pre className="mb-3 last:mb-0">{children}</pre>,
+};
+
+function isSystemLikeMessage(message: CoworkMessage): boolean {
+  if (message.role === 'system') {
+    return true;
+  }
+
+  const text = message.text.trim();
+  if (!text) {
+    return false;
+  }
+
+  return (
+    /relay_action_receipts/i.test(text) ||
+    /^No executable relay_actions/i.test(text) ||
+    /^Executed\s+\d+\s+local action/i.test(text) ||
+    /^AI requested local file actions/i.test(text) ||
+    /^Folder:\s+/im.test(text)
+  );
+}
+
+function extractInlineActivityCards(message: CoworkMessage): { body: string; cards: InlineActivityCard[] } {
+  if (message.role !== 'assistant') {
+    return { body: message.text, cards: [] };
+  }
+
+  const lines = message.text.split('\n');
+  const kept: string[] = [];
+  const cards: InlineActivityCard[] = [];
+
+  const looksLikeActivity = (line: string) => {
+    const normalized = line.trim();
+    if (!normalized) {
+      return false;
+    }
+
+    return (
+      /^Presented\s+.+\s+file\s+from\s+.+\s+directory\s*>?$/i.test(normalized) ||
+      /^Created\s+scheduled\s+task\s*:/i.test(normalized) ||
+      /^(Created|Updated|Deleted|Scheduled|Queued|Applied)\s+/i.test(normalized)
+    );
+  };
+
+  const toTone = (line: string): InlineActivityCard['tone'] => {
+    if (/failed|error|unavailable/i.test(line)) {
+      return 'danger';
+    }
+    if (/created|scheduled|applied|updated/i.test(line)) {
+      return 'success';
+    }
+    return 'neutral';
+  };
+
+  const looksLikeContinuationDetail = (line: string) => {
+    const normalized = line.trim();
+    if (!normalized) {
+      return false;
+    }
+
+    return (
+      /^[-*•]\s+/.test(normalized) ||
+      /^(Path|Directory|File|Task|Id|ID|Source|Result|Status)\s*:/i.test(normalized) ||
+      /^\s+/.test(line)
+    );
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? '';
+    if (!looksLikeActivity(line)) {
+      kept.push(line);
+      continue;
+    }
+
+    const label = line.trim().replace(/\s*>$/, '');
+    const detailLines: string[] = [];
+    let cursor = index + 1;
+    while (cursor < lines.length) {
+      const candidate = lines[cursor] ?? '';
+      if (!candidate.trim()) {
+        break;
+      }
+      if (looksLikeActivity(candidate)) {
+        break;
+      }
+      if (!looksLikeContinuationDetail(candidate)) {
+        break;
+      }
+
+      detailLines.push(candidate.trim());
+      cursor += 1;
+    }
+
+    if (detailLines.length > 0) {
+      index = cursor - 1;
+    }
+
+    const details = detailLines.length > 0 ? detailLines.join('\n') : `Raw event: ${label}`;
+    cards.push({
+      id: `${message.id}-activity-${index}`,
+      label,
+      details,
+      tone: toTone(label),
+    });
+  }
+
+  const body = kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return { body, cards };
 }
 
 export function CoworkPage({
@@ -171,38 +232,52 @@ export function CoworkPage({
   workingFolder,
   taskState,
   status,
+  messages,
+  rightPanelOpen,
+  awaitingStream,
+  streamingAssistantText: _streamingAssistantText,
+  runPhase,
+  runStatus,
+  sessionKey,
+  selectedModel,
   desktopBridgeAvailable,
   localPlanActions,
   localPlanLoading,
   localApplyLoading,
+  fileCreateLoading,
+  localActionReceipts,
+  localActionSmokeRunning,
+  fileDraftPath,
+  fileDraftContent,
   sending,
   onTaskPromptChange,
   onWorkingFolderChange,
+  onModelChange,
+  onFileDraftPathChange,
+  onFileDraftContentChange,
   onPickWorkingFolder,
   onSubmit,
   onCreateLocalPlan,
   onApplyLocalPlan,
+  onCreateFileInWorkingFolder,
+  onRunLocalActionSmokeTest,
 }: CoworkPageProps) {
-  const [planItems, setPlanItems] = useState<PlanItem[]>([]);
-  const [planSummary, setPlanSummary] = useState('No plan drafted yet. Submit a task to generate recommendations.');
-  const [coworkMessages, setCoworkMessages] = useState<CoworkMessage[]>([]);
-  const [coworkModel, setCoworkModel] = useState('opus-4.5');
-  const [executionSteps, setExecutionSteps] = useState<ExecutionStep[]>(baseExecutionSteps);
-  const [executionRunning, setExecutionRunning] = useState(false);
-  const [executionMessage, setExecutionMessage] = useState('Waiting for approved plan.');
-  const [latestRun, setLatestRun] = useState<RunSummary | null>(null);
-  const [runHistory, setRunHistory] = useState<RunSummary[]>([]);
-  const [showDetails, setShowDetails] = useState(true);
   const formRef = useRef<HTMLFormElement | null>(null);
-  const messageSequenceRef = useRef(0);
-  const executionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const currentStepIndexRef = useRef(-1);
+  const [expandedSystemMessageId, setExpandedSystemMessageId] = useState<string | null>(null);
+  const [expandedInlineActivityId, setExpandedInlineActivityId] = useState<string | null>(null);
   const canSend = taskPrompt.trim().length > 0 && !sending;
+  const visibleMessages = useMemo(() => messages.filter((message) => !isSystemLikeMessage(message)), [messages]);
+  const systemMessages = useMemo(
+    () => messages.filter((message) => isSystemLikeMessage(message)).slice(-8).reverse(),
+    [messages],
+  );
+  const isInitialWorkspace = visibleMessages.length === 0;
 
-  const nextMessageId = (role: CoworkMessage['role']) => {
-    messageSequenceRef.current += 1;
-    return `${role}-${Date.now()}-${messageSequenceRef.current}`;
-  };
+  const messageCounts = useMemo(() => {
+    const user = messages.filter((message) => message.role === 'user').length;
+    const assistant = messages.filter((message) => message.role === 'assistant').length;
+    return { user, assistant };
+  }, [messages]);
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== 'Enter' || event.shiftKey) {
@@ -216,158 +291,14 @@ export function CoworkPage({
     formRef.current?.requestSubmit();
   };
 
-  useEffect(() => {
-    return () => {
-      if (executionTimerRef.current) {
-        clearInterval(executionTimerRef.current);
-        executionTimerRef.current = null;
-      }
-    };
-  }, []);
-
-  const recommendationCounts = useMemo(() => {
-    return {
-      approve: planItems.filter((item) => item.state === 'approve').length,
-      escalate: planItems.filter((item) => item.state === 'needs-second-sign').length,
-      block: planItems.filter((item) => item.state === 'block').length,
-      skip: planItems.filter((item) => item.state === 'skip').length,
-    };
-  }, [planItems]);
-
-  const appendAssistantMessage = (text: string) => {
-    setCoworkMessages((current) => [...current, { id: nextMessageId('assistant'), role: 'assistant', text }]);
-  };
-
-  const appendUserMessage = (text: string) => {
-    setCoworkMessages((current) => [...current, { id: nextMessageId('user'), role: 'user', text }]);
-  };
-
-  const handleDraftPlan = (event: FormEvent) => {
-    onSubmit(event);
-    const trimmedPrompt = taskPrompt.trim();
-    if (!trimmedPrompt) {
-      return;
-    }
-
-    const generated = parsePromptToPlan(trimmedPrompt);
-    const summary = buildPlanSummary(generated);
-
-    setPlanItems(generated);
-    setPlanSummary(summary);
-    setExecutionSteps(baseExecutionSteps);
-    setExecutionMessage('Plan drafted. Review details and run execution when ready.');
-    setLatestRun(null);
-
-    appendUserMessage(trimmedPrompt);
-    appendAssistantMessage(`${summary} Reply with /yes to run, /modify to adjust scope, or /details for full rationale.`);
-  };
-
-  const handleRunExecution = () => {
-    if (planItems.length === 0 || executionRunning) {
-      return;
-    }
-
-    setExecutionRunning(true);
-    setExecutionMessage('Execution started. You can continue steering while this runs.');
-    setExecutionSteps(baseExecutionSteps.map((step, index) => ({ ...step, status: index === 0 ? 'running' : 'pending' })));
-    currentStepIndexRef.current = 0;
-
-    appendAssistantMessage('Execution started. I will process approved items and provide receipts when complete.');
-
-    executionTimerRef.current = setInterval(() => {
-      const nextStepIndex = currentStepIndexRef.current + 1;
-
-      setExecutionSteps((current) =>
-        current.map((step, index) => {
-          if (index < nextStepIndex) {
-            return { ...step, status: 'done' };
-          }
-          if (index === nextStepIndex) {
-            return { ...step, status: 'running' };
-          }
-          return { ...step, status: 'pending' };
-        }),
-      );
-
-      currentStepIndexRef.current = nextStepIndex;
-
-      if (nextStepIndex >= baseExecutionSteps.length) {
-        if (executionTimerRef.current) {
-          clearInterval(executionTimerRef.current);
-          executionTimerRef.current = null;
-        }
-
-        const summary: RunSummary = {
-          id: `run-${Date.now()}`,
-          prompt: taskPrompt.trim() || 'Cowork task',
-          completedAt: new Date().toLocaleString(),
-          approved: recommendationCounts.approve,
-          escalated: recommendationCounts.escalate,
-          blocked: recommendationCounts.block,
-          skipped: recommendationCounts.skip,
-          receiptId: `rcpt-${Math.random().toString(16).slice(2, 8)}`,
-        };
-
-        setExecutionRunning(false);
-        setExecutionMessage('Execution completed. Review receipts and decide the next action.');
-        setLatestRun(summary);
-        setRunHistory((current) => [summary, ...current].slice(0, 8));
-        appendAssistantMessage(
-          `Run complete. Approved ${summary.approved}, escalated ${summary.escalated}, blocked ${summary.blocked}, skipped ${summary.skipped}. Receipt: ${summary.receiptId}.`,
-        );
-      }
-    }, 1200);
-  };
-
-  const handleSteeringCommand = (input: string) => {
-    const trimmed = input.trim();
-    if (!trimmed) {
-      return;
-    }
-
-    appendUserMessage(trimmed);
-
-    if (trimmed === '/details') {
-      setShowDetails(true);
-      appendAssistantMessage('Details expanded on the right panel.');
-      return;
-    }
-
-    if (trimmed === '/yes') {
-      appendAssistantMessage('Acknowledged. Executing approved plan now.');
-      handleRunExecution();
-      return;
-    }
-
-    if (trimmed === '/hold') {
-      if (executionTimerRef.current) {
-        clearInterval(executionTimerRef.current);
-        executionTimerRef.current = null;
-      }
-      setExecutionRunning(false);
-      setExecutionMessage('Execution held. You can review details and resume by running again.');
-      appendAssistantMessage('Execution paused. No further actions are being applied.');
-      return;
-    }
-
-    if (trimmed === '/modify') {
-      appendAssistantMessage('Scope update noted. Share specifics and I will regenerate the plan.');
-      return;
-    }
-
-    if (trimmed === '/no') {
-      appendAssistantMessage('Plan rejected. Update the request and draft again.');
-      return;
-    }
-
-    appendAssistantMessage('Steering received. Context retained for the next response.');
-  };
-
-  const completedSteps = executionSteps.filter((step) => step.status === 'done').length;
-  const isInitialWorkspace = coworkMessages.length === 0;
-
   return (
-    <section className="grid h-full w-full min-h-0 overflow-hidden gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+    <section
+      className={`grid h-full w-full min-h-0 overflow-hidden transition-[grid-template-columns,gap] duration-200 ${
+        rightPanelOpen
+          ? 'gap-4 grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_300px]'
+          : 'gap-0 grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_0px]'
+      }`}
+    >
       <div
         className={`grid h-full min-h-0 overflow-hidden bg-transparent ${
           isInitialWorkspace ? 'grid-rows-[minmax(0,1fr)]' : 'grid-rows-[auto_minmax(0,1fr)_auto]'
@@ -376,8 +307,8 @@ export function CoworkPage({
         {!isInitialWorkspace ? (
           <header className="flex items-center justify-between border-b border-[rgba(31,31,28,0.08)] px-2 py-3">
             <div>
-              <p className="text-sm font-medium text-foreground">Finance approvals cowork</p>
-              <p className="font-sans text-xs text-muted-foreground">Plan first, approve, then execute with checkpoints.</p>
+              <p className="text-sm font-medium text-foreground">Cowork</p>
+              <p className="font-sans text-xs text-muted-foreground">Send a task and watch live execution state from the gateway.</p>
             </div>
             <Badge
               variant="outline"
@@ -387,7 +318,7 @@ export function CoworkPage({
                   : 'rounded-full font-sans text-[11px]'
               }
             >
-              {taskState === 'planned' ? 'Plan ready' : 'Awaiting prompt'}
+              {taskState === 'planned' ? 'Task active' : 'Awaiting prompt'}
             </Badge>
           </header>
         ) : null}
@@ -399,11 +330,11 @@ export function CoworkPage({
                 <p className="mb-3 text-[clamp(1.8rem,2.8vw,2.5rem)] tracking-tight text-foreground">Let's knock something off your list</p>
                 <div className="rounded-2xl border border-[rgba(31,31,28,0.1)] bg-[rgba(255,255,255,0.7)] p-4">
                   <p className="font-sans text-sm text-muted-foreground">
-                    Cowork is an early research preview. New improvements ship frequently. Learn more or give us feedback.
+                    Cowork runs against your configured gateway and supports file-aware task context.
                   </p>
                 </div>
 
-                <form className="mt-4 rounded-3xl border border-[rgba(31,31,28,0.12)] bg-white px-4 py-3" onSubmit={handleDraftPlan} ref={formRef}>
+                <form className="mt-4 rounded-3xl border border-[rgba(31,31,28,0.12)] bg-white px-4 py-3" onSubmit={onSubmit} ref={formRef}>
                   <Textarea
                     value={taskPrompt}
                     onChange={(event) => onTaskPromptChange(event.target.value)}
@@ -416,21 +347,19 @@ export function CoworkPage({
                   <div className="mt-1 flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <Button type="button" variant="ghost" className="h-8 rounded-md px-2 font-sans text-sm text-muted-foreground" aria-label="Select context">
-                        LIP context
-                      </Button>
-                      <Button type="button" variant="ghost" className="h-8 w-8 rounded-md p-0 text-lg" aria-label="Add attachment">
-                        +
+                        Task context
                       </Button>
                     </div>
 
                     <div className="flex items-center gap-2">
                       <select
-                        value={coworkModel}
-                        onChange={(event) => setCoworkModel(event.target.value)}
+                        value={selectedModel}
+                        onChange={(event) => onModelChange(event.target.value)}
                         className="h-8 rounded-md border border-[rgba(31,31,28,0.12)] bg-white px-2 font-sans text-xs text-foreground outline-none"
                       >
-                        <option value="opus-4.5">Opus 4.5</option>
-                        <option value="sonnet-4">Sonnet 4</option>
+                        <option value="">Default model</option>
+                        <option value="anthropic/claude-opus-4-5">Claude Opus 4.5</option>
+                        <option value="anthropic/claude-sonnet-4-5">Claude Sonnet 4.5</option>
                       </select>
 
                       <Button
@@ -444,33 +373,95 @@ export function CoworkPage({
                       </Button>
                     </div>
                   </div>
-                  <p className="mt-2 text-right font-sans text-[11px] text-muted-foreground">
-                    Enter senden, Shift+Enter neue Zeile
-                  </p>
+                  <p className="mt-2 text-right font-sans text-[11px] text-muted-foreground">Enter send, Shift+Enter new line</p>
                 </form>
               </div>
             </div>
           ) : (
             <div className="mx-auto grid w-full max-w-[860px] gap-3">
-              {coworkMessages.map((message) => (
-                <article
-                  key={message.id}
-                  className={
-                    message.role === 'user'
-                      ? 'ml-auto w-[min(92%,700px)] px-2 py-1 text-right font-sans text-sm text-foreground'
-                      : 'w-[min(95%,760px)] px-2 py-1 font-sans text-sm text-foreground'
-                  }
-                >
-                  <p
-                    className={`mb-2 font-sans text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${
-                      message.role === 'user' ? 'text-right' : ''
-                    }`}
+              {visibleMessages.map((message) => {
+                const inline = extractInlineActivityCards(message);
+
+                return (
+                  <article
+                    key={message.id}
+                    className={
+                      message.role === 'user'
+                        ? 'ml-auto w-[min(92%,700px)] px-2 py-1 text-right font-sans text-sm text-foreground'
+                        : 'w-[min(95%,760px)] px-2 py-1 font-sans text-sm text-foreground'
+                    }
                   >
-                    {message.role}
-                  </p>
-                  <p className="whitespace-pre-wrap leading-6">{message.text}</p>
+                    <p
+                      className={`mb-2 font-sans text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${
+                        message.role === 'user' ? 'text-right' : ''
+                      }`}
+                    >
+                      {message.role}
+                    </p>
+
+                    {inline.body ? (
+                      <div className="font-sans text-sm leading-6 text-foreground">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                          {inline.body}
+                        </ReactMarkdown>
+                      </div>
+                    ) : null}
+
+                    {inline.cards.length > 0 ? (
+                      <div className="mt-2 grid gap-1.5">
+                        {inline.cards.map((card) => {
+                          const toneClass =
+                            card.tone === 'danger'
+                              ? 'border-[rgba(173,56,56,0.28)] bg-[rgba(173,56,56,0.06)]'
+                              : card.tone === 'success'
+                                ? 'border-[rgba(47,122,88,0.28)] bg-[rgba(47,122,88,0.08)]'
+                                : 'border-[rgba(31,31,28,0.14)] bg-[rgba(246,245,242,0.86)]';
+
+                          return (
+                            <div key={card.id} className="rounded-xl border border-[rgba(31,31,28,0.08)] bg-white">
+                              <button
+                                type="button"
+                                className={`group flex w-full items-center gap-2.5 rounded-xl border px-3 py-2 text-left transition-colors hover:bg-[rgba(240,239,235,0.96)] ${toneClass}`}
+                                onClick={() => setExpandedInlineActivityId((current) => (current === card.id ? null : card.id))}
+                                title={card.details}
+                              >
+                                <span className="flex h-5 w-5 items-center justify-center rounded-full border border-[rgba(31,31,28,0.16)] bg-white text-muted-foreground">
+                                  <FileText className="h-3 w-3" />
+                                </span>
+                                <span className="min-w-0 flex-1 truncate font-sans text-[12px] text-foreground/90">{card.label}</span>
+                                <ChevronRight
+                                  className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${
+                                    expandedInlineActivityId === card.id ? 'rotate-90' : 'group-hover:translate-x-0.5'
+                                  }`}
+                                />
+                              </button>
+
+                              {expandedInlineActivityId === card.id ? (
+                                <div className="border-t border-[rgba(31,31,28,0.08)] px-3 py-2">
+                                  <div className="text-[11px] leading-5 text-muted-foreground">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                                      {card.details}
+                                    </ReactMarkdown>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
+
+              {(sending || awaitingStream) && (
+                <article className="w-[min(95%,760px)] px-2 py-1 font-sans text-sm text-muted-foreground">
+                  <div className="inline-flex items-center gap-2 rounded-xl bg-[rgba(31,31,28,0.06)] px-3 py-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Working...
+                  </div>
                 </article>
-              ))}
+              )}
             </div>
           )}
         </ScrollArea>
@@ -478,7 +469,7 @@ export function CoworkPage({
         {!isInitialWorkspace ? (
           <div className="px-2 pb-3 pt-1">
             <div className="mx-auto grid w-full max-w-[860px] gap-2">
-              <form className="rounded-3xl border border-[rgba(31,31,28,0.12)] bg-white px-4 py-3" onSubmit={handleDraftPlan} ref={formRef}>
+              <form className="rounded-3xl border border-[rgba(31,31,28,0.12)] bg-white px-4 py-3" onSubmit={onSubmit} ref={formRef}>
                 <Textarea
                   value={taskPrompt}
                   onChange={(event) => onTaskPromptChange(event.target.value)}
@@ -491,21 +482,19 @@ export function CoworkPage({
                 <div className="mt-1 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Button type="button" variant="ghost" className="h-8 rounded-md px-2 font-sans text-sm text-muted-foreground" aria-label="Select context">
-                      LIP context
-                    </Button>
-                    <Button type="button" variant="ghost" className="h-8 w-8 rounded-md p-0 text-lg" aria-label="Add attachment">
-                      +
+                      Task context
                     </Button>
                   </div>
 
                   <div className="flex items-center gap-2">
                     <select
-                      value={coworkModel}
-                      onChange={(event) => setCoworkModel(event.target.value)}
+                      value={selectedModel}
+                      onChange={(event) => onModelChange(event.target.value)}
                       className="h-8 rounded-md border border-[rgba(31,31,28,0.12)] bg-white px-2 font-sans text-xs text-foreground outline-none"
                     >
-                      <option value="opus-4.5">Opus 4.5</option>
-                      <option value="sonnet-4">Sonnet 4</option>
+                      <option value="">Default model</option>
+                      <option value="anthropic/claude-opus-4-5">Claude Opus 4.5</option>
+                      <option value="anthropic/claude-sonnet-4-5">Claude Sonnet 4.5</option>
                     </select>
 
                     <Button
@@ -519,158 +508,194 @@ export function CoworkPage({
                     </Button>
                   </div>
                 </div>
-                <p className="mt-2 text-right font-sans text-[11px] text-muted-foreground">
-                  Enter senden, Shift+Enter neue Zeile
-                </p>
+                <p className="mt-2 text-right font-sans text-[11px] text-muted-foreground">Enter send, Shift+Enter new line</p>
               </form>
             </div>
           </div>
         ) : null}
       </div>
 
-      <aside className="grid min-h-0 w-full gap-3 lg:grid-rows-[auto_auto_minmax(0,1fr)]">
-        <Card className="rounded-2xl border-[rgba(31,31,28,0.1)] bg-[rgba(255,255,255,0.82)]">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Progress</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-2 pt-0">
-            <div className="flex items-center gap-2">
-              {executionSteps.map((step) => (
-                <span
-                  key={step.id}
-                  className={
-                    step.status === 'done'
-                      ? 'h-4 w-4 rounded-full border border-[rgba(47,122,88,0.45)] bg-[rgba(47,122,88,0.2)]'
-                      : step.status === 'running'
-                        ? 'h-4 w-4 rounded-full border border-[rgba(222,130,94,0.45)] bg-[rgba(222,130,94,0.18)]'
-                        : 'h-4 w-4 rounded-full border border-[rgba(31,31,28,0.15)] bg-transparent'
-                  }
-                  title={step.label}
+      <aside
+        className={`grid min-h-0 w-full overflow-hidden transition-opacity duration-200 lg:grid-rows-[auto_auto_minmax(0,1fr)] ${
+          rightPanelOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+        }`}
+      >
+        <div className="grid min-h-0 w-full gap-3">
+          <Card className="rounded-2xl border-[rgba(31,31,28,0.1)] bg-[rgba(255,255,255,0.82)]">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Run status</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2 pt-0">
+              <Badge variant="outline" className={`w-fit rounded-full font-sans text-[11px] ${runPhaseClasses(runPhase)}`}>
+                {runPhaseLabel(runPhase)}
+              </Badge>
+              <p className="font-sans text-xs text-muted-foreground">{runStatus}</p>
+              <p className="font-sans text-xs text-muted-foreground">{status}</p>
+              {sessionKey ? <p className="font-sans text-[11px] text-muted-foreground">Session: {sessionKey}</p> : null}
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl border-[rgba(31,31,28,0.1)] bg-[rgba(255,255,255,0.82)]">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Working folder</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2 pt-0">
+              <div className="flex items-center gap-2">
+                <Input
+                  value={workingFolder}
+                  onChange={(event) => onWorkingFolderChange(event.target.value)}
+                  placeholder="/Downloads"
+                  className="font-sans"
                 />
-              ))}
-            </div>
-            <p className="font-sans text-xs text-muted-foreground">See task progress for longer tasks.</p>
-            {!isInitialWorkspace ? (
-              <p className="font-sans text-xs text-muted-foreground">{completedSteps}/{executionSteps.length} steps completed.</p>
-            ) : null}
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-[rgba(31,31,28,0.1)] bg-[rgba(255,255,255,0.82)]">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Working folder</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-2 pt-0">
-            <div className="flex items-center gap-2">
-              <Input
-                value={workingFolder}
-                onChange={(event) => onWorkingFolderChange(event.target.value)}
-                placeholder="/Downloads"
-                className="font-sans"
-              />
-              <Button type="button" size="sm" variant="outline" onClick={() => void onPickWorkingFolder()}>
-                Browse
-              </Button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" size="sm" variant="outline" onClick={() => void onCreateLocalPlan()} disabled={localPlanLoading}>
-                {localPlanLoading ? 'Planning...' : 'Generate plan'}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                className="border-0 bg-[linear-gradient(120deg,#ea9f7d,#de825e)] text-[#fffefb]"
-                onClick={() => void onApplyLocalPlan()}
-                disabled={localApplyLoading || localPlanActions.length === 0}
-              >
-                {localApplyLoading ? 'Applying...' : `Apply ${localPlanActions.length}`}
-              </Button>
-            </div>
-            {!desktopBridgeAvailable && (
-              <p className="font-sans text-[11px] text-muted-foreground">Desktop app required for native folder access.</p>
-            )}
-            <p className="font-sans text-xs text-muted-foreground">View and open files created during this task.</p>
-          </CardContent>
-        </Card>
-
-        <Card className="min-h-0 rounded-2xl border-[rgba(31,31,28,0.1)] bg-[rgba(255,255,255,0.82)]">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm">Context</CardTitle>
-            <Button type="button" size="sm" variant="ghost" onClick={() => setShowDetails((current) => !current)}>
-              {showDetails ? 'Hide' : 'Show'}
-            </Button>
-          </CardHeader>
-          <CardContent className="grid h-full min-h-0 gap-2 pt-0">
-            <div>
-              <p className="font-sans text-[11px] uppercase tracking-wide text-muted-foreground">Connectors</p>
-              <div className="mt-1 flex flex-wrap gap-1.5">
-                {connectors.map((connector) => (
-                  <Badge key={connector} variant="outline" className="font-sans text-[11px]">
-                    {connector}
-                  </Badge>
-                ))}
+                <Button type="button" size="sm" variant="outline" onClick={() => void onPickWorkingFolder()}>
+                  Browse
+                </Button>
               </div>
-            </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm" variant="outline" onClick={() => void onCreateLocalPlan()} disabled={localPlanLoading}>
+                  {localPlanLoading ? 'Planning...' : 'Generate plan'}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="border-0 bg-[linear-gradient(120deg,#ea9f7d,#de825e)] text-[#fffefb]"
+                  onClick={() => void onApplyLocalPlan()}
+                  disabled={localApplyLoading || localPlanActions.length === 0}
+                >
+                  {localApplyLoading ? 'Applying...' : `Apply ${localPlanActions.length}`}
+                </Button>
+              </div>
+              <div className="grid gap-2 rounded-lg border border-[rgba(31,31,28,0.1)] bg-white p-2">
+                <p className="font-sans text-[11px] uppercase tracking-wide text-muted-foreground">Create file</p>
+                <Input
+                  value={fileDraftPath}
+                  onChange={(event) => onFileDraftPathChange(event.target.value)}
+                  placeholder="notes/todo.md"
+                  className="font-sans text-xs"
+                />
+                <Textarea
+                  value={fileDraftContent}
+                  onChange={(event) => onFileDraftContentChange(event.target.value)}
+                  rows={5}
+                  placeholder="Write file contents..."
+                  className="font-sans text-xs"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void onCreateFileInWorkingFolder()}
+                  disabled={fileCreateLoading}
+                >
+                  {fileCreateLoading ? 'Creating...' : 'Create file in folder'}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void onRunLocalActionSmokeTest()}
+                  disabled={localActionSmokeRunning}
+                >
+                  {localActionSmokeRunning ? 'Running smoke test...' : 'Run local action smoke test'}
+                </Button>
+              </div>
+              {!desktopBridgeAvailable && (
+                <p className="font-sans text-[11px] text-muted-foreground">Desktop app required for native folder access.</p>
+              )}
+            </CardContent>
+          </Card>
 
-            <p className="font-sans text-xs text-muted-foreground">{status}</p>
-            <p className="font-sans text-xs text-muted-foreground">{planSummary}</p>
+          <Card className="min-h-0 rounded-2xl border-[rgba(31,31,28,0.1)] bg-[rgba(255,255,255,0.82)]">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Context</CardTitle>
+            </CardHeader>
+            <CardContent className="grid h-full min-h-0 gap-2 pt-0">
+              <div>
+                <p className="font-sans text-[11px] uppercase tracking-wide text-muted-foreground">Connectors</p>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {connectors.map((connector) => (
+                    <Badge key={connector} variant="outline" className="font-sans text-[11px]">
+                      {connector}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-lg border border-[rgba(31,31,28,0.1)] bg-white p-2">
+                <p className="font-sans text-[11px] uppercase tracking-wide text-muted-foreground">Conversation</p>
+                <p className="font-sans text-xs text-foreground">{messageCounts.user} user message(s), {messageCounts.assistant} assistant message(s)</p>
+              </div>
+              <div className="rounded-lg border border-[rgba(31,31,28,0.1)] bg-white p-2">
+                <p className="font-sans text-[11px] uppercase tracking-wide text-muted-foreground">System activity</p>
+                {systemMessages.length === 0 ? (
+                  <p className="font-sans text-xs text-muted-foreground">No system events yet.</p>
+                ) : (
+                  <div className="mt-1 grid gap-1.5">
+                    {systemMessages.map((message) => {
+                      const [headline, ...rest] = message.text.split('\n');
+                      const details = rest.join('\n').trim();
+                      const isExpanded = expandedSystemMessageId === message.id;
 
-            {showDetails && (
-              <div className="min-h-0 overflow-hidden rounded-lg border border-[rgba(31,31,28,0.1)] bg-white p-2">
-                <ScrollArea className="h-[180px]">
-                  <div className="grid gap-2 pr-2">
-                    {planItems.length === 0 && (
-                      <p className="font-sans text-xs text-muted-foreground">No recommendations yet.</p>
-                    )}
-                    {planItems.map((item) => (
-                      <div key={item.id} className="rounded-md border border-[rgba(31,31,28,0.08)] p-2">
-                        <div className="mb-1 flex items-center justify-between gap-2">
-                          <p className="font-sans text-xs text-foreground">{item.title}</p>
-                          <span className={`rounded-full border px-2 py-0.5 font-sans text-[10px] ${stateToneClasses(item.state)}`}>
-                            {item.state}
-                          </span>
+                      const statusToneClass =
+                        /failed|error|unavailable/i.test(headline)
+                          ? 'border-[rgba(173,56,56,0.26)] bg-[rgba(173,56,56,0.06)]'
+                          : 'border-[rgba(31,31,28,0.12)] bg-[rgba(246,245,242,0.88)]';
+
+                      return (
+                        <div key={message.id} className="rounded-xl border border-[rgba(31,31,28,0.08)] bg-white">
+                          <button
+                            type="button"
+                            title={details ? `${headline}\n\n${details}` : headline}
+                            className={`group flex w-full items-center gap-2.5 rounded-xl border px-2.5 py-2 text-left transition-colors hover:bg-[rgba(240,239,235,0.96)] ${statusToneClass}`}
+                            onClick={() => setExpandedSystemMessageId((current) => (current === message.id ? null : message.id))}
+                          >
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full border border-[rgba(31,31,28,0.16)] bg-white text-muted-foreground">
+                              <Clock3 className="h-3 w-3" />
+                            </span>
+                            <span className="min-w-0 flex-1 truncate font-sans text-[12px] text-foreground/90">
+                              {headline || 'System event'}
+                            </span>
+                            <ChevronRight
+                              className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${
+                                isExpanded ? 'rotate-90' : 'group-hover:translate-x-0.5'
+                              }`}
+                            />
+                          </button>
+
+                          {isExpanded && details ? (
+                            <div className="border-t border-[rgba(31,31,28,0.08)] px-2.5 py-2">
+                              <div className="max-h-40 overflow-auto text-[11px] leading-5 text-muted-foreground">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                                  {details}
+                                </ReactMarkdown>
+                              </div>
+                            </div>
+                          ) : null}
                         </div>
-                        <p className="font-sans text-[11px] text-muted-foreground">{item.rationale}</p>
-                        <p className="mt-1 font-sans text-[10px] text-muted-foreground">
-                          {item.policyRef} | {(item.confidence * 100).toFixed(0)}%
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              <div className="rounded-lg border border-[rgba(31,31,28,0.1)] bg-white p-2">
+                <p className="font-sans text-[11px] uppercase tracking-wide text-muted-foreground">Local actions</p>
+                {localActionReceipts.length === 0 ? (
+                  <p className="font-sans text-xs text-muted-foreground">No local actions yet.</p>
+                ) : (
+                  <div className="mt-1 grid gap-1">
+                    {localActionReceipts.slice(0, 6).map((item) => (
+                      <div key={`${item.id}-${item.path}`} className="rounded border border-[rgba(31,31,28,0.08)] px-2 py-1">
+                        <p className="font-sans text-[11px] text-foreground">
+                          {item.type} • {item.status}
                         </p>
+                        <p className="truncate font-sans text-[10px] text-muted-foreground">{item.path}</p>
                       </div>
                     ))}
                   </div>
-                </ScrollArea>
+                )}
               </div>
-            )}
-
-            <div className="rounded-lg border border-[rgba(31,31,28,0.1)] bg-white p-2">
-              <p className="font-sans text-[11px] uppercase tracking-wide text-muted-foreground">Latest result</p>
-              {!latestRun ? (
-                <p className="font-sans text-xs text-muted-foreground">No completed run yet.</p>
-              ) : (
-                <p className="font-sans text-xs text-foreground">
-                  {latestRun.approved} approve, {latestRun.escalated} escalate, {latestRun.blocked} block, {latestRun.skipped} skip
-                </p>
-              )}
-            </div>
-
-            <div className="min-h-0 overflow-hidden rounded-lg border border-[rgba(31,31,28,0.1)] bg-white p-2">
-              <p className="mb-1 font-sans text-[11px] uppercase tracking-wide text-muted-foreground">History</p>
-              <ScrollArea className="h-[90px]">
-                <div className="grid gap-1 pr-2">
-                  {runHistory.length === 0 ? (
-                    <p className="font-sans text-xs text-muted-foreground">No run history yet.</p>
-                  ) : (
-                    runHistory.slice(0, 3).map((run) => (
-                      <div key={run.id} className="rounded border border-[rgba(31,31,28,0.08)] p-1.5">
-                        <p className="line-clamp-1 font-sans text-[11px] text-foreground">{run.prompt}</p>
-                        <p className="font-sans text-[10px] text-muted-foreground">{run.completedAt}</p>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </ScrollArea>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       </aside>
     </section>
   );

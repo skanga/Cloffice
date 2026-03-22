@@ -34,6 +34,7 @@ type RecentSidebarItem = {
   id: string;
   label: string;
   sessionKey: string;
+  kind: 'chat' | 'cowork';
 };
 
 type ScheduledSidebarItem = {
@@ -48,12 +49,13 @@ type AppSidebarProps = {
   activeMenuItem: string;
   activePage: AppPage;
   activeSessionKey: string;
+  activeCoworkSessionKey: string;
   userEmail: string;
   guestMode: boolean;
   recentItems: RecentSidebarItem[];
   scheduledItems: ScheduledSidebarItem[];
   scheduledLoading: boolean;
-  onSelectRecentChat: (sessionKey: string) => void;
+  onSelectRecentItem: (item: RecentSidebarItem) => void;
   onStartNewChat: () => void;
   onStartNewTask: () => void;
   onSelectMenuItem: (item: string) => void;
@@ -76,12 +78,13 @@ export function AppSidebar({
   activeMenuItem,
   activePage,
   activeSessionKey,
+  activeCoworkSessionKey,
   userEmail,
   guestMode,
   recentItems,
   scheduledItems,
   scheduledLoading,
-  onSelectRecentChat,
+  onSelectRecentItem,
   onStartNewChat,
   onStartNewTask,
   onSelectMenuItem,
@@ -191,15 +194,26 @@ export function AppSidebar({
                       <SidebarMenuItem key={item.id}>
                         <SidebarMenuButton
                           type="button"
-                          active={isChatView && item.sessionKey === activeSessionKey}
-                          aria-current={isChatView && item.sessionKey === activeSessionKey ? 'page' : undefined}
-                          aria-label={`Open chat ${item.label}`}
+                            active={
+                              (item.kind === 'chat' && item.sessionKey === activeSessionKey) ||
+                              (item.kind === 'cowork' && item.sessionKey === activeCoworkSessionKey)
+                            }
+                            aria-current={
+                              (item.kind === 'chat' && item.sessionKey === activeSessionKey) ||
+                              (item.kind === 'cowork' && item.sessionKey === activeCoworkSessionKey)
+                                ? 'page'
+                                : undefined
+                            }
+                            aria-label={`Open ${item.kind === 'cowork' ? 'task' : 'chat'} ${item.label}`}
                           className="w-full gap-2 font-sans text-[12px]"
                           title={item.label}
                           onClick={() => {
-                            onSelectRecentChat(item.sessionKey);
+                              onSelectRecentItem(item);
                           }}
                         >
+                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                              {item.kind === 'cowork' ? 'Task' : 'Chat'}
+                            </span>
                           <span className="block truncate">{item.label}</span>
                         </SidebarMenuButton>
                       </SidebarMenuItem>

@@ -48,3 +48,48 @@ export type LocalFileApplyResult = {
   skipped: number;
   errors: string[];
 };
+
+export type LocalFileCreateResult = {
+  filePath: string;
+  created: boolean;
+};
+
+export type LocalFileReadResult = {
+  filePath: string;
+  content: string;
+};
+
+export type LocalFileAppendResult = {
+  filePath: string;
+  appended: boolean;
+  bytesAppended: number;
+};
+
+export type LocalFileListItem = {
+  path: string;
+  kind: 'file' | 'directory';
+  size?: number;
+};
+
+export type LocalFileListResult = {
+  rootPath: string;
+  items: LocalFileListItem[];
+  truncated: boolean;
+};
+
+export type LocalFileExistsResult = {
+  path: string;
+  exists: boolean;
+  kind: 'file' | 'directory' | 'none';
+};
+
+export type LocalActionType = 'create_file' | 'append_file' | 'read_file' | 'list_dir' | 'exists';
+
+export type LocalActionReceipt = {
+  id: string;
+  type: LocalActionType;
+  path: string;
+  status: 'ok' | 'error';
+  errorCode?: string;
+  message?: string;
+};
