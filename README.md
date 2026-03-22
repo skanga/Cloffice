@@ -23,13 +23,31 @@ Relay is an Electron desktop shell for a Claude-style coworking experience backe
    npm run dev
    ```
 
-3. In the settings panel, choose one of these backend modes:
+3. Configure Supabase auth environment values:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   Set:
+
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+
+   These are optional if you only want to use local mode.
+
+4. In the settings panel, choose one of these backend modes:
 
 - `local`: defaults to `http://127.0.0.1:3000`
 - `vps`: placeholder HTTPS URL for a remote OpenClaw deployment
 - `custom`: any compatible OpenClaw base URL
 
-4. Run the built-in health check to confirm the backend is reachable.
+5. Run the built-in health check to confirm the backend is reachable.
+
+## Authentication Modes
+
+- `Local mode (no login)`: available by selecting "Continue in local mode" on launch.
+- `Cloud mode (Supabase login)`: sign in with email/password to use hosted account features.
 
 ## Build
 

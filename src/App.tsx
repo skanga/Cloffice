@@ -11,18 +11,29 @@ import type {
 } from './app-types';
 import { AppSidebar } from './components/layout/app-sidebar';
 import { AppTitlebar } from './components/layout/app-titlebar';
+import { Button } from './components/ui/button';
 import { SidebarProvider } from './components/ui/sidebar';
 import { ScrollArea } from './components/ui/scroll-area';
 import { GatewayRequestError, OpenClawGatewayClient } from './lib/openclaw-gateway-client';
 import { ChatPage } from './pages/chat-page';
 import { CoworkPage } from './pages/cowork-page';
+import { LoginPage } from './pages/login-page';
 import { ScheduledPage } from './pages/scheduled-page';
 import { SettingsPage } from './pages/settings-page';
+import {
+  getSupabaseAuthConfigError,
+  restoreSupabaseSession,
+  signInWithPassword,
+  signOutSupabase,
+} from './lib/supabase-auth';
 
 const DEFAULT_GATEWAY_URL = 'ws://127.0.0.1:18789';
 
 const DEFAULT_SESSION_KEY = 'main';
 const LOCAL_CONFIG_KEY = 'relay.config';
+const AUTH_LOCAL_STORAGE_KEY = 'relay.auth.local';
+const AUTH_SESSION_STORAGE_KEY = 'relay.auth.session';
+const RELAY_USAGE_MODE_KEY = 'relay.usage.mode';
 
 const defaultConfig: AppConfig = {
   gatewayUrl: DEFAULT_GATEWAY_URL,
@@ -30,6 +41,15 @@ const defaultConfig: AppConfig = {
 };
 
 type AppPage = 'chat' | 'cowork' | 'scheduled' | 'settings';
+
+type AuthSession = {
+  email: string;
+  accessToken: string;
+  refreshToken: string;
+  provider: 'supabase';
+  rememberMe: boolean;
+  expiresAt: number;
+};
 
 function extractChatText(message: unknown): string {
   if (!message || typeof message !== 'object') {
@@ -105,6 +125,60 @@ export default function App() {
   const [changingModel, setChangingModel] = useState(false);
   const [scheduledJobs, setScheduledJobs] = useState<ScheduledJob[]>([]);
   const [scheduledLoading, setScheduledLoading] = useState(false);
+  const [authSession, setAuthSession] = useState<AuthSession | null>(null);
+  const [authenticating, setAuthenticating] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [guestMode, setGuestMode] = useState(false);
+  const [cloudLockNotice, setCloudLockNotice] = useState('');
+
+  const clearAuthStorage = () => {
+    localStorage.removeItem(AUTH_LOCAL_STORAGE_KEY);
+    sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+  };
+
+  const persistAuthSession = (session: AuthSession) => {
+    clearAuthStorage();
+    const serialized = JSON.stringify(session);
+    if (session.rememberMe) {
+      localStorage.setItem(AUTH_LOCAL_STORAGE_KEY, serialized);
+      return;
+    }
+    sessionStorage.setItem(AUTH_SESSION_STORAGE_KEY, serialized);
+  };
+
+  const readStoredAuthSession = (): AuthSession | null => {
+    const localRaw = localStorage.getItem(AUTH_LOCAL_STORAGE_KEY);
+    const sessionRaw = sessionStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+    const raw = localRaw ?? sessionRaw;
+    if (!raw) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as Partial<AuthSession>;
+      if (
+        typeof parsed.email !== 'string' ||
+        typeof parsed.accessToken !== 'string' ||
+        typeof parsed.refreshToken !== 'string' ||
+        parsed.provider !== 'supabase' ||
+        typeof parsed.rememberMe !== 'boolean' ||
+        typeof parsed.expiresAt !== 'number'
+      ) {
+        return null;
+      }
+
+      return {
+        email: parsed.email,
+        accessToken: parsed.accessToken,
+        refreshToken: parsed.refreshToken,
+        provider: 'supabase',
+        rememberMe: parsed.rememberMe,
+        expiresAt: parsed.expiresAt,
+      };
+    } catch {
+      return null;
+    }
+  };
 
   const ensureActiveSession = async (client: OpenClawGatewayClient) => {
     await client.connect({
@@ -154,6 +228,58 @@ export default function App() {
   const persistLocalConfig = (nextConfig: AppConfig) => {
     localStorage.setItem(LOCAL_CONFIG_KEY, JSON.stringify(nextConfig));
   };
+
+  useEffect(() => {
+    const storedUsageMode = localStorage.getItem(RELAY_USAGE_MODE_KEY);
+    if (storedUsageMode === 'guest') {
+      setGuestMode(true);
+      setStatus('Running in local mode.');
+    }
+
+    const storedSession = readStoredAuthSession();
+    if (!storedSession) {
+      const configError = getSupabaseAuthConfigError();
+      if (configError && storedUsageMode !== 'guest') {
+        setAuthError(configError);
+      }
+      return;
+    }
+
+    let cancelled = false;
+    setAuthenticating(true);
+
+    const recoverSession = async () => {
+      try {
+        const restored = await restoreSupabaseSession(storedSession);
+        if (cancelled) {
+          return;
+        }
+
+        setAuthSession(restored);
+        setGuestMode(false);
+        localStorage.setItem(RELAY_USAGE_MODE_KEY, 'auth');
+        persistAuthSession(restored);
+        setStatus(`Signed in as ${restored.email}.`);
+      } catch {
+        if (cancelled) {
+          return;
+        }
+
+        clearAuthStorage();
+        setAuthError('Session expired or invalid. Please login again.');
+      } finally {
+        if (!cancelled) {
+          setAuthenticating(false);
+        }
+      }
+    };
+
+    void recoverSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!bridge) {
@@ -776,12 +902,96 @@ export default function App() {
     }
   };
 
+  const handleLogin = async (credentials: {
+    email: string;
+    password: string;
+    rememberMe: boolean;
+  }) => {
+    setAuthError('');
+
+    const configError = getSupabaseAuthConfigError();
+    if (configError) {
+      setAuthError(configError);
+      return;
+    }
+
+    const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(credentials.email);
+    if (!isValidEmail) {
+      setAuthError('Invalid credentials. Use a valid work email.');
+      return;
+    }
+
+    if (!credentials.password.trim()) {
+      setAuthError('Invalid credentials. Password is required.');
+      return;
+    }
+
+    setAuthenticating(true);
+    try {
+      const session = await signInWithPassword(credentials.email, credentials.password, credentials.rememberMe);
+
+      setAuthSession(session);
+      setGuestMode(false);
+      localStorage.setItem(RELAY_USAGE_MODE_KEY, 'auth');
+      persistAuthSession(session);
+      setStatus(`Signed in as ${session.email}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invalid credentials.';
+      setAuthError(message);
+    } finally {
+      setAuthenticating(false);
+    }
+  };
+
+  const handleLogout = () => {
+    if (authSession) {
+      void signOutSupabase().catch(() => {
+        // local cleanup below is still enough to end the desktop session
+      });
+    }
+
+    setAuthSession(null);
+    setGuestMode(false);
+    setCloudLockNotice('');
+    localStorage.removeItem(RELAY_USAGE_MODE_KEY);
+    clearAuthStorage();
+    setAuthError('');
+    setStatus('Signed out.');
+  };
+
+  const handleContinueAsGuest = () => {
+    setGuestMode(true);
+    setCloudLockNotice('');
+    setAuthError('');
+    setAuthSession(null);
+    clearAuthStorage();
+    localStorage.setItem(RELAY_USAGE_MODE_KEY, 'guest');
+    setStatus('Running in local mode. Sign in anytime for hosted cloud features.');
+  };
+
+  const handleSwitchToCloudSignIn = () => {
+    setGuestMode(false);
+    setCloudLockNotice('');
+    localStorage.removeItem(RELAY_USAGE_MODE_KEY);
+    setStatus('Local mode exited. Sign in to access cloud features.');
+  };
+
+  const handleRequireCloudMode = (feature: string) => {
+    setCloudLockNotice(`${feature} requires cloud sign-in.`);
+    setStatus(`${feature} is a cloud feature. Exit local mode and sign in to continue.`);
+  };
+
+  const userIdentityLabel = authSession?.email ?? 'Guest (local mode)';
+  const canUseAppShell = Boolean(authSession) || guestMode;
+  const usageModeLabel = guestMode ? 'Local mode' : authSession ? 'Cloud mode' : 'Signed out';
+
   return (
     <div className="grid h-full grid-rows-[44px_minmax(0,1fr)] overflow-hidden">
       <AppTitlebar
         sidebarOpen={sidebarOpen}
         activePage={activePage}
         isMaximized={isMaximized}
+        usageModeLabel={usageModeLabel}
         onToggleSidebar={() => setSidebarOpen((current) => !current)}
         onSelectPage={setActivePage}
         onMinimize={handleMinimize}
@@ -790,40 +1000,46 @@ export default function App() {
         onShowSystemMenu={handleShowSystemMenu}
       />
 
-      <SidebarProvider
-        className={`grid h-full overflow-hidden transition-[grid-template-columns] duration-200 ${
-          sidebarOpen ? 'grid-cols-[280px_minmax(0,1fr)]' : 'grid-cols-[0px_minmax(0,1fr)]'
-        }`}
-      >
-        <AppSidebar
-          sidebarOpen={sidebarOpen}
-          activeMenuItem={activeMenuItem}
-          activePage={activePage}
-          onSelectMenuItem={setActiveMenuItem}
-          onSelectPage={setActivePage}
-          onOpenSettings={() => setActivePage('settings')}
-        />
+      {canUseAppShell ? (
+        <SidebarProvider
+          className={`grid h-full overflow-hidden transition-[grid-template-columns] duration-200 ${
+            sidebarOpen ? 'grid-cols-[280px_minmax(0,1fr)]' : 'grid-cols-[0px_minmax(0,1fr)]'
+          }`}
+        >
+          <AppSidebar
+            sidebarOpen={sidebarOpen}
+            activeMenuItem={activeMenuItem}
+            activePage={activePage}
+            userEmail={userIdentityLabel}
+            guestMode={guestMode}
+            onSelectMenuItem={setActiveMenuItem}
+            onSelectPage={setActivePage}
+            onOpenSettings={() => setActivePage('settings')}
+            onLogout={handleLogout}
+            onRequireCloudMode={handleRequireCloudMode}
+          />
 
-        <main className="relative min-h-0 overflow-hidden p-5">
-          <ScrollArea className="h-full">
-            {activePage === 'chat' && (
-              <ChatPage
-                taskPrompt={taskPrompt}
-                messages={chatMessages}
-                sending={sendingChat}
-                sessionKey={activeSessionKey}
-                models={chatModels}
-                selectedModel={selectedModel}
-                modelsLoading={modelsLoading}
-                changingModel={changingModel}
-                status={status}
-                onTaskPromptChange={setTaskPrompt}
-                onModelChange={handleModelChange}
-                onSubmit={handleSendChat}
-              />
-            )}
+          <main className="relative min-h-0 overflow-hidden p-5">
+            {guestMode && cloudLockNotice ? (
+              <div className="mb-4 rounded-xl border border-[rgba(219,145,79,0.38)] bg-[rgba(219,145,79,0.1)] p-3">
+                <p className="font-sans text-sm text-[#7f4f1f]">{cloudLockNotice}</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="border-0 bg-[linear-gradient(120deg,#ea9f7d,#de825e)] text-[#fffefb]"
+                    onClick={handleSwitchToCloudSignIn}
+                  >
+                    Sign in now
+                  </Button>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setCloudLockNotice('')}>
+                    Dismiss
+                  </Button>
+                </div>
+              </div>
+            ) : null}
 
-            {activePage === 'cowork' && (
+            {activePage === 'cowork' ? (
               <CoworkPage
                 taskPrompt={taskPrompt}
                 workingFolder={workingFolder}
@@ -840,32 +1056,58 @@ export default function App() {
                 onCreateLocalPlan={handleCreateLocalPlan}
                 onApplyLocalPlan={handleApplyLocalPlan}
               />
-            )}
+            ) : (
+              <ScrollArea className="h-full">
+                {activePage === 'chat' && (
+                  <ChatPage
+                    taskPrompt={taskPrompt}
+                    messages={chatMessages}
+                    sending={sendingChat}
+                    sessionKey={activeSessionKey}
+                    models={chatModels}
+                    selectedModel={selectedModel}
+                    modelsLoading={modelsLoading}
+                    changingModel={changingModel}
+                    status={status}
+                    onTaskPromptChange={setTaskPrompt}
+                    onModelChange={handleModelChange}
+                    onSubmit={handleSendChat}
+                  />
+                )}
 
-            {activePage === 'scheduled' && (
-              <ScheduledPage jobs={scheduledJobs} loading={scheduledLoading} status={status} onRefresh={loadScheduledJobs} />
-            )}
+                {activePage === 'scheduled' && (
+                  <ScheduledPage jobs={scheduledJobs} loading={scheduledLoading} status={status} onRefresh={loadScheduledJobs} />
+                )}
 
-            {activePage === 'settings' && (
-              <SettingsPage
-                draftGatewayUrl={draftGatewayUrl}
-                draftGatewayToken={draftGatewayToken}
-                health={health}
-                status={status}
-                saving={saving}
-                checking={checking}
-                pairingRequestId={pairingRequestId}
-                onDraftGatewayUrlChange={setDraftGatewayUrl}
-                onDraftGatewayTokenChange={setDraftGatewayToken}
-                onSave={handleSave}
-                onHealthCheck={handleHealthCheck}
-                onRequestPairing={handleRequestPairing}
-                onResetPairing={handleResetPairing}
-              />
+                {activePage === 'settings' && (
+                  <SettingsPage
+                    draftGatewayUrl={draftGatewayUrl}
+                    draftGatewayToken={draftGatewayToken}
+                    health={health}
+                    status={status}
+                    saving={saving}
+                    checking={checking}
+                    pairingRequestId={pairingRequestId}
+                    onDraftGatewayUrlChange={setDraftGatewayUrl}
+                    onDraftGatewayTokenChange={setDraftGatewayToken}
+                    onSave={handleSave}
+                    onHealthCheck={handleHealthCheck}
+                    onRequestPairing={handleRequestPairing}
+                    onResetPairing={handleResetPairing}
+                  />
+                )}
+              </ScrollArea>
             )}
-          </ScrollArea>
-        </main>
-      </SidebarProvider>
+          </main>
+        </SidebarProvider>
+      ) : (
+        <LoginPage
+          authenticating={authenticating}
+          errorMessage={authError}
+          onLogin={handleLogin}
+          onContinueAsGuest={handleContinueAsGuest}
+        />
+      )}
     </div>
   );
 }

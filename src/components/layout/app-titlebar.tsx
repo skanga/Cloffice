@@ -8,6 +8,7 @@ type AppTitlebarProps = {
   sidebarOpen: boolean;
   activePage: AppPage;
   isMaximized: boolean;
+  usageModeLabel: string;
   onToggleSidebar: () => void;
   onSelectPage: (page: 'chat' | 'cowork') => void;
   onMinimize: () => void | Promise<void>;
@@ -22,6 +23,7 @@ export function AppTitlebar({
   sidebarOpen,
   activePage,
   isMaximized,
+  usageModeLabel,
   onToggleSidebar,
   onSelectPage,
   onMinimize,
@@ -89,7 +91,10 @@ export function AppTitlebar({
         onDoubleClick={handleTitlebarDoubleClick}
         onContextMenu={handleTitlebarContextMenu}
       >
-        <div className="inline-flex items-center gap-1" style={noDragStyle} aria-label="workspace mode">
+        <div className="inline-flex items-center gap-2" style={noDragStyle} aria-label="workspace mode">
+          <span className="rounded-full border border-border bg-background px-2 py-0.5 font-sans text-[10px] uppercase tracking-wide text-muted-foreground">
+            {usageModeLabel}
+          </span>
           {modeOptions.map((mode) => (
             <Button
               key={mode}
