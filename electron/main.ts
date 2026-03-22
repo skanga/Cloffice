@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, session } from 'electron';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import type { LocalFileApplyResult, LocalFilePlanAction, LocalFilePlanResult } from '../src/app-types.js';
 
 type AppConfig = {
@@ -304,6 +305,8 @@ async function runHealthCheck(gatewayUrl: string): Promise<HealthCheckResult> {
 }
 
 async function createWindow() {
+  const preloadPath = fileURLToPath(new URL('./preload.cjs', import.meta.url));
+
   const window = new BrowserWindow({
     width: 1480,
     height: 980,
@@ -314,7 +317,7 @@ async function createWindow() {
     frame: false,
     autoHideMenuBar: true,
     webPreferences: {
-      preload: path.join(app.getAppPath(), 'dist-electron', 'electron', 'preload.cjs'),
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
     },

@@ -1,5 +1,5 @@
 import type { CSSProperties, MouseEvent } from 'react';
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Copy, Minus, PanelLeftClose, PanelLeftOpen, Square, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -37,6 +37,10 @@ export function AppTitlebar({
 }: AppTitlebarProps) {
   const dragRegionStyle = { WebkitAppRegion: 'drag' } as CSSProperties;
   const noDragStyle = { WebkitAppRegion: 'no-drag' } as CSSProperties;
+  const windowControlBaseClass =
+    'inline-flex h-[44px] w-[46px] items-center justify-center border-0 bg-transparent text-muted-foreground transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40';
+  const neutralWindowControlClass =
+    'hover:bg-[#d8d4cb] hover:text-foreground active:bg-[#c9c3b7] focus-visible:ring-[#b8b0a3]/45';
 
   const preventTitlebarDragCapture = (event: MouseEvent<HTMLElement>) => {
     event.stopPropagation();
@@ -133,33 +137,36 @@ export function AppTitlebar({
       >
         <button
           type="button"
-          className="h-[44px] w-[42px] border-0 bg-transparent text-[16px] leading-none text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className={`${windowControlBaseClass} ${neutralWindowControlClass}`}
           style={noDragStyle}
           onMouseDown={preventTitlebarDragCapture}
           onClick={() => void onMinimize()}
           aria-label="Minimize"
+          title="Minimize"
         >
-          −
+          <Minus className="size-3.5" />
         </button>
         <button
           type="button"
-          className="h-[44px] w-[42px] border-0 bg-transparent text-[13px] leading-none text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className={`${windowControlBaseClass} ${neutralWindowControlClass}`}
           style={noDragStyle}
           onMouseDown={preventTitlebarDragCapture}
           onClick={() => void onToggleMaximize()}
           aria-label={isMaximized ? 'Restore' : 'Maximize'}
+          title={isMaximized ? 'Restore' : 'Maximize'}
         >
-          {isMaximized ? '❐' : '□'}
+          {isMaximized ? <Copy className="size-3.5" /> : <Square className="size-3.5" />}
         </button>
         <button
           type="button"
-          className="h-[44px] w-[42px] border-0 bg-transparent text-[16px] leading-none text-muted-foreground transition-colors hover:bg-[#dd5f4c] hover:text-white"
+          className={`${windowControlBaseClass} hover:bg-[#d45d4e] hover:text-white active:bg-[#bf4e41] focus-visible:ring-[#d45d4e]/40`}
           style={noDragStyle}
           onMouseDown={preventTitlebarDragCapture}
           onClick={() => void onClose()}
           aria-label="Close"
+          title="Close"
         >
-          ×
+          <X className="size-3.5" />
         </button>
       </div>
     </header>
