@@ -12,6 +12,15 @@ import type {
 import { AppSidebar } from './components/layout/app-sidebar';
 import { AppTitlebar } from './components/layout/app-titlebar';
 import { Button } from './components/ui/button';
+import {
+  Command,
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from './components/ui/command';
 import { SidebarProvider } from './components/ui/sidebar';
 import { ScrollArea } from './components/ui/scroll-area';
 import { GatewayRequestError, OpenClawGatewayClient } from './lib/openclaw-gateway-client';
@@ -280,7 +289,7 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
   const [pairingRequestId, setPairingRequestId] = useState<string | null>(null);
-  const [activeMenuItem, setActiveMenuItem] = useState('New task');
+  const [activeMenuItem, setActiveMenuItem] = useState('');
   const [activePage, setActivePage] = useState<AppPage>('cowork');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [taskPrompt, setTaskPrompt] = useState('');
@@ -305,6 +314,8 @@ export default function App() {
   const [onboardingComplete, setOnboardingComplete] = useState(
     () => localStorage.getItem(RELAY_ONBOARDING_KEY) === 'true',
   );
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const recentChatItems = toRecentSidebarItems(chatThreads);
 
@@ -1293,6 +1304,17 @@ export default function App() {
     void loadScheduledJobs();
   }, [activePage]);
 
+  useEffect(() => {
+    if (activePage === 'scheduled') {
+      setActiveMenuItem('Scheduled');
+      return;
+    }
+
+    if (activePage === 'chat' || activePage === 'settings' || activePage === 'cowork') {
+      setActiveMenuItem('');
+    }
+  }, [activePage]);
+
   const handleMinimize = async () => {
     if (!bridge?.minimizeWindow) {
       setStatus('Window controls are available only in the Electron desktop app.');
@@ -1420,6 +1442,26 @@ export default function App() {
   const canUseAppShell = Boolean(authSession) || guestMode;
   const needsOnboarding = canUseAppShell && !onboardingComplete;
   const usageModeLabel = guestMode ? 'Local mode' : authSession ? 'Cloud mode' : 'Signed out';
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const searchCandidates = (normalizedSearchQuery ? chatThreads : recentChatItems).map((item) => ({
+    id: item.id,
+    sessionKey: item.sessionKey,
+    label: 'title' in item ? item.title : item.label,
+    updatedAt: 'updatedAt' in item ? item.updatedAt : undefined,
+  }));
+  const matchingChats = searchCandidates.filter((thread) =>
+    thread.label.toLowerCase().includes(normalizedSearchQuery),
+  );
+
+  const handleSearchOpenChange = (nextOpen: boolean) => {
+    setSearchOpen(nextOpen);
+    if (nextOpen) {
+      setSearchQuery('');
+      setActiveMenuItem('Search');
+      return;
+    }
+    setActiveMenuItem(activePage === 'scheduled' ? 'Scheduled' : '');
+  };
 
   return (
     <div className="grid h-full grid-rows-[44px_minmax(0,1fr)] overflow-hidden">
@@ -1467,11 +1509,50 @@ export default function App() {
             onStartNewChat={handleStartNewChat}
             onSelectMenuItem={setActiveMenuItem}
             onSelectPage={setActivePage}
+            onOpenSearch={() => handleSearchOpenChange(true)}
             onOpenSettings={() => setActivePage('settings')}
             onLogout={handleLogout}
           />
 
           <main className="relative min-h-0 overflow-hidden p-5">
+            <CommandDialog
+              open={searchOpen}
+              onOpenChange={handleSearchOpenChange}
+              title="Search"
+              description="Search chats and projects"
+              className="w-[min(980px,94vw)] max-w-none"
+            >
+              <Command>
+                <CommandInput
+                  placeholder="Search chats and projects"
+                  value={searchQuery}
+                  onValueChange={setSearchQuery}
+                />
+                <CommandList>
+                  <CommandEmpty>No results found.</CommandEmpty>
+                  <CommandGroup>
+                    {matchingChats.map((thread) => (
+                      <CommandItem
+                        key={thread.id}
+                        value={thread.label}
+                        onSelect={() => {
+                          handleOpenRecentChat(thread.sessionKey);
+                          handleSearchOpenChange(false);
+                        }}
+                        className="flex items-center justify-between gap-3"
+                      >
+                        <span className="truncate">{thread.label}</span>
+                        {'updatedAt' in thread && typeof thread.updatedAt === 'number' ? (
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(thread.updatedAt).toLocaleDateString()}
+                          </span>
+                        ) : null}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </CommandDialog>
             {activePage === 'cowork' ? (
               <CoworkPage
                 taskPrompt={taskPrompt}

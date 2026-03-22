@@ -10,26 +10,26 @@ function Sidebar({ className, ...props }: React.ComponentProps<'aside'>) {
   return (
     <aside
       data-slot="sidebar"
-      className={cn('flex h-full w-full flex-col rounded-xl border border-border bg-card text-card-foreground', className)}
+      className={cn('flex h-full w-full flex-col rounded-none border-r border-border bg-[#f4f3ee] text-card-foreground', className)}
       {...props}
     />
   );
 }
 
 function SidebarHeader({ className, ...props }: React.ComponentProps<'div'>) {
-  return <div data-slot="sidebar-header" className={cn('border-b border-border p-3', className)} {...props} />;
+  return <div data-slot="sidebar-header" className={cn('p-3', className)} {...props} />;
 }
 
 function SidebarContent({ className, ...props }: React.ComponentProps<'div'>) {
-  return <div data-slot="sidebar-content" className={cn('min-h-0 flex-1 p-2', className)} {...props} />;
+  return <div data-slot="sidebar-content" className={cn('min-h-0 flex-1 p-1.5', className)} {...props} />;
 }
 
 function SidebarFooter({ className, ...props }: React.ComponentProps<'div'>) {
-  return <div data-slot="sidebar-footer" className={cn('border-t border-border p-2', className)} {...props} />;
+  return <div data-slot="sidebar-footer" className={cn('p-1.5', className)} {...props} />;
 }
 
 function SidebarGroup({ className, ...props }: React.ComponentProps<'div'>) {
-  return <div data-slot="sidebar-group" className={cn('grid gap-1', className)} {...props} />;
+  return <div data-slot="sidebar-group" className={cn('grid gap-0.5', className)} {...props} />;
 }
 
 function SidebarGroupLabel({ className, ...props }: React.ComponentProps<'p'>) {
@@ -47,7 +47,7 @@ function SidebarGroupContent({ className, ...props }: React.ComponentProps<'div'
 }
 
 function SidebarMenu({ className, ...props }: React.ComponentProps<'ul'>) {
-  return <ul data-slot="sidebar-menu" className={cn('grid gap-1', className)} {...props} />;
+  return <ul data-slot="sidebar-menu" className={cn('grid gap-0.5', className)} {...props} />;
 }
 
 function SidebarMenuItem({ className, ...props }: React.ComponentProps<'li'>) {
@@ -57,14 +57,18 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<'li'>) {
 function SidebarMenuButton({
   className,
   active = false,
+  isActive,
   ...props
-}: React.ComponentProps<'button'> & { active?: boolean }) {
+}: React.ComponentProps<'button'> & { active?: boolean; isActive?: boolean }) {
+  const resolvedActive = isActive ?? active;
+
   return (
     <button
       data-slot="sidebar-menu-button"
-      data-active={active ? 'true' : undefined}
+      data-active={resolvedActive ? 'true' : undefined}
       className={cn(
-        'inline-flex h-8 w-full items-center rounded-lg px-2.5 text-left text-sm text-foreground/80 transition-colors hover:bg-muted hover:text-foreground data-[active=true]:bg-muted data-[active=true]:text-foreground',
+        'group inline-flex h-8 w-full items-center rounded-md px-2 text-left text-sm text-muted-foreground transition-[background-color,color] duration-150 hover:bg-[#ece9e1] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground hover:[&>svg]:text-foreground data-[active=true]:text-foreground data-[active=true]:[&>svg]:text-foreground',
+        resolvedActive && 'bg-[#e6e1d7]',
         className,
       )}
       {...props}
