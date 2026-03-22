@@ -576,8 +576,10 @@ export default function App() {
   const [coworkSessionKey, setCoworkSessionKey] = useState('');
   const [chatModels, setChatModels] = useState<ChatModelOption[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
+  const [coworkModels, setCoworkModels] = useState<ChatModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [changingModel, setChangingModel] = useState(false);
+  const [changingCoworkModel, setChangingCoworkModel] = useState(false);
   const [scheduledJobs, setScheduledJobs] = useState<ScheduledJob[]>([]);
   const [scheduledLoading, setScheduledLoading] = useState(false);
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
@@ -824,6 +826,8 @@ export default function App() {
         return;
       }
 
+      void loadCoworkModels(client, requestedSessionKey);
+
       setCoworkMessages(history);
       if (history.length > 0) {
         coworkMessageCache.current.set(requestedSessionKey, history);
@@ -957,6 +961,28 @@ export default function App() {
     } catch {
       setChatModels([]);
       setSelectedModel('');
+    } finally {
+      setModelsLoading(false);
+    }
+  };
+
+  const loadCoworkModels = async (client: OpenClawGatewayClient, sessionKey?: string) => {
+    setModelsLoading(true);
+    try {
+      const [choices, currentModel] = await Promise.all([
+        client.listModels(),
+        sessionKey ? client.getSessionModel(sessionKey).catch(() => null) : Promise.resolve(null),
+      ]);
+
+      setCoworkModels(choices.map((model) => ({ value: model.value, label: model.label })));
+      if (sessionKey) {
+        setCoworkModel(currentModel ?? '');
+      }
+    } catch {
+      setCoworkModels([]);
+      if (sessionKey) {
+        setCoworkModel('');
+      }
     } finally {
       setModelsLoading(false);
     }
@@ -2153,6 +2179,45 @@ export default function App() {
     }
   };
 
+  const handleCoworkModelChange = async (nextModelValue: string) => {
+    const previousModel = coworkModel;
+    setCoworkModel(nextModelValue);
+
+    const client = gatewayClientRef.current;
+    if (!client) {
+      setStatus('Gateway client not initialized.');
+      setCoworkModel(previousModel);
+      return;
+    }
+
+    const sessionKey = normalizeSessionKey(coworkSessionKeyRef.current);
+    if (!sessionKey) {
+      setStatus(
+        nextModelValue
+          ? `Cowork model selected: ${nextModelValue}. It will apply on the next task run.`
+          : 'Cowork model reset to default. It will apply on the next task run.',
+      );
+      return;
+    }
+
+    setChangingCoworkModel(true);
+    try {
+      await ensureConnectedClient(client);
+      await client.setSessionModel(sessionKey, nextModelValue || null);
+      setStatus(
+        nextModelValue
+          ? `Cowork model updated for session ${sessionKey}: ${nextModelValue}`
+          : `Cowork model reset to default for session ${sessionKey}.`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update cowork model.';
+      setStatus(message);
+      setCoworkModel(previousModel);
+    } finally {
+      setChangingCoworkModel(false);
+    }
+  };
+
   const handleStartNewChat = async () => {
     const client = gatewayClientRef.current;
     if (!client) {
@@ -2286,6 +2351,11 @@ export default function App() {
     }
 
     void loadScheduledJobs();
+    const client = gatewayClientRef.current;
+    if (client) {
+      const sessionKey = normalizeSessionKey(coworkSessionKeyRef.current);
+      void loadCoworkModels(client, sessionKey || undefined);
+    }
   }, [activePage, loadScheduledJobs]);
 
   useEffect(() => {
@@ -2579,6 +2649,9 @@ export default function App() {
                 runStatus={coworkRunStatus}
                 sessionKey={coworkSessionKey}
                 selectedModel={coworkModel}
+                models={coworkModels}
+                modelsLoading={modelsLoading}
+                changingModel={changingCoworkModel}
                 desktopBridgeAvailable={Boolean(bridge)}
                 localPlanActions={localPlanActions}
                 localPlanLoading={localPlanLoading}
@@ -2591,7 +2664,7 @@ export default function App() {
                 sending={coworkSending}
                 onTaskPromptChange={setTaskPrompt}
                 onWorkingFolderChange={handleWorkingFolderChange}
-                onModelChange={setCoworkModel}
+                onModelChange={handleCoworkModelChange}
                 onFileDraftPathChange={setLocalFileDraftPath}
                 onFileDraftContentChange={setLocalFileDraftContent}
                 onPickWorkingFolder={handlePickWorkingFolder}

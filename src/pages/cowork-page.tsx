@@ -5,7 +5,7 @@ import { ArrowUp, ChevronRight, Clock3, FileText, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { LocalActionReceipt, LocalFilePlanAction } from '@/app-types';
+import type { ChatModelOption, LocalActionReceipt, LocalFilePlanAction } from '@/app-types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -42,6 +42,9 @@ type CoworkPageProps = {
   runStatus: string;
   sessionKey: string;
   selectedModel: string;
+  models: ChatModelOption[];
+  modelsLoading: boolean;
+  changingModel: boolean;
   desktopBridgeAvailable: boolean;
   localPlanActions: LocalFilePlanAction[];
   localPlanLoading: boolean;
@@ -157,7 +160,7 @@ function extractInlineActivityCards(message: CoworkMessage): { body: string; car
     return (
       /^Presented\s+.+\s+file\s+from\s+.+\s+directory\s*>?$/i.test(normalized) ||
       /^Created\s+scheduled\s+task\s*:/i.test(normalized) ||
-      /^(Created|Updated|Deleted|Scheduled|Queued|Applied)\s+/i.test(normalized)
+      /^(?:Done\.?\s+)?(Created|Updated|Deleted|Scheduled|Queued|Applied|Presented)\b/i.test(normalized)
     );
   };
 
@@ -240,6 +243,9 @@ export function CoworkPage({
   runStatus,
   sessionKey,
   selectedModel,
+  models,
+  modelsLoading,
+  changingModel,
   desktopBridgeAvailable,
   localPlanActions,
   localPlanLoading,
@@ -279,6 +285,11 @@ export function CoworkPage({
     return { user, assistant };
   }, [messages]);
 
+  const folderLabel = workingFolder.trim() || '(not set)';
+  const selectedModelLabel = selectedModel
+    ? models.find((model) => model.value === selectedModel)?.label || selectedModel
+    : 'Default';
+
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== 'Enter' || event.shiftKey) {
       return;
@@ -305,21 +316,17 @@ export function CoworkPage({
         }`}
       >
         {!isInitialWorkspace ? (
-          <header className="flex items-center justify-between border-b border-[rgba(31,31,28,0.08)] px-2 py-3">
-            <div>
-              <p className="text-sm font-medium text-foreground">Cowork</p>
-              <p className="font-sans text-xs text-muted-foreground">Send a task and watch live execution state from the gateway.</p>
-            </div>
-            <Badge
-              variant="outline"
-              className={
-                taskState === 'planned'
-                  ? 'rounded-full border border-[rgba(47,122,88,0.35)] bg-[rgba(47,122,88,0.08)] font-sans text-[11px] text-[#2f7a58]'
-                  : 'rounded-full font-sans text-[11px]'
-              }
-            >
-              {taskState === 'planned' ? 'Task active' : 'Awaiting prompt'}
+          <header className="flex flex-wrap items-center gap-2 px-2 py-2">
+            <p className="mr-1 text-sm font-medium text-foreground">Cowork</p>
+            <Badge variant="outline" className={`rounded-full font-sans text-[11px] ${runPhaseClasses(runPhase)}`}>
+              {runPhaseLabel(runPhase)}
             </Badge>
+            <Badge variant="outline" className="rounded-full font-sans text-[11px]">
+              {selectedModelLabel}
+            </Badge>
+            <p className="max-w-[45%] truncate font-sans text-xs text-muted-foreground" title={folderLabel}>
+              {folderLabel}
+            </p>
           </header>
         ) : null}
 
@@ -334,7 +341,7 @@ export function CoworkPage({
                   </p>
                 </div>
 
-                <form className="mt-4 rounded-3xl border border-[rgba(31,31,28,0.12)] bg-white px-4 py-3" onSubmit={onSubmit} ref={formRef}>
+                <form className="mt-4 rounded-[28px] border border-[rgba(31,31,28,0.14)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(250,248,243,0.95))] px-4 py-3.5 shadow-[0_16px_34px_rgba(24,23,20,0.08)]" onSubmit={onSubmit} ref={formRef}>
                   <Textarea
                     value={taskPrompt}
                     onChange={(event) => onTaskPromptChange(event.target.value)}
@@ -342,11 +349,11 @@ export function CoworkPage({
                     rows={2}
                     onKeyDown={handleComposerKeyDown}
                     aria-label="Task prompt"
-                    className="min-h-[58px] resize-none border-0 bg-transparent px-0 py-1 font-sans text-[22px] text-foreground shadow-none focus-visible:ring-0"
+                    className="min-h-[90px] resize-none border-0 bg-transparent px-0 py-1.5 font-sans text-[20px] leading-7 text-foreground shadow-none focus-visible:ring-0"
                   />
-                  <div className="mt-1 flex items-center justify-between gap-2">
+                  <div className="mt-3 flex items-center justify-between gap-2 border-t border-[rgba(31,31,28,0.08)] pt-3">
                     <div className="flex items-center gap-2">
-                      <Button type="button" variant="ghost" className="h-8 rounded-md px-2 font-sans text-sm text-muted-foreground" aria-label="Select context">
+                      <Button type="button" variant="ghost" className="h-9 rounded-xl px-3 font-sans text-xs text-muted-foreground" aria-label="Select context">
                         Task context
                       </Button>
                     </div>
@@ -355,11 +362,15 @@ export function CoworkPage({
                       <select
                         value={selectedModel}
                         onChange={(event) => onModelChange(event.target.value)}
-                        className="h-8 rounded-md border border-[rgba(31,31,28,0.12)] bg-white px-2 font-sans text-xs text-foreground outline-none"
+                        disabled={modelsLoading || changingModel || models.length === 0}
+                        className="h-9 max-w-[240px] rounded-xl border border-[rgba(31,31,28,0.14)] bg-white px-3 font-sans text-xs text-foreground outline-none"
                       >
                         <option value="">Default model</option>
-                        <option value="anthropic/claude-opus-4-5">Claude Opus 4.5</option>
-                        <option value="anthropic/claude-sonnet-4-5">Claude Sonnet 4.5</option>
+                        {models.map((model) => (
+                          <option key={model.value} value={model.value}>
+                            {model.label}
+                          </option>
+                        ))}
                       </select>
 
                       <Button
@@ -367,7 +378,7 @@ export function CoworkPage({
                         size="icon"
                         aria-label={sending ? 'Sending' : 'Send task'}
                         disabled={!canSend}
-                        className="h-8 w-8 border-0 bg-[linear-gradient(120deg,#e5a48a,#d98765)] text-[#fffefb]"
+                        className="h-9 w-9 rounded-xl border-0 bg-[linear-gradient(120deg,#e5a48a,#d98765)] text-[#fffefb]"
                       >
                         {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
                       </Button>
@@ -469,7 +480,7 @@ export function CoworkPage({
         {!isInitialWorkspace ? (
           <div className="px-2 pb-3 pt-1">
             <div className="mx-auto grid w-full max-w-[860px] gap-2">
-              <form className="rounded-3xl border border-[rgba(31,31,28,0.12)] bg-white px-4 py-3" onSubmit={onSubmit} ref={formRef}>
+              <form className="rounded-[26px] border border-[rgba(31,31,28,0.14)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(250,248,243,0.95))] px-4 py-3.5 shadow-[0_12px_28px_rgba(24,23,20,0.08)]" onSubmit={onSubmit} ref={formRef}>
                 <Textarea
                   value={taskPrompt}
                   onChange={(event) => onTaskPromptChange(event.target.value)}
@@ -477,11 +488,11 @@ export function CoworkPage({
                   rows={2}
                   onKeyDown={handleComposerKeyDown}
                   aria-label="Task prompt"
-                  className="min-h-[58px] resize-none border-0 bg-transparent px-0 py-1 font-sans text-[22px] text-foreground shadow-none focus-visible:ring-0"
+                  className="min-h-[84px] resize-none border-0 bg-transparent px-0 py-1.5 font-sans text-[18px] leading-7 text-foreground shadow-none focus-visible:ring-0"
                 />
-                <div className="mt-1 flex items-center justify-between gap-2">
+                <div className="mt-3 flex items-center justify-between gap-2 border-t border-[rgba(31,31,28,0.08)] pt-3">
                   <div className="flex items-center gap-2">
-                    <Button type="button" variant="ghost" className="h-8 rounded-md px-2 font-sans text-sm text-muted-foreground" aria-label="Select context">
+                    <Button type="button" variant="ghost" className="h-9 rounded-xl px-3 font-sans text-xs text-muted-foreground" aria-label="Select context">
                       Task context
                     </Button>
                   </div>
@@ -490,11 +501,15 @@ export function CoworkPage({
                     <select
                       value={selectedModel}
                       onChange={(event) => onModelChange(event.target.value)}
-                      className="h-8 rounded-md border border-[rgba(31,31,28,0.12)] bg-white px-2 font-sans text-xs text-foreground outline-none"
+                      disabled={modelsLoading || changingModel || models.length === 0}
+                      className="h-9 max-w-[240px] rounded-xl border border-[rgba(31,31,28,0.14)] bg-white px-3 font-sans text-xs text-foreground outline-none"
                     >
                       <option value="">Default model</option>
-                      <option value="anthropic/claude-opus-4-5">Claude Opus 4.5</option>
-                      <option value="anthropic/claude-sonnet-4-5">Claude Sonnet 4.5</option>
+                      {models.map((model) => (
+                        <option key={model.value} value={model.value}>
+                          {model.label}
+                        </option>
+                      ))}
                     </select>
 
                     <Button
@@ -502,7 +517,7 @@ export function CoworkPage({
                       size="icon"
                       aria-label={sending ? 'Sending' : 'Send task'}
                       disabled={!canSend}
-                      className="h-8 w-8 border-0 bg-[linear-gradient(120deg,#e5a48a,#d98765)] text-[#fffefb]"
+                      className="h-9 w-9 rounded-xl border-0 bg-[linear-gradient(120deg,#e5a48a,#d98765)] text-[#fffefb]"
                     >
                       {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
                     </Button>

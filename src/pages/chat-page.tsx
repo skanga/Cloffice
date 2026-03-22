@@ -120,7 +120,7 @@ export function ChatPage({
             <h1 className="mb-6 text-center text-[clamp(2rem,4vw,3rem)] tracking-tight text-foreground">Guten Tag, Christian</h1>
 
             <form
-              className="rounded-3xl border border-[rgba(31,31,28,0.12)] bg-[rgba(255,255,255,0.9)] p-4 shadow-[0_8px_24px_rgba(31,31,28,0.05)]"
+              className="rounded-[28px] border border-[rgba(31,31,28,0.14)] bg-[linear-gradient(180deg,rgba(255,255,255,0.97),rgba(250,248,243,0.95))] p-4 shadow-[0_16px_34px_rgba(24,23,20,0.08)]"
               onSubmit={onSubmit}
               ref={formRef}
             >
@@ -131,17 +131,17 @@ export function ChatPage({
                 rows={2}
                 onKeyDown={handleComposerKeyDown}
                 aria-label="Message"
-                className="min-h-[72px] resize-none border-0 bg-transparent px-0 py-1 font-sans shadow-none focus-visible:ring-0"
+                className="min-h-[86px] resize-none border-0 bg-transparent px-0 py-1.5 font-sans text-[17px] leading-7 text-foreground shadow-none focus-visible:ring-0"
               />
 
-              <div className="mt-2 flex items-center justify-between gap-2">
+              <div className="mt-3 flex items-center justify-between gap-3 border-t border-[rgba(31,31,28,0.08)] pt-3">
                 <Button
                   type="button"
                   variant="ghost"
-                  className="h-8 w-8 rounded-md p-0 font-sans text-lg"
+                  className="h-9 rounded-xl px-3 font-sans text-xs text-muted-foreground"
                   aria-label="Add attachment"
                 >
-                  +
+                  Context
                 </Button>
 
                 <div className="flex items-center gap-2">
@@ -149,7 +149,7 @@ export function ChatPage({
                     value={selectedModel}
                     onChange={(event) => onModelChange(event.target.value)}
                     disabled={modelsLoading || changingModel || models.length === 0}
-                    className="h-8 max-w-[210px] rounded-md border border-[rgba(31,31,28,0.12)] bg-white px-2 font-sans text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                    className="h-9 max-w-[240px] rounded-xl border border-[rgba(31,31,28,0.14)] bg-white px-3 font-sans text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <option value="">Sonnet 4.6</option>
                     {models.map((model) => (
@@ -163,7 +163,7 @@ export function ChatPage({
                     size="icon"
                     aria-label={sending ? 'Sending' : 'Send message'}
                     disabled={!canSend}
-                    className="h-8 w-8 border-0 bg-[linear-gradient(120deg,#e5a48a,#d98765)] text-[#fffefb]"
+                    className="h-9 w-9 rounded-xl border-0 bg-[linear-gradient(120deg,#e5a48a,#d98765)] text-[#fffefb]"
                   >
                     {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
                   </Button>
@@ -279,7 +279,7 @@ export function ChatPage({
 
       <div className="px-3 pb-0.5 pt-0">
         <form
-          className="mx-auto w-full max-w-[760px] rounded-3xl border border-[rgba(31,31,28,0.12)] bg-[rgba(255,255,255,0.9)] p-3 shadow-[0_8px_24px_rgba(31,31,28,0.05)]"
+          className="mx-auto w-full max-w-[760px] rounded-[26px] border border-[rgba(31,31,28,0.14)] bg-[linear-gradient(180deg,rgba(255,255,255,0.97),rgba(250,248,243,0.95))] p-3.5 shadow-[0_12px_28px_rgba(24,23,20,0.08)]"
           onSubmit={onSubmit}
           ref={formRef}
         >
@@ -290,12 +290,12 @@ export function ChatPage({
             rows={2}
             onKeyDown={handleComposerKeyDown}
             aria-label="Message"
-            className="min-h-[72px] resize-none border-0 bg-transparent px-0 py-0.5 font-sans shadow-none focus-visible:ring-0"
+            className="min-h-[84px] resize-none border-0 bg-transparent px-0 py-1 font-sans text-[16px] leading-7 shadow-none focus-visible:ring-0"
           />
 
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <Button type="button" variant="ghost" className="h-8 w-8 rounded-md p-0 font-sans text-lg" aria-label="Add attachment">
-              +
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-[rgba(31,31,28,0.08)] pt-3">
+            <Button type="button" variant="ghost" className="h-9 rounded-xl px-3 font-sans text-xs text-muted-foreground" aria-label="Add attachment">
+              Context
             </Button>
 
             <div className="flex items-center gap-2">
@@ -303,7 +303,7 @@ export function ChatPage({
                 value={selectedModel}
                 onChange={(event) => onModelChange(event.target.value)}
                 disabled={modelsLoading || changingModel || models.length === 0}
-                className="h-8 max-w-[210px] rounded-md border border-[rgba(31,31,28,0.12)] bg-white px-2 font-sans text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                className="h-9 max-w-[240px] rounded-xl border border-[rgba(31,31,28,0.14)] bg-white px-3 font-sans text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <option value="">Sonnet 4.5</option>
                 {models.map((model) => (
@@ -317,7 +317,7 @@ export function ChatPage({
                 size="icon"
                 aria-label={sending ? 'Sending' : 'Send message'}
                 disabled={!canSend}
-                className="h-8 w-8 border-0 bg-[linear-gradient(120deg,#e5a48a,#d98765)] text-[#fffefb]"
+                className="h-9 w-9 rounded-xl border-0 bg-[linear-gradient(120deg,#e5a48a,#d98765)] text-[#fffefb]"
               >
                 {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
               </Button>
