@@ -1,15 +1,16 @@
 # Relay MVP Alignment Checklist
 
-Use this checklist to keep product, engineering, and UX aligned on the MVP scope. The canonical spec is RELAY-MVP-QUICK-REFERENCE-REVISED.md.
+Use this checklist to keep product, engineering, and UX aligned on the MVP scope. The canonical spec is RELAY-MVP-DEFINITION.md.
 
 ## Source of Truth
 
-- [ ] Confirm RELAY-MVP-QUICK-REFERENCE-REVISED.md is canonical.
-- [ ] Ensure RELAY-MVP-DEFINITION.md and RELAY-MVP-QUICK-REFERENCE.md match the canonical doc.
+- [ ] Confirm RELAY-MVP-DEFINITION.md is canonical.
+- [ ] Ensure RELAY-MVP-QUICK-REFERENCE-REVISED.md and RELAY-MVP-QUICK-REFERENCE.md match the canonical doc.
 
 ## Scope Guardrails
 
-- [ ] One workflow only: finance spend approvals.
+- [ ] Copilot core remains generic (chat, steering, execution, results, history).
+- [ ] Only one production recipe in MVP: finance spend approvals.
 - [ ] Chat-first cowork UX, not forms-first.
 - [ ] No multi-workflow builder.
 - [ ] No Slack-first operation model.
@@ -56,7 +57,8 @@ Use this checklist to keep product, engineering, and UX aligned on the MVP scope
 
 ## Pilot Readiness
 
-- [ ] End-to-end finance approval flow works locally.
+- [ ] End-to-end copilot run works locally (task -> steer -> execute -> results).
+- [ ] End-to-end finance approval recipe works locally.
 - [ ] Clear audit trail per run.
 - [ ] Basic error handling and retries.
 - [ ] Performance acceptable for pilot users.

@@ -1,12 +1,13 @@
 # RELAY MVP — QUICK REFERENCE (ARCHITECTURE CORRECTED)
 
-**Canonical spec:** This document is the source of truth for MVP scope. Use [docs/RELAY-MVP-ALIGNMENT-CHECKLIST.md](docs/RELAY-MVP-ALIGNMENT-CHECKLIST.md) to validate implementation.
+**Canonical spec:** [docs/RELAY-MVP-DEFINITION.md](docs/RELAY-MVP-DEFINITION.md) is the source of truth for MVP scope. Use [docs/RELAY-MVP-ALIGNMENT-CHECKLIST.md](docs/RELAY-MVP-ALIGNMENT-CHECKLIST.md) to validate implementation.
 
 **Build Time:** 4 weeks  
 **Team:** 2 engineers  
 **Tagline:** Claude Cowork for Your Company  
 **Architecture:** Relay (UI) + OpenClaw (backend orchestration)
-**Workflow Scope:** Finance spend approvals only (MVP)
+**MVP Shape:** Claude-style copilot core + one production recipe
+**First Production Recipe:** Finance spend approvals
 **Access Model:** No-login local mode by default; optional sign-in for hosted services only
 
 ---
@@ -14,7 +15,7 @@
 ## CLEAR PRODUCT DEFINITION
 
 ### One-line Definition
-Relay is a chat-first cowork interface that lets finance teams steer OpenClaw to analyze and execute spend-approval work with human control.
+Relay is a chat-first Claude-style copilot for OpenClaw that lets operators steer analysis and execution with explicit human control.
 
 ### What Claude Cowork Means in Relay
 - The user works in conversation, not forms.
@@ -23,9 +24,9 @@ Relay is a chat-first cowork interface that lets finance teams steer OpenClaw to
 - The user can intervene at any point: approve, modify, hold, or reject.
 
 ### Who Uses Relay (MVP)
-- Primary user: finance approver or finance operations lead.
-- Secondary users: finance manager, controller, CFO delegate reviewing exceptions.
-- Operating context: high context-switch environments with repetitive approvals and policy checks.
+- Primary user: operator or team lead running recurring operational work in conversation.
+- First pilot user: finance approver or finance operations lead.
+- Secondary pilot users: finance manager, controller, CFO delegate reviewing exceptions.
 
 ### Who Uses Relay (Expanded User Segments)
 - Individual operators: people who need to hand off repetitive but judgment-sensitive operational work.
@@ -51,7 +52,7 @@ Relay is a chat-first cowork interface that lets finance teams steer OpenClaw to
 - Relay owns user experience: chat, steering controls, progress visibility, and run history.
 - OpenClaw owns execution: reasoning, policy checks, connectors, and action orchestration.
 - Relay never pretends to execute work directly; it presents and steers OpenClaw execution.
-- MVP covers one workflow only: finance spend approvals.
+- MVP product surface is copilot-first; finance approvals are the first production recipe.
 
 ### Cowork Behavior Contract
 - Be concise first: summarize findings and recommended next action.
@@ -71,7 +72,8 @@ Relay is a chat-first cowork interface that lets finance teams steer OpenClaw to
 - Not an opaque autopilot that hides decision logic.
 
 ### Definition of Done (MVP)
-- A finance user can complete one approval workflow end-to-end via chat.
+- A user can complete a copilot run end-to-end via chat with steering and approvals.
+- A finance user can complete the first production recipe (spend approvals) end-to-end.
 - OpenClaw responses stream live, and users can steer mid-flow without resetting context.
 - Recommendations include rationale and policy-aware status before execution.
 - Execution progress, results, and audit trail are visible in Relay.
@@ -216,7 +218,8 @@ Chat continues (multi-turn)
 ## FEATURE BOUNDARIES (IN/OUT)
 
 ### In Scope (MVP)
-- One workflow only: finance spend approvals.
+- Copilot core UX: conversational tasking, steering loop, approvals, execution, results, history.
+- One production recipe in MVP: finance spend approvals.
 - Chat-first cowork UX with steering loop.
 - OpenClaw integration for plan, reasoning, and execution.
 - Basic history and audit trace sufficient for pilots.
@@ -231,7 +234,8 @@ Chat continues (multi-turn)
 
 ## MVP GUARDRAILS
 
-- One workflow only: finance spend approvals.
+- One production recipe only in MVP: finance spend approvals.
+- Keep copilot core generic; avoid finance-only branding across the full product shell.
 - No multi-workflow builder in MVP.
 - Local mode must be fully usable without sign-in.
 - Never block core cowork UX behind login.
