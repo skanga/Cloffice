@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { Code2, KeyRound, Link2, Shield } from 'lucide-react';
 
-import type { HealthCheckResult } from '@/app-types';
+import type { HealthCheckResult, UserPreferences } from '@/app-types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,17 +10,6 @@ import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 
 type AppLanguage = 'en' | 'de';
-
-type UserPreferences = {
-  fullName: string;
-  displayName: string;
-  role: string;
-  responsePreferences: string;
-  systemPrompt: string;
-  theme: 'light' | 'auto' | 'dark';
-  style: 'claude' | 'relay';
-  language: AppLanguage;
-};
 
 type SettingsSection = 'Profile' | 'Appearance' | 'System Prompt' | 'Gateway' | 'Connectors' | 'Account' | 'Privacy' | 'Developer';
 

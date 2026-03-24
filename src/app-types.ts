@@ -142,3 +142,14 @@ export type LocalActionReceipt = {
   errorCode?: string;
   message?: string;
 };
+
+export type UserPreferences = {
+  fullName: string;
+  displayName: string;
+  role: string;
+  responsePreferences: string;
+  systemPrompt: string;
+  theme: 'light' | 'auto' | 'dark';
+  style: 'claude' | 'relay';
+  language: 'en' | 'de';
+};

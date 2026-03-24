@@ -35,16 +35,40 @@ import {
 import { Input } from './components/ui/input';
 import { SidebarProvider } from './components/ui/sidebar';
 import { ScrollArea } from './components/ui/scroll-area';
-import { GatewayRequestError, OpenClawGatewayClient } from './lib/openclaw-gateway-client';
+import { OpenClawGatewayClient } from './lib/openclaw-gateway-client';
 import { createFileService, LocalFileService } from './lib/file-service';
 import { LoginPage } from './features/auth/login-page';
 import { OnboardingPage } from './features/auth/onboarding-page';
+import { useAuth } from './hooks/use-auth';
+import { usePreferences } from './hooks/use-preferences';
 import {
-  getSupabaseAuthConfigError,
-  restoreSupabaseSession,
-  signInWithPassword,
-  signOutSupabase,
-} from './lib/supabase-auth';
+  type ChatThread,
+  type PersistedRecents,
+  type RecentWorkspaceEntry,
+  type RelayFileAction,
+  RELAY_RECENTS_KEY,
+  DEFAULT_CHAT_THREAD_TITLE,
+  DEFAULT_COWORK_THREAD_TITLE,
+  normalizeSessionKey,
+  getThreadIdForSession,
+  toRecentSidebarLabel,
+  toRecentSidebarItems,
+  mergeChatThreads,
+  loadPersistedRecents,
+  deriveThreadTitleFromMessages,
+  toFallbackThreadTitle,
+  isCustomChatThreadTitle,
+  findMatchingSessionKey,
+  buildOutboundChatPrompt,
+  extractChatText,
+  extractChatRole,
+  readGatewayError,
+  parseRelayFileActions,
+  stripRelayActionPayloadFromText,
+  parseRelayActivityItems,
+  deriveActivityItemsFromAssistantText,
+  normalizeCoworkMessage,
+} from './lib/chat-utils';
 
 const ChatPage = lazy(() => import('./features/chat/chat-page').then((module) => ({ default: module.ChatPage })));
 const CoworkPage = lazy(() => import('./features/cowork/cowork-page').then((module) => ({ default: module.CoworkPage })));
@@ -58,34 +82,6 @@ const ScheduledPage = lazy(() => import('./features/workspace/scheduled-page').t
 const DEFAULT_GATEWAY_URL = 'ws://127.0.0.1:18789';
 
 const LOCAL_CONFIG_KEY = 'relay.config';
-const AUTH_LOCAL_STORAGE_KEY = 'relay.auth.local';
-const AUTH_SESSION_STORAGE_KEY = 'relay.auth.session';
-const RELAY_USAGE_MODE_KEY = 'relay.usage.mode';
-const RELAY_ONBOARDING_KEY = 'relay.onboarding.complete';
-const RELAY_PREFERENCES_KEY = 'relay.preferences';
-const RELAY_RECENTS_KEY = 'relay.recents.v1';
-
-type UserPreferences = {
-  fullName: string;
-  displayName: string;
-  role: string;
-  responsePreferences: string;
-  systemPrompt: string;
-  theme: 'light' | 'auto' | 'dark';
-  style: 'claude' | 'relay';
-  language: 'en' | 'de';
-};
-
-const defaultPreferences: UserPreferences = {
-  fullName: '',
-  displayName: '',
-  role: '',
-  responsePreferences: '',
-  systemPrompt: '',
-  theme: 'light',
-  style: 'relay',
-  language: 'en',
-};
 
 const defaultConfig: AppConfig = {
   gatewayUrl: DEFAULT_GATEWAY_URL,
@@ -95,721 +91,18 @@ const defaultConfig: AppConfig = {
 type AppPage = 'chat' | 'cowork' | 'files' | 'local-files' | 'activity' | 'memory' | 'scheduled' | 'safety' | 'settings';
 type SettingsSection = 'Profile' | 'Appearance' | 'System Prompt' | 'Gateway' | 'Connectors' | 'Account' | 'Privacy' | 'Developer';
 
-type AuthSession = {
-  email: string;
-  accessToken: string;
-  refreshToken: string;
-  rememberMe: boolean;
-  expiresAt: number;
-};
-
-type RecentWorkspaceEntry = {
-  id: string;
-  label: string;
-  sessionKey: string;
-  kind: 'chat' | 'cowork';
-};
-
-type ChatThread = {
-  id: string;
-  sessionKey: string;
-  title: string;
-  updatedAt: number;
-};
-
-type PersistedRecents = {
-  chatThreads?: ChatThread[];
-  coworkThreads?: ChatThread[];
-};
-
-type RelayFileAction =
-  | {
-      id: string | undefined;
-      type: 'create_file';
-      path: string;
-      content: string;
-      overwrite?: boolean;
-    }
-  | {
-      id: string | undefined;
-      type: 'append_file';
-      path: string;
-      content: string;
-    }
-  | {
-      id: string | undefined;
-      type: 'read_file';
-      path: string;
-    }
-  | {
-      id: string | undefined;
-      type: 'list_dir';
-      path: string | undefined;
-    }
-  | {
-      id: string | undefined;
-      type: 'exists';
-      path: string;
-    };
-
 type CoworkRunPhase = 'idle' | 'sending' | 'streaming' | 'completed' | 'error';
 
-function extractChatText(message: unknown): string {
-  if (!message || typeof message !== 'object') {
-    return '';
-  }
-
-  const record = message as Record<string, unknown>;
-  if (typeof record.text === 'string' && record.text.trim()) {
-    return record.text;
-  }
-  if (typeof record.content === 'string' && record.content.trim()) {
-    return record.content;
-  }
-
-  if (Array.isArray(record.content)) {
-    const parts = record.content
-      .map((item) => {
-        if (!item || typeof item !== 'object') {
-          return '';
-        }
-        const part = item as Record<string, unknown>;
-        if (part.type === 'text' && typeof part.text === 'string') {
-          return part.text;
-        }
-        return '';
-      })
-      .filter((part) => part.length > 0);
-    return parts.join('');
-  }
-
-  return '';
-}
-
-function extractChatRole(message: unknown): ChatMessage['role'] {
-  if (!message || typeof message !== 'object') {
-    return 'assistant';
-  }
-
-  const role = (message as Record<string, unknown>).role;
-  return role === 'user' || role === 'assistant' || role === 'system' ? role : 'assistant';
-}
-
-const RECENT_CHAT_CONTEXT_LIMIT = 8;
-const RECENT_CHAT_CHARS_PER_MESSAGE = 500;
-const SIDEBAR_RECENTS_LIMIT = 7;
-const SIDEBAR_RECENT_LABEL_LIMIT = 88;
-const MAX_THREAD_STORE_ITEMS = 100;
-const DEFAULT_CHAT_THREAD_TITLE = 'New chat';
-const DEFAULT_COWORK_THREAD_TITLE = 'New task';
-const MAIN_SESSION_KEY = 'main';
-const MAIN_THREAD_TITLE = 'Main chat';
 const COWORK_SEND_SPINNER_MS = 300;
 const MAX_LOCAL_ACTIONS_PER_RUN = 20;
 
-function truncateForContext(text: string, maxChars: number): string {
-  if (text.length <= maxChars) {
-    return text;
-  }
 
-  return `${text.slice(0, maxChars).trimEnd()}...`;
-}
 
-function buildRecentChatContext(messages: ChatMessage[]): string {
-  const recent = messages
-    .filter((message) => (message.role === 'user' || message.role === 'assistant') && message.text.trim().length > 0)
-    .slice(-RECENT_CHAT_CONTEXT_LIMIT)
-    .map((message) => {
-      const speaker = message.role === 'user' ? 'User' : 'Assistant';
-      const normalized = message.text.replace(/\s+/g, ' ').trim();
-      return `${speaker}: ${truncateForContext(normalized, RECENT_CHAT_CHARS_PER_MESSAGE)}`;
-    });
 
-  return recent.join('\n');
-}
 
-function buildOutboundChatPrompt(userText: string, recentMessages: ChatMessage[]): string {
-  const contextBlock = buildRecentChatContext(recentMessages);
-  if (!contextBlock) {
-    return userText;
-  }
 
-  return [
-    'Use the recent conversation context below when helpful. If context conflicts with the latest user request, prioritize the latest request.',
-    '',
-    'Recent conversation:',
-    contextBlock,
-    '',
-    'Latest user message:',
-    userText,
-  ].join('\n');
-}
 
-function toRecentSidebarLabel(text: string): string {
-  const normalized = text.replace(/\s+/g, ' ').trim();
-  if (!normalized) {
-    return '';
-  }
 
-  if (normalized.length <= SIDEBAR_RECENT_LABEL_LIMIT) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, SIDEBAR_RECENT_LABEL_LIMIT).trimEnd()}...`;
-}
-
-function normalizeSessionKey(sessionKey: string): string {
-  return sessionKey.trim();
-}
-
-function getThreadIdForSession(sessionKey: string): string {
-  return `thread-${sessionKey}`;
-}
-
-function findMatchingSessionKey(sessionKeys: string[], requestedKey: string): string | null {
-  const requested = normalizeSessionKey(requestedKey);
-  if (!requested) {
-    return null;
-  }
-
-  const requestedLower = requested.toLowerCase();
-  const direct = sessionKeys.find((key) => normalizeSessionKey(key).toLowerCase() === requestedLower);
-  if (direct) {
-    return normalizeSessionKey(direct);
-  }
-
-  const requestedTail = requestedLower.includes(':')
-    ? requestedLower.slice(requestedLower.lastIndexOf(':') + 1)
-    : requestedLower;
-  if (!requestedTail) {
-    return null;
-  }
-
-  const byTail = sessionKeys.find((key) => {
-    const normalized = normalizeSessionKey(key).toLowerCase();
-    if (!normalized) {
-      return false;
-    }
-    if (normalized.endsWith(`:${requestedTail}`)) {
-      return true;
-    }
-    const tail = normalized.includes(':') ? normalized.slice(normalized.lastIndexOf(':') + 1) : normalized;
-    return tail === requestedTail;
-  });
-
-  return byTail ? normalizeSessionKey(byTail) : null;
-}
-
-function deriveThreadTitleFromMessages(messages: ChatMessage[]): string {
-  const firstUserMessage = messages.find((message) => message.role === 'user');
-  if (!firstUserMessage) {
-    return '';
-  }
-
-  return toRecentSidebarLabel(firstUserMessage.text);
-}
-
-function toFallbackThreadTitle(sessionKey: string, kind: 'chat' | 'cowork' = 'chat'): string {
-  const normalized = normalizeSessionKey(sessionKey);
-  if (!normalized) {
-    return kind === 'cowork' ? DEFAULT_COWORK_THREAD_TITLE : DEFAULT_CHAT_THREAD_TITLE;
-  }
-
-  if (normalized.toLowerCase() === MAIN_SESSION_KEY) {
-    return MAIN_THREAD_TITLE;
-  }
-
-  return kind === 'cowork' ? DEFAULT_COWORK_THREAD_TITLE : DEFAULT_CHAT_THREAD_TITLE;
-}
-
-function isCustomChatThreadTitle(title: string, sessionKey: string): boolean {
-  const normalizedTitle = title.trim();
-  if (!normalizedTitle) {
-    return false;
-  }
-
-  return normalizedTitle !== toFallbackThreadTitle(sessionKey, 'chat');
-}
-
-function mergeChatThreads(existing: ChatThread[], incoming: ChatThread[]): ChatThread[] {
-  const bySession = new Map<string, ChatThread>();
-
-  for (const thread of [...incoming, ...existing]) {
-    const normalizedSessionKey = normalizeSessionKey(thread.sessionKey).toLowerCase();
-    if (!normalizedSessionKey) {
-      continue;
-    }
-
-    const previous = bySession.get(normalizedSessionKey);
-    if (!previous || thread.updatedAt >= previous.updatedAt) {
-      bySession.set(normalizedSessionKey, thread);
-    }
-  }
-
-  return Array.from(bySession.values())
-    .sort((left, right) => right.updatedAt - left.updatedAt)
-    .slice(0, MAX_THREAD_STORE_ITEMS);
-}
-
-function normalizeStoredThread(thread: unknown): ChatThread | null {
-  if (!thread || typeof thread !== 'object') {
-    return null;
-  }
-
-  const record = thread as Record<string, unknown>;
-  const sessionKey = typeof record.sessionKey === 'string' ? normalizeSessionKey(record.sessionKey) : '';
-  if (!sessionKey) {
-    return null;
-  }
-
-  const title = typeof record.title === 'string' ? toRecentSidebarLabel(record.title) : '';
-  const updatedAtRaw = typeof record.updatedAt === 'number' ? record.updatedAt : Number(record.updatedAt);
-  const updatedAt = Number.isFinite(updatedAtRaw) ? updatedAtRaw : Date.now();
-
-  return {
-    id: getThreadIdForSession(sessionKey),
-    sessionKey,
-    title: title || toFallbackThreadTitle(sessionKey, sessionKey.toLowerCase().includes('cowork') ? 'cowork' : 'chat'),
-    updatedAt,
-  };
-}
-
-function loadPersistedRecents(): PersistedRecents {
-  try {
-    const raw = localStorage.getItem(RELAY_RECENTS_KEY);
-    if (!raw) {
-      return { chatThreads: [], coworkThreads: [] };
-    }
-
-    const parsed = JSON.parse(raw) as PersistedRecents;
-    const chatThreads = Array.isArray(parsed?.chatThreads)
-      ? parsed.chatThreads
-          .map(normalizeStoredThread)
-          .filter((thread): thread is ChatThread => thread !== null)
-      : [];
-    const coworkThreads = Array.isArray(parsed?.coworkThreads)
-      ? parsed.coworkThreads
-          .map(normalizeStoredThread)
-          .filter((thread): thread is ChatThread => thread !== null)
-      : [];
-
-    return {
-      chatThreads: mergeChatThreads([], chatThreads),
-      coworkThreads: mergeChatThreads([], coworkThreads),
-    };
-  } catch {
-    return { chatThreads: [], coworkThreads: [] };
-  }
-}
-
-function toRecentSidebarItems(threads: ChatThread[], kind: 'chat' | 'cowork'): RecentWorkspaceEntry[] {
-  return [...threads]
-    .sort((left, right) => right.updatedAt - left.updatedAt)
-    .slice(0, SIDEBAR_RECENTS_LIMIT)
-    .map((thread) => ({
-      id: thread.id,
-      label: thread.title,
-      sessionKey: thread.sessionKey,
-      kind,
-    }));
-}
-
-/** Try to extract a UUID from an error message (e.g. pairing request IDs). */
-function extractUuidFromMessage(msg?: string): string | undefined {
-  if (!msg) return undefined;
-  const match = msg.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
-  return match?.[0];
-}
-
-function readGatewayError(error: unknown): { message: string; code?: string; requestId?: string } {
-  if (!(error instanceof Error)) {
-    return { message: 'Gateway connection failed.' };
-  }
-
-  if (error instanceof GatewayRequestError) {
-    console.log('[Relay] GatewayRequestError details:', JSON.stringify(error.details));
-    const d = error.details as Record<string, unknown> | undefined;
-    const requestId =
-      (typeof d?.requestId === 'string' && d.requestId) ||
-      (typeof d?.request_id === 'string' && d.request_id) ||
-      (typeof d?.pairingRequestId === 'string' && d.pairingRequestId) ||
-      extractUuidFromMessage(error.message) ||
-      undefined;
-    return {
-      message: error.message,
-      code: error.code,
-      requestId,
-    };
-  }
-
-  return {
-    message: error.message || 'Gateway connection failed.',
-    requestId: extractUuidFromMessage(error.message),
-  };
-}
-
-function parseRelayFileActions(rawInput: unknown): RelayFileAction[] {
-  const normalizeRelayActions = (value: unknown): RelayFileAction[] => {
-    let rawActions: unknown = value;
-
-    if (typeof rawActions === 'string') {
-      try {
-        rawActions = JSON.parse(rawActions);
-      } catch {
-        return [];
-      }
-    }
-
-    const actionArray = Array.isArray(rawActions) ? rawActions : rawActions ? [rawActions] : [];
-
-    return actionArray.reduce<RelayFileAction[]>((acc, action) => {
-        if (!action || typeof action !== 'object') {
-          return acc;
-        }
-
-        const record = action as Record<string, unknown>;
-        const type = record.type;
-        if (type !== 'create_file' && type !== 'append_file' && type !== 'read_file' && type !== 'list_dir' && type !== 'exists') {
-          return acc;
-        }
-
-        const id = typeof record.id === 'string' && record.id.trim() ? record.id.trim() : undefined;
-
-        const filePath = typeof record.path === 'string' ? record.path.trim() : '';
-        if ((type === 'create_file' || type === 'append_file' || type === 'read_file' || type === 'exists') && !filePath) {
-          return acc;
-        }
-
-        if (type === 'read_file') {
-          acc.push({
-            id,
-            type: 'read_file' as const,
-            path: filePath,
-          });
-          return acc;
-        }
-
-        if (type === 'list_dir') {
-          acc.push({
-            id,
-            type: 'list_dir' as const,
-            path: filePath || undefined,
-          });
-          return acc;
-        }
-
-        if (type === 'exists') {
-          acc.push({
-            id,
-            type: 'exists' as const,
-            path: filePath,
-          });
-          return acc;
-        }
-
-        const content = typeof record.content === 'string' ? record.content : '';
-        const overwrite = typeof record.overwrite === 'boolean' ? record.overwrite : undefined;
-
-        if (type === 'append_file') {
-          acc.push({
-            id,
-            type: 'append_file' as const,
-            path: filePath,
-            content,
-          });
-          return acc;
-        }
-
-        acc.push({
-          id,
-          type: 'create_file' as const,
-          path: filePath,
-          content,
-          overwrite,
-        });
-
-        return acc;
-      }, []);
-  };
-
-  const tryParseCandidateText = (candidate: string): RelayFileAction[] => {
-    const text = candidate.trim();
-    if (!text) {
-      return [];
-    }
-
-    try {
-      const parsed = JSON.parse(text) as Record<string, unknown>;
-      const direct = normalizeRelayActions(parsed.relay_actions ?? parsed.relayActions);
-      if (direct.length > 0) {
-        return direct;
-      }
-    } catch {
-      // Continue with fallbacks.
-    }
-
-    const jsonObjectWithRelayActionsPattern = /\{[\s\S]*?"relay_actions"[\s\S]*?\}/gi;
-    let objectMatch: RegExpExecArray | null;
-    while ((objectMatch = jsonObjectWithRelayActionsPattern.exec(text)) !== null) {
-      const payload = objectMatch[0]?.trim();
-      if (!payload) {
-        continue;
-      }
-
-      try {
-        const parsed = JSON.parse(payload) as Record<string, unknown>;
-        const direct = normalizeRelayActions(parsed.relay_actions ?? parsed.relayActions);
-        if (direct.length > 0) {
-          return direct;
-        }
-      } catch {
-        // Keep scanning.
-      }
-    }
-
-    const jsonCodeBlockPattern = /```json\s*([\s\S]*?)```/gi;
-    let codeBlockMatch: RegExpExecArray | null;
-    while ((codeBlockMatch = jsonCodeBlockPattern.exec(text)) !== null) {
-      const payload = codeBlockMatch[1]?.trim();
-      if (!payload) {
-        continue;
-      }
-
-      try {
-        const parsed = JSON.parse(payload) as Record<string, unknown>;
-        const direct = normalizeRelayActions(parsed.relay_actions ?? parsed.relayActions);
-        if (direct.length > 0) {
-          return direct;
-        }
-      } catch {
-        // Continue trying other candidates.
-      }
-    }
-
-    const genericCodeBlockPattern = /```\s*([\s\S]*?)```/gi;
-    while ((codeBlockMatch = genericCodeBlockPattern.exec(text)) !== null) {
-      const payload = codeBlockMatch[1]?.trim();
-      if (!payload) {
-        continue;
-      }
-
-      try {
-        const parsed = JSON.parse(payload) as Record<string, unknown>;
-        const direct = normalizeRelayActions(parsed.relay_actions ?? parsed.relayActions);
-        if (direct.length > 0) {
-          return direct;
-        }
-      } catch {
-        // Keep trying.
-      }
-    }
-
-    return [];
-  };
-
-  const queue: unknown[] = [rawInput];
-  const seen = new Set<unknown>();
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (current === undefined || current === null) {
-      continue;
-    }
-
-    if (typeof current === 'string') {
-      const fromText = tryParseCandidateText(current);
-      if (fromText.length > 0) {
-        return fromText;
-      }
-      continue;
-    }
-
-    if (typeof current !== 'object') {
-      continue;
-    }
-
-    if (seen.has(current)) {
-      continue;
-    }
-    seen.add(current);
-
-    if (Array.isArray(current)) {
-      for (const item of current) {
-        queue.push(item);
-      }
-      continue;
-    }
-
-    const record = current as Record<string, unknown>;
-    const direct = normalizeRelayActions(record.relay_actions ?? record.relayActions);
-    if (direct.length > 0) {
-      return direct;
-    }
-
-    for (const value of Object.values(record)) {
-      queue.push(value);
-    }
-  }
-
-  return [];
-}
-
-function stripRelayActionPayloadFromText(rawText: string): string {
-  if (!rawText.trim()) {
-    return '';
-  }
-
-  let sanitized = rawText;
-
-  // Remove explicit relay_actions JSON code blocks.
-  sanitized = sanitized.replace(/```json\s*[\s\S]*?"relay_actions"[\s\S]*?```/gi, '');
-
-  // Remove generic code blocks that contain relay_actions payload.
-  sanitized = sanitized.replace(/```[\s\S]*?"relay_actions"[\s\S]*?```/gi, '');
-
-  // Remove inline JSON objects containing relay_actions.
-  sanitized = sanitized.replace(/\{[\s\S]*?"relay_actions"[\s\S]*?\}/gi, '');
-
-  return sanitized.replace(/\n{3,}/g, '\n\n').trim();
-}
-
-function parseRelayActivityItems(rawInput: unknown): ChatActivityItem[] {
-  const normalizeItems = (value: unknown): ChatActivityItem[] => {
-    const items = Array.isArray(value) ? value : [];
-    return items.reduce<ChatActivityItem[]>((acc, item, index) => {
-      if (!item || typeof item !== 'object') {
-        return acc;
-      }
-      const record = item as Record<string, unknown>;
-      const label = typeof record.label === 'string' ? record.label.trim() : '';
-      if (!label) {
-        return acc;
-      }
-      const id = typeof record.id === 'string' && record.id.trim() ? record.id.trim() : `activity-${index + 1}`;
-      const toneValue = typeof record.tone === 'string' ? record.tone.trim().toLowerCase() : 'neutral';
-      const tone: ChatActivityItem['tone'] =
-        toneValue === 'success' || toneValue === 'danger' || toneValue === 'neutral' ? toneValue : 'neutral';
-      const details = typeof record.details === 'string' && record.details.trim() ? record.details.trim() : undefined;
-      acc.push({ id, label, details, tone });
-      return acc;
-    }, []);
-  };
-
-  const queue: unknown[] = [rawInput];
-  const seen = new Set<unknown>();
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (current === undefined || current === null) {
-      continue;
-    }
-
-    if (typeof current !== 'object') {
-      continue;
-    }
-
-    if (seen.has(current)) {
-      continue;
-    }
-    seen.add(current);
-
-    if (Array.isArray(current)) {
-      for (const item of current) {
-        queue.push(item);
-      }
-      continue;
-    }
-
-    const record = current as Record<string, unknown>;
-    const direct = normalizeItems(record.relay_activity ?? record.relayActivity);
-    if (direct.length > 0) {
-      return direct;
-    }
-
-    for (const value of Object.values(record)) {
-      queue.push(value);
-    }
-  }
-
-  return [];
-}
-
-function deriveActivityItemsFromAssistantText(text: string, runId: string): ChatActivityItem[] {
-  const normalized = text.trim();
-  if (!normalized) {
-    return [];
-  }
-
-  const lower = normalized.toLowerCase();
-  const hasActionVerb =
-    lower.includes('created') ||
-    lower.includes('updated') ||
-    lower.includes('deleted') ||
-    lower.includes('scheduled') ||
-    lower.includes('applied') ||
-    lower.includes('presented');
-  const hasWindowsPathHint = normalized.includes(':\\');
-  const hasFolderHint = lower.includes(' folder ');
-  const hasFileHint = lower.includes(' file');
-  const hasInPhrase = lower.includes(' in ');
-  const tokens = normalized.split(' ');
-  const hasFileNameToken = tokens.some((token) => {
-    const trimmed = token.trim();
-    if (!trimmed || trimmed.length < 3 || trimmed.length > 80) {
-      return false;
-    }
-    if (trimmed.endsWith('.') || trimmed.endsWith(',')) {
-      return false;
-    }
-    const dotIndex = trimmed.lastIndexOf('.');
-    if (dotIndex <= 0 || dotIndex >= trimmed.length - 1) {
-      return false;
-    }
-    return true;
-  });
-
-  const hasContextHint = hasWindowsPathHint || hasFolderHint || hasFileHint || (hasInPhrase && hasFileNameToken);
-
-  if (!hasActionVerb || !hasContextHint) {
-    return [];
-  }
-
-  const tone: ChatActivityItem['tone'] =
-    lower.includes('failed') || lower.includes('error')
-      ? 'danger'
-      : lower.includes('created') || lower.includes('updated') || lower.includes('applied') || lower.includes('done')
-        ? 'success'
-        : 'neutral';
-
-  const firstLine = normalized.split('\n')[0]?.trim() || normalized;
-  return [
-    {
-      id: `activity-summary-${runId}`,
-      label: firstLine,
-      details: normalized,
-      tone,
-    },
-  ];
-}
-
-function normalizeCoworkMessage(message: ChatMessage): ChatMessage {
-  if (message.meta?.kind === 'activity' || message.role !== 'assistant') {
-    return message;
-  }
-
-  const items = deriveActivityItemsFromAssistantText(message.text, message.id);
-  if (items.length === 0) {
-    return message;
-  }
-
-  return {
-    ...message,
-    meta: {
-      kind: 'activity',
-      items,
-    },
-  };
-}
 
 export default function App() {
   const bridge = window.relay;
@@ -830,6 +123,22 @@ export default function App() {
   const [draftGatewayToken, setDraftGatewayToken] = useState('');
   const [health, setHealth] = useState<HealthCheckResult | null>(null);
   const [status, setStatus] = useState('Loading configuration...');
+  const { preferences, updatePreferences } = usePreferences();
+  const {
+    authSession,
+    authenticating,
+    authError,
+    guestMode,
+    onboardingComplete,
+    canUseAppShell,
+    userIdentityLabel,
+    usageModeLabel,
+    handleLogin,
+    handleLogout,
+    handleContinueAsGuest,
+    completeOnboarding,
+  } = useAuth({ onStatusChange: setStatus });
+  const needsOnboarding = canUseAppShell && !onboardingComplete;
   const [sendingChat, setSendingChat] = useState(false);
   const [awaitingChatStream, setAwaitingChatStream] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -865,13 +174,6 @@ export default function App() {
   const [changingCoworkModel, setChangingCoworkModel] = useState(false);
   const [scheduledJobs, setScheduledJobs] = useState<ScheduledJob[]>([]);
   const [scheduledLoading, setScheduledLoading] = useState(false);
-  const [authSession, setAuthSession] = useState<AuthSession | null>(null);
-  const [authenticating, setAuthenticating] = useState(false);
-  const [authError, setAuthError] = useState('');
-  const [guestMode, setGuestMode] = useState(false);
-  const [onboardingComplete, setOnboardingComplete] = useState(
-    () => localStorage.getItem(RELAY_ONBOARDING_KEY) === 'true',
-  );
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [recentRenameTarget, setRecentRenameTarget] = useState<RecentWorkspaceEntry | null>(null);
@@ -888,13 +190,6 @@ export default function App() {
   const [coworkRunStatus, setCoworkRunStatus] = useState('Ready for a new task.');
   const [localActionReceipts, setLocalActionReceipts] = useState<LocalActionReceipt[]>([]);
   const [localActionSmokeRunning, setLocalActionSmokeRunning] = useState(false);
-  const [preferences, setPreferences] = useState<UserPreferences>(() => {
-    try {
-      const stored = localStorage.getItem(RELAY_PREFERENCES_KEY);
-      if (stored) return { ...defaultPreferences, ...JSON.parse(stored) };
-    } catch { /* ignore */ }
-    return defaultPreferences;
-  });
   const [gatewayConnected, setGatewayConnected] = useState(false);
 
   const fileService = useMemo(
@@ -908,14 +203,6 @@ export default function App() {
     () => (bridge ? new LocalFileService() : null),
     [bridge],
   );
-
-  const updatePreferences = useCallback((patch: Partial<UserPreferences>) => {
-    setPreferences((prev) => {
-      const next = { ...prev, ...patch };
-      localStorage.setItem(RELAY_PREFERENCES_KEY, JSON.stringify(next));
-      return next;
-    });
-  }, []);
 
   const recentChatItems = toRecentSidebarItems(chatThreads, 'chat');
   const recentCoworkItems = toRecentSidebarItems(coworkThreads, 'cowork');
@@ -1328,53 +615,6 @@ export default function App() {
     }
   };
 
-  const clearAuthStorage = () => {
-    localStorage.removeItem(AUTH_LOCAL_STORAGE_KEY);
-    sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
-  };
-
-  const persistAuthSession = (session: AuthSession) => {
-    clearAuthStorage();
-    const serialized = JSON.stringify(session);
-    if (session.rememberMe) {
-      localStorage.setItem(AUTH_LOCAL_STORAGE_KEY, serialized);
-      return;
-    }
-    sessionStorage.setItem(AUTH_SESSION_STORAGE_KEY, serialized);
-  };
-
-  const readStoredAuthSession = (): AuthSession | null => {
-    const localRaw = localStorage.getItem(AUTH_LOCAL_STORAGE_KEY);
-    const sessionRaw = sessionStorage.getItem(AUTH_SESSION_STORAGE_KEY);
-    const raw = localRaw ?? sessionRaw;
-    if (!raw) {
-      return null;
-    }
-
-    try {
-      const parsed = JSON.parse(raw) as Partial<AuthSession>;
-      if (
-        typeof parsed.email !== 'string' ||
-        typeof parsed.accessToken !== 'string' ||
-        typeof parsed.refreshToken !== 'string' ||
-        typeof parsed.rememberMe !== 'boolean' ||
-        typeof parsed.expiresAt !== 'number'
-      ) {
-        return null;
-      }
-
-      return {
-        email: parsed.email,
-        accessToken: parsed.accessToken,
-        refreshToken: parsed.refreshToken,
-        rememberMe: parsed.rememberMe,
-        expiresAt: parsed.expiresAt,
-      };
-    } catch {
-      return null;
-    }
-  };
-
   const ensureConnectedClient = async (client: OpenClawGatewayClient) => {
     await client.connect({
       gatewayUrl: draftGatewayUrl,
@@ -1541,83 +781,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activePage, searchOpen]);
 
-  // Apply theme class to document
-  useEffect(() => {
-    const root = document.documentElement;
-    if (preferences.theme === 'dark') {
-      root.classList.add('dark');
-    } else if (preferences.theme === 'auto') {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      root.classList.toggle('dark', prefersDark);
-      const handler = (e: MediaQueryListEvent) => root.classList.toggle('dark', e.matches);
-      const mq = window.matchMedia('(prefers-color-scheme: dark)');
-      mq.addEventListener('change', handler);
-      return () => mq.removeEventListener('change', handler);
-    } else {
-      root.classList.remove('dark');
-    }
-  }, [preferences.theme]);
-
-  useEffect(() => {
-    document.documentElement.lang = preferences.language;
-  }, [preferences.language]);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    root.classList.toggle('relay-style', preferences.style === 'relay');
-  }, [preferences.style]);
-
-  useEffect(() => {
-    const storedUsageMode = localStorage.getItem(RELAY_USAGE_MODE_KEY);
-    if (storedUsageMode === 'guest') {
-      setGuestMode(true);
-      setStatus('Running in local mode.');
-    }
-
-    const storedSession = readStoredAuthSession();
-    if (!storedSession) {
-      const configError = getSupabaseAuthConfigError();
-      if (configError && storedUsageMode !== 'guest') {
-        setAuthError(configError);
-      }
-      return;
-    }
-
-    let cancelled = false;
-    setAuthenticating(true);
-
-    const recoverSession = async () => {
-      try {
-        const restored = await restoreSupabaseSession(storedSession);
-        if (cancelled) {
-          return;
-        }
-
-        setAuthSession(restored);
-        setGuestMode(false);
-        localStorage.setItem(RELAY_USAGE_MODE_KEY, 'auth');
-        persistAuthSession(restored);
-        setStatus(`Signed in as ${restored.email}.`);
-      } catch {
-        if (cancelled) {
-          return;
-        }
-
-        clearAuthStorage();
-        setAuthError('Session expired or invalid. Please login again.');
-      } finally {
-        if (!cancelled) {
-          setAuthenticating(false);
-        }
-      }
-    };
-
-    void recoverSession();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     if (!bridge) {
@@ -2266,8 +1429,7 @@ export default function App() {
       .then(async () => {
         setHealth({ ok: true, message: `Connected to ${gatewayUrl}` });
         if (!onboardingComplete) {
-          localStorage.setItem(RELAY_ONBOARDING_KEY, 'true');
-          setOnboardingComplete(true);
+          completeOnboarding();
         }
         await loadRecentChatsFromBackend(client);
       })
@@ -3151,74 +2313,8 @@ export default function App() {
     }
   };
 
-  const handleLogin = async (credentials: {
-    email: string;
-    password: string;
-    rememberMe: boolean;
-  }) => {
-    setAuthError('');
-
-    const configError = getSupabaseAuthConfigError();
-    if (configError) {
-      setAuthError(configError);
-      return;
-    }
-
-    const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(credentials.email);
-    if (!isValidEmail) {
-      setAuthError('Invalid credentials. Use a valid work email.');
-      return;
-    }
-
-    if (!credentials.password.trim()) {
-      setAuthError('Invalid credentials. Password is required.');
-      return;
-    }
-
-    setAuthenticating(true);
-    try {
-      const session = await signInWithPassword(credentials.email, credentials.password, credentials.rememberMe);
-
-      setAuthSession(session);
-      setGuestMode(false);
-      localStorage.setItem(RELAY_USAGE_MODE_KEY, 'auth');
-      persistAuthSession(session);
-      setStatus(`Signed in as ${session.email}.`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Invalid credentials.';
-      setAuthError(message);
-    } finally {
-      setAuthenticating(false);
-    }
-  };
-
-  const handleLogout = () => {
-    if (authSession) {
-      void signOutSupabase().catch(() => {
-        // local cleanup below is still enough to end the desktop session
-      });
-    }
-
-    setAuthSession(null);
-    setGuestMode(false);
-    localStorage.removeItem(RELAY_USAGE_MODE_KEY);
-    clearAuthStorage();
-    setAuthError('');
-    setStatus('Signed out.');
-  };
-
-  const handleContinueAsGuest = () => {
-    setGuestMode(true);
-    setAuthError('');
-    setAuthSession(null);
-    clearAuthStorage();
-    localStorage.setItem(RELAY_USAGE_MODE_KEY, 'guest');
-    setStatus('Running in local mode. Sign in anytime for hosted cloud features.');
-  };
-
   const handleCompleteOnboarding = () => {
-    localStorage.setItem(RELAY_ONBOARDING_KEY, 'true');
-    setOnboardingComplete(true);
+    completeOnboarding();
     setActivePage('chat');
   };
 
@@ -3238,10 +2334,6 @@ export default function App() {
     setCoworkResetKey((current) => current + 1);
   };
 
-  const userIdentityLabel = authSession?.email ?? 'Guest (local mode)';
-  const canUseAppShell = Boolean(authSession) || guestMode;
-  const needsOnboarding = canUseAppShell && !onboardingComplete;
-  const usageModeLabel = guestMode ? 'Local mode' : authSession ? 'Cloud mode' : 'Signed out';
   const pageLoadingFallback = (
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
       Loading page...
