@@ -375,15 +375,19 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
   // null = not checked yet, true/false = result
   const [pluginInstalled, setPluginInstalled] = useState<boolean | null>(null);
 
-  // Check on mount whether the workspace plugin is already installed
+  const isRemote = fileService.mode === 'remote';
+
+  // Check on mount whether the workspace plugin is already installed.
+  // Only meaningful for local gateways — for remote connections the plugin
+  // lives on the server, so we skip the local binary check and rely on
+  // the RPC call itself to tell us if the plugin is missing (remoteUnsupported).
   useEffect(() => {
+    if (isRemote) return; // skip local binary check for remote gateways
     if (!window.relay?.checkWorkspacePlugin) return;
     window.relay.checkWorkspacePlugin()
       .then((r) => setPluginInstalled(r.installed))
       .catch(() => setPluginInstalled(null));
-  }, []);
-
-  const isRemote = fileService.mode === 'remote';
+  }, [isRemote]);
   const activeRoot: ExplorerRoot = rootProp ?? 'workspace';
   const isLocalGateway = !gatewayUrl || /127\.0\.0\.1|localhost/.test(gatewayUrl);
 
@@ -809,7 +813,10 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
   }
 
   /* ── Render: workspace plugin not installed or RPCs unsupported ── */
-  const showPluginInstallUi = rootProp !== 'working-folder' && (pluginInstalled === false || (remoteUnsupported && activeRoot === 'workspace'));
+  // For local gateways: show install UI if local binary check says plugin is missing.
+  // For remote gateways: only show install UI if the RPC call actually fails (remoteUnsupported).
+  const showPluginInstallUi = rootProp !== 'working-folder' &&
+    ((!isRemote && pluginInstalled === false) || (remoteUnsupported && activeRoot === 'workspace'));
   if (showPluginInstallUi) {
     const INSTALL_CMD = 'openclaw plugins install @seventeenlabs/openclaw-relay-workspace';
     return (
