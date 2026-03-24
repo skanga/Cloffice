@@ -83,7 +83,7 @@ const defaultPreferences: UserPreferences = {
   responsePreferences: '',
   systemPrompt: '',
   theme: 'light',
-  style: 'claude',
+  style: 'relay',
   language: 'en',
 };
 

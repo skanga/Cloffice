@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { Code2, KeyRound, Link2, Shield } from 'lucide-react';
 
@@ -23,6 +23,9 @@ type UserPreferences = {
 };
 
 type SettingsSection = 'Profile' | 'Appearance' | 'System Prompt' | 'Gateway' | 'Connectors' | 'Account' | 'Privacy' | 'Developer';
+
+type StyleOption = UserPreferences['style'];
+type ThemeOption = UserPreferences['theme'];
 
 type SettingsPageProps = {
   activeSection: SettingsSection;
@@ -75,6 +78,158 @@ const sectionDescriptions: Record<SettingsSection, { en: string; de: string }> =
   },
 };
 
+function StylePreview({ style, dark }: { style: StyleOption; dark: boolean }) {
+  const isRelay = style === 'relay';
+  const id = isRelay ? 'relay' : 'claude';
+
+  const colors = isRelay
+    ? dark
+      ? {
+          top: '#090909',
+          bottom: '#131313',
+          surface: '#121212',
+          surfaceBorder: '#2b2b2b',
+          lineStrong: '#fafafa',
+          lineSoft: '#a6a6a6',
+          panel: '#1a1a1a',
+          accentA: '#bbf451',
+          accentB: '#a8df44',
+        }
+      : {
+          top: '#ffffff',
+          bottom: '#f4f8f1',
+          surface: '#ffffff',
+          surfaceBorder: '#e8e8e8',
+          lineStrong: '#070707',
+          lineSoft: '#666666',
+          panel: '#f6f6f6',
+          accentA: '#bbf451',
+          accentB: '#a8df44',
+        }
+    : {
+        top: dark ? '#1c1b18' : '#fbf5ea',
+        bottom: dark ? '#2a2924' : '#f4e8d7',
+        surface: dark ? '#242320' : '#fff9f2',
+        surfaceBorder: dark ? '#3a3a36' : '#e4d4bd',
+        lineStrong: dark ? '#e8e6e0' : '#9b806f',
+        lineSoft: dark ? '#8a887e' : '#d8c3a7',
+        panel: dark ? '#2a2924' : '#f4ecdf',
+        accentA: '#df9a79',
+        accentB: '#c47a5c',
+      };
+
+  return (
+    <svg
+      viewBox="0 0 320 140"
+      className="block h-full w-full"
+      preserveAspectRatio="xMidYMid slice"
+      role="img"
+      aria-label={`${isRelay ? 'Relay' : 'Claude'} style preview`}
+    >
+      <defs>
+        <linearGradient id={`${id}-bg`} x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0%" stopColor={colors.top} />
+          <stop offset="100%" stopColor={colors.bottom} />
+        </linearGradient>
+        <linearGradient id={`${id}-accent`} x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0%" stopColor={colors.accentA} />
+          <stop offset="100%" stopColor={colors.accentB} />
+        </linearGradient>
+      </defs>
+
+      <rect x="0" y="0" width="320" height="140" fill={`url(#${id}-bg)`} />
+
+      <rect x="0" y="0" width="96" height="140" fill={colors.surface} stroke={colors.surfaceBorder} />
+      <rect x="12" y="16" width="64" height="8" rx="4" fill={colors.lineStrong} opacity="0.75" />
+      <rect x="12" y="32" width="54" height="6" rx="3" fill={colors.lineSoft} />
+      <rect x="12" y="44" width="60" height="6" rx="3" fill={colors.lineSoft} />
+      <rect x="12" y="60" width="52" height="24" rx="7" fill={`url(#${id}-accent)`} />
+      <rect x="12" y="92" width="72" height="18" rx="7" fill={colors.panel} stroke={colors.surfaceBorder} />
+
+      <rect x="96" y="0" width="224" height="140" fill={colors.surface} stroke={colors.surfaceBorder} />
+      <rect x="110" y="16" width="94" height="8" rx="4" fill={colors.lineStrong} opacity="0.72" />
+      <rect x="110" y="32" width="176" height="6" rx="3" fill={colors.lineSoft} />
+      <rect x="110" y="44" width="156" height="6" rx="3" fill={colors.lineSoft} />
+      <rect x="110" y="60" width="82" height="28" rx="8" fill={colors.panel} stroke={colors.surfaceBorder} />
+      <rect x="202" y="60" width="96" height="28" rx="8" fill={`url(#${id}-accent)`} opacity="0.18" />
+      <rect x="110" y="96" width="184" height="8" rx="4" fill={colors.lineSoft} />
+    </svg>
+  );
+}
+
+function ThemePreview({ mode }: { mode: ThemeOption }) {
+  if (mode === 'dark') {
+    return (
+      <svg viewBox="0 0 320 140" className="block h-full w-full" preserveAspectRatio="none" role="img" aria-label="Dark theme preview">
+        <rect x="0" y="0" width="320" height="140" fill="#1c1b18" />
+        <rect x="0" y="0" width="96" height="140" fill="#242320" stroke="#3a3a36" />
+        <rect x="12" y="16" width="58" height="8" rx="4" fill="#e8e6e0" opacity="0.8" />
+        <rect x="12" y="32" width="48" height="6" rx="3" fill="#8a887e" />
+        <rect x="12" y="44" width="56" height="6" rx="3" fill="#8a887e" />
+        <rect x="12" y="60" width="52" height="24" rx="7" fill="#4b4a45" />
+        <rect x="96" y="0" width="224" height="140" fill="#242320" stroke="#3a3a36" />
+        <rect x="110" y="16" width="92" height="8" rx="4" fill="#e8e6e0" opacity="0.76" />
+        <rect x="110" y="32" width="166" height="6" rx="3" fill="#8a887e" />
+        <rect x="110" y="44" width="148" height="6" rx="3" fill="#8a887e" />
+        <rect x="110" y="60" width="74" height="28" rx="8" fill="#2f2e2a" stroke="#3a3a36" />
+        <rect x="194" y="60" width="92" height="28" rx="8" fill="#e8e6e0" opacity="0.12" />
+      </svg>
+    );
+  }
+
+  if (mode === 'auto') {
+    return (
+      <svg viewBox="0 0 320 140" className="block h-full w-full" preserveAspectRatio="none" role="img" aria-label="Auto theme preview">
+        <rect x="0" y="0" width="160" height="140" fill="#f4f3ee" />
+        <rect x="160" y="0" width="160" height="140" fill="#1c1b18" />
+
+        <rect x="12" y="14" width="64" height="112" rx="9" fill="#ffffff" stroke="#deddd4" />
+        <rect x="20" y="24" width="42" height="6" rx="3" fill="#1f1f1c" opacity="0.7" />
+        <rect x="20" y="37" width="34" height="5" rx="2.5" fill="#8d8b84" />
+        <rect x="20" y="48" width="38" height="5" rx="2.5" fill="#8d8b84" />
+        <rect x="20" y="61" width="36" height="18" rx="6" fill="#e5dfd2" />
+
+        <rect x="84" y="14" width="64" height="112" rx="9" fill="#ffffff" stroke="#deddd4" />
+        <rect x="92" y="24" width="42" height="6" rx="3" fill="#1f1f1c" opacity="0.7" />
+        <rect x="92" y="37" width="34" height="5" rx="2.5" fill="#8d8b84" />
+        <rect x="92" y="48" width="38" height="5" rx="2.5" fill="#8d8b84" />
+        <rect x="92" y="61" width="36" height="18" rx="6" fill="#e5dfd2" />
+
+        <rect x="172" y="14" width="64" height="112" rx="9" fill="#242320" stroke="#3a3a36" />
+        <rect x="180" y="24" width="42" height="6" rx="3" fill="#e8e6e0" opacity="0.8" />
+        <rect x="180" y="37" width="34" height="5" rx="2.5" fill="#8a887e" />
+        <rect x="180" y="48" width="38" height="5" rx="2.5" fill="#8a887e" />
+        <rect x="180" y="61" width="36" height="18" rx="6" fill="#34332f" />
+
+        <rect x="244" y="14" width="64" height="112" rx="9" fill="#242320" stroke="#3a3a36" />
+        <rect x="252" y="24" width="42" height="6" rx="3" fill="#e8e6e0" opacity="0.8" />
+        <rect x="252" y="37" width="34" height="5" rx="2.5" fill="#8a887e" />
+        <rect x="252" y="48" width="38" height="5" rx="2.5" fill="#8a887e" />
+        <rect x="252" y="61" width="36" height="18" rx="6" fill="#34332f" />
+
+        <line x1="160" y1="10" x2="160" y2="130" stroke="#9ca3af" strokeDasharray="4 4" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 320 140" className="block h-full w-full" preserveAspectRatio="none" role="img" aria-label="Light theme preview">
+      <rect x="0" y="0" width="320" height="140" fill="#f4f3ee" />
+      <rect x="0" y="0" width="96" height="140" fill="#ffffff" stroke="#deddd4" />
+      <rect x="12" y="16" width="58" height="8" rx="4" fill="#1f1f1c" opacity="0.72" />
+      <rect x="12" y="32" width="48" height="6" rx="3" fill="#8d8b84" />
+      <rect x="12" y="44" width="56" height="6" rx="3" fill="#8d8b84" />
+      <rect x="12" y="60" width="50" height="24" rx="7" fill="#e5dfd2" />
+      <rect x="96" y="0" width="224" height="140" fill="#ffffff" stroke="#deddd4" />
+      <rect x="110" y="16" width="92" height="8" rx="4" fill="#1f1f1c" opacity="0.68" />
+      <rect x="110" y="32" width="166" height="6" rx="3" fill="#8d8b84" />
+      <rect x="110" y="44" width="148" height="6" rx="3" fill="#8d8b84" />
+      <rect x="110" y="60" width="74" height="28" rx="8" fill="#f3efe6" stroke="#deddd4" />
+      <rect x="194" y="60" width="92" height="28" rx="8" fill="#111827" opacity="0.08" />
+    </svg>
+  );
+}
+
 export function SettingsPage({
   activeSection,
   draftGatewayUrl,
@@ -92,7 +247,24 @@ export function SettingsPage({
 }: SettingsPageProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [prefersDarkSystem, setPrefersDarkSystem] = useState(false);
   const t = useCallback((en: string, de: string) => (preferences.language === 'de' ? de : en), [preferences.language]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return;
+    }
+
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const applyPreference = () => setPrefersDarkSystem(media.matches);
+    applyPreference();
+
+    media.addEventListener('change', applyPreference);
+    return () => media.removeEventListener('change', applyPreference);
+  }, []);
+
+  const useDarkPreview =
+    preferences.theme === 'dark' || (preferences.theme === 'auto' && prefersDarkSystem);
 
   const effectivePairingId = useMemo(() => {
     if (pairingRequestId) return pairingRequestId;
@@ -190,14 +362,32 @@ export function SettingsPage({
                   key={value}
                   type="button"
                   onClick={() => onUpdatePreferences({ theme: value })}
-                  className={`flex flex-col items-center gap-2 rounded-xl border px-3 py-3 text-sm transition ${
+                  className={`overflow-hidden rounded-xl border p-0 text-left transition-colors ${
                     preferences.theme === value
-                      ? 'border-[#d98765] bg-[rgba(222,130,94,0.08)] text-foreground'
-                      : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                      ? 'border-[#d98765] bg-background text-foreground shadow-[0_0_0_1px_rgba(222,130,94,0.18)]'
+                      : 'border-border bg-background text-muted-foreground hover:border-border/80 hover:bg-muted/30'
                   }`}
                 >
-                  <div className={`h-16 w-full rounded-lg border border-border ${value === 'dark' ? 'bg-[#2a2a28]' : 'bg-muted'}`} />
-                  {label}
+                  <div className="relative h-36 w-full overflow-hidden border-b border-border/70">
+                    <div className="absolute inset-0">
+                      <ThemePreview mode={value} />
+                    </div>
+                  </div>
+                  <div className="flex min-h-[92px] flex-col px-3 py-3">
+                    <p className="text-[1rem] font-medium leading-none text-foreground">{label}</p>
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      {value === 'light'
+                        ? t('Always use light surfaces', 'Immer helle Oberflaechen verwenden')
+                        : value === 'dark'
+                          ? t('Always use dark surfaces', 'Immer dunkle Oberflaechen verwenden')
+                          : t('Follow system appearance', 'Systemdarstellung uebernehmen')}
+                    </p>
+                    <p className="mt-auto pt-2 text-[11px] font-medium text-muted-foreground/85">
+                      {value === 'auto'
+                        ? `${t('Currently:', 'Aktuell:')} ${prefersDarkSystem ? t('Dark', 'Dunkel') : t('Light', 'Hell')}`
+                        : '\u00a0'}
+                    </p>
+                  </div>
                 </button>
               ))}
             </div>
@@ -218,14 +408,21 @@ export function SettingsPage({
                   key={value}
                   type="button"
                   onClick={() => onUpdatePreferences({ style: value })}
-                  className={`rounded-xl border px-3 py-3 text-left transition ${
+                  className={`overflow-hidden rounded-xl border p-0 text-left transition ${
                     preferences.style === value
                       ? 'border-primary/40 bg-primary/10 text-foreground'
                       : 'border-border bg-background text-muted-foreground hover:bg-muted'
                   }`}
                 >
-                  <p className="text-sm font-medium text-foreground">{label}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+                  <div className="relative h-36 w-full overflow-hidden border-b border-border/70">
+                    <div className="absolute inset-0">
+                      <StylePreview style={value} dark={useDarkPreview} />
+                    </div>
+                  </div>
+                  <div className="px-3 py-3">
+                    <p className="text-sm font-medium text-foreground">{label}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+                  </div>
                 </button>
               ))}
             </div>
