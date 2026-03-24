@@ -4,7 +4,7 @@ import type { FormEvent, KeyboardEvent } from 'react';
 import { ArrowUp, ChevronRight, Clock3, FileText, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { ChatActivityItem, ChatMessage, ChatModelOption, LocalActionReceipt, LocalFilePlanAction } from '@/app-types';
+import type { ChatActivityItem, ChatMessage, ChatModelOption, CoworkRunPhase, LocalActionReceipt, LocalFilePlanAction, TaskState } from '@/app-types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,9 +12,6 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { chatMarkdownComponents } from '@/lib/chat-markdown';
-
-type TaskState = 'idle' | 'planned';
-type CoworkRunPhase = 'idle' | 'sending' | 'streaming' | 'completed' | 'error';
 
 type InlineActivityCard = {
   id: string;

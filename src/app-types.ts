@@ -143,6 +143,10 @@ export type LocalActionReceipt = {
   message?: string;
 };
 
+export type TaskState = 'idle' | 'planned';
+
+export type CoworkRunPhase = 'idle' | 'sending' | 'streaming' | 'completed' | 'error';
+
 export type UserPreferences = {
   fullName: string;
   displayName: string;

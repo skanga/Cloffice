@@ -6,10 +6,12 @@ import type {
   ChatActivityItem,
   ChatMessage,
   ChatModelOption,
+  CoworkRunPhase,
   HealthCheckResult,
   LocalActionReceipt,
   LocalFilePlanAction,
   ScheduledJob,
+  TaskState,
 } from './app-types';
 import { AppSidebar } from './components/layout/app-sidebar';
 import { AppTitlebar } from './components/layout/app-titlebar';
@@ -91,8 +93,6 @@ const defaultConfig: AppConfig = {
 type AppPage = 'chat' | 'cowork' | 'files' | 'local-files' | 'activity' | 'memory' | 'scheduled' | 'safety' | 'settings';
 type SettingsSection = 'Profile' | 'Appearance' | 'System Prompt' | 'Gateway' | 'Connectors' | 'Account' | 'Privacy' | 'Developer';
 
-type CoworkRunPhase = 'idle' | 'sending' | 'streaming' | 'completed' | 'error';
-
 const COWORK_SEND_SPINNER_MS = 300;
 const MAX_LOCAL_ACTIONS_PER_RUN = 20;
 
@@ -155,7 +155,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [taskPrompt, setTaskPrompt] = useState('');
   const [workingFolder, setWorkingFolder] = useState('/Downloads');
-  const [taskState, setTaskState] = useState<'idle' | 'planned'>('idle');
+  const [taskState, setTaskState] = useState<TaskState>('idle');
   const [localPlanActions, setLocalPlanActions] = useState<LocalFilePlanAction[]>([]);
   const [localPlanLoading, setLocalPlanLoading] = useState(false);
   const [localApplyLoading, setLocalApplyLoading] = useState(false);
