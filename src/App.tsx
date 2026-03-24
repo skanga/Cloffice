@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
 import type {
@@ -29,20 +29,21 @@ import { GatewayRequestError, OpenClawGatewayClient } from './lib/openclaw-gatew
 import { createFileService, LocalFileService } from './lib/file-service';
 import { LoginPage } from './features/auth/login-page';
 import { OnboardingPage } from './features/auth/onboarding-page';
-import { ChatPage } from './features/chat/chat-page';
-import { CoworkPage } from './features/cowork/cowork-page';
-import { SettingsPage } from './features/settings/settings-page';
-import { ActivityPage } from './features/workspace/activity-page';
-import { FilesPage } from './features/workspace/files-page';
-import { MemoryPage } from './features/workspace/memory-page';
-import { SafetyPage } from './features/workspace/safety-page';
-import { ScheduledPage } from './features/workspace/scheduled-page';
 import {
   getSupabaseAuthConfigError,
   restoreSupabaseSession,
   signInWithPassword,
   signOutSupabase,
 } from './lib/supabase-auth';
+
+const ChatPage = lazy(() => import('./features/chat/chat-page').then((module) => ({ default: module.ChatPage })));
+const CoworkPage = lazy(() => import('./features/cowork/cowork-page').then((module) => ({ default: module.CoworkPage })));
+const SettingsPage = lazy(() => import('./features/settings/settings-page').then((module) => ({ default: module.SettingsPage })));
+const ActivityPage = lazy(() => import('./features/workspace/activity-page').then((module) => ({ default: module.ActivityPage })));
+const FilesPage = lazy(() => import('./features/workspace/files-page').then((module) => ({ default: module.FilesPage })));
+const MemoryPage = lazy(() => import('./features/workspace/memory-page').then((module) => ({ default: module.MemoryPage })));
+const SafetyPage = lazy(() => import('./features/workspace/safety-page').then((module) => ({ default: module.SafetyPage })));
+const ScheduledPage = lazy(() => import('./features/workspace/scheduled-page').then((module) => ({ default: module.ScheduledPage })));
 
 const DEFAULT_GATEWAY_URL = 'ws://127.0.0.1:18789';
 
@@ -2880,6 +2881,11 @@ export default function App() {
   const canUseAppShell = Boolean(authSession) || guestMode;
   const needsOnboarding = canUseAppShell && !onboardingComplete;
   const usageModeLabel = guestMode ? 'Local mode' : authSession ? 'Cloud mode' : 'Signed out';
+  const pageLoadingFallback = (
+    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      Loading page...
+    </div>
+  );
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const allThreadsForSearch = [
     ...chatThreads.map((t) => ({ ...t, label: t.title, kind: 'chat' as const })),
@@ -3033,56 +3039,57 @@ export default function App() {
                 </CommandList>
               </Command>
             </CommandDialog>
-            {activePage === 'cowork' ? (
-              <CoworkPage
-                key={`cowork-${coworkResetKey}`}
-                taskPrompt={taskPrompt}
-                workingFolder={workingFolder}
-                taskState={taskState}
-                status={status}
-                messages={coworkMessages}
-                rightPanelOpen={coworkRightPanelOpen}
-                awaitingStream={coworkAwaitingStream}
-                streamingAssistantText={coworkStreamingText}
-                runPhase={coworkRunPhase}
-                runStatus={coworkRunStatus}
-                sessionKey={coworkSessionKey}
-                selectedModel={coworkModel}
-                models={coworkModels}
-                modelsLoading={modelsLoading}
-                changingModel={changingCoworkModel}
-                desktopBridgeAvailable={Boolean(bridge)}
-                localPlanActions={localPlanActions}
-                localPlanLoading={localPlanLoading}
-                localApplyLoading={localApplyLoading}
-                fileCreateLoading={localFileCreateLoading}
-                localActionReceipts={localActionReceipts}
-                localActionSmokeRunning={localActionSmokeRunning}
-                fileDraftPath={localFileDraftPath}
-                fileDraftContent={localFileDraftContent}
-                sending={coworkSending}
-                onTaskPromptChange={setTaskPrompt}
-                onWorkingFolderChange={handleWorkingFolderChange}
-                onModelChange={handleCoworkModelChange}
-                onFileDraftPathChange={setLocalFileDraftPath}
-                onFileDraftContentChange={setLocalFileDraftContent}
-                onPickWorkingFolder={handlePickWorkingFolder}
-                onSubmit={handlePlanTask}
-                onCreateLocalPlan={handleCreateLocalPlan}
-                onApplyLocalPlan={handleApplyLocalPlan}
-                onCreateFileInWorkingFolder={handleCreateFileInWorkingFolder}
-                onRunLocalActionSmokeTest={handleRunLocalActionSmokeTest}
-              />
-            ) : activePage === 'files' ? (
-              <FilesPage
-                workingFolder={workingFolder}
-                desktopBridgeAvailable={Boolean(bridge)}
-                onPickFolder={handlePickWorkingFolder}
-                fileService={fileService}
-                localFileService={localFileService}
-              />
-            ) : (
-              <ScrollArea className="h-full">
+            <Suspense fallback={pageLoadingFallback}>
+              {activePage === 'cowork' ? (
+                <CoworkPage
+                  key={`cowork-${coworkResetKey}`}
+                  taskPrompt={taskPrompt}
+                  workingFolder={workingFolder}
+                  taskState={taskState}
+                  status={status}
+                  messages={coworkMessages}
+                  rightPanelOpen={coworkRightPanelOpen}
+                  awaitingStream={coworkAwaitingStream}
+                  streamingAssistantText={coworkStreamingText}
+                  runPhase={coworkRunPhase}
+                  runStatus={coworkRunStatus}
+                  sessionKey={coworkSessionKey}
+                  selectedModel={coworkModel}
+                  models={coworkModels}
+                  modelsLoading={modelsLoading}
+                  changingModel={changingCoworkModel}
+                  desktopBridgeAvailable={Boolean(bridge)}
+                  localPlanActions={localPlanActions}
+                  localPlanLoading={localPlanLoading}
+                  localApplyLoading={localApplyLoading}
+                  fileCreateLoading={localFileCreateLoading}
+                  localActionReceipts={localActionReceipts}
+                  localActionSmokeRunning={localActionSmokeRunning}
+                  fileDraftPath={localFileDraftPath}
+                  fileDraftContent={localFileDraftContent}
+                  sending={coworkSending}
+                  onTaskPromptChange={setTaskPrompt}
+                  onWorkingFolderChange={handleWorkingFolderChange}
+                  onModelChange={handleCoworkModelChange}
+                  onFileDraftPathChange={setLocalFileDraftPath}
+                  onFileDraftContentChange={setLocalFileDraftContent}
+                  onPickWorkingFolder={handlePickWorkingFolder}
+                  onSubmit={handlePlanTask}
+                  onCreateLocalPlan={handleCreateLocalPlan}
+                  onApplyLocalPlan={handleApplyLocalPlan}
+                  onCreateFileInWorkingFolder={handleCreateFileInWorkingFolder}
+                  onRunLocalActionSmokeTest={handleRunLocalActionSmokeTest}
+                />
+              ) : activePage === 'files' ? (
+                <FilesPage
+                  workingFolder={workingFolder}
+                  desktopBridgeAvailable={Boolean(bridge)}
+                  onPickFolder={handlePickWorkingFolder}
+                  fileService={fileService}
+                  localFileService={localFileService}
+                />
+              ) : (
+                <ScrollArea className="h-full">
                 {activePage === 'chat' && (
                   <ChatPage
                     taskPrompt={taskPrompt}
@@ -3153,8 +3160,9 @@ export default function App() {
                     onUpdatePreferences={updatePreferences}
                   />
                 )}
-              </ScrollArea>
-            )}
+                </ScrollArea>
+              )}
+            </Suspense>
           </main>
         </SidebarProvider>
       ) : (
