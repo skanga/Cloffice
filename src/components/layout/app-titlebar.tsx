@@ -1,5 +1,5 @@
 import type { CSSProperties, MouseEvent } from 'react';
-import { Copy, Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Square, X } from 'lucide-react';
+import { ArrowLeft, Copy, Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Square, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -43,6 +43,9 @@ export function AppTitlebar({
   const noDragStyle = { WebkitAppRegion: 'no-drag' } as CSSProperties;
   const showModeTabs = !minimal && activePage !== 'settings';
   const activeMode: 'chat' | 'cowork' = activePage === 'chat' ? 'chat' : 'cowork';
+  const isWorkspacePage = ['files', 'activity', 'memory', 'scheduled', 'safety'].includes(activePage);
+  const isSettingsPage = activePage === 'settings';
+  const showBackButton = isWorkspacePage || isSettingsPage;
   const windowControlBaseClass =
     'inline-flex h-[44px] w-[46px] items-center justify-center border-0 bg-transparent text-muted-foreground transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40';
   const neutralWindowControlClass =
@@ -77,7 +80,7 @@ export function AppTitlebar({
       <div
         className="inline-flex min-w-[124px] items-center gap-1 [-webkit-app-region:no-drag]"
         style={noDragStyle}
-        aria-label="history controls"
+        aria-label="navigation controls"
         onMouseDown={preventTitlebarDragCapture}
         onDoubleClick={preventTitlebarDragCapture}
       >
@@ -92,12 +95,20 @@ export function AppTitlebar({
         >
           {sidebarOpen ? <PanelLeftClose className="size-4" /> : <PanelLeftOpen className="size-4" />}
         </Button>
-        <Button type="button" variant="ghost" size="icon-xs" className="size-6 text-muted-foreground" aria-label="Back">
-          ←
-        </Button>
-        <Button type="button" variant="ghost" size="icon-xs" className="size-6 text-muted-foreground" aria-label="Forward">
-          →
-        </Button>
+        {showBackButton && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 gap-1 px-1.5 text-muted-foreground text-xs"
+            style={noDragStyle}
+            onClick={() => onSelectPage(isSettingsPage ? 'chat' : 'cowork')}
+            aria-label={isSettingsPage ? 'Back' : 'Back to cowork'}
+          >
+            <ArrowLeft className="size-3.5" />
+            <span>{isSettingsPage ? 'Back' : 'Back to Cowork'}</span>
+          </Button>
+        )}
       </div>
       )}
 

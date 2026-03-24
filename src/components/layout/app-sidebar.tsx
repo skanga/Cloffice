@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft,
   Brain,
   CalendarClock,
   Check,
@@ -245,25 +244,6 @@ export function AppSidebar({
           /* ── Settings navigation ── */
           <>
             <SidebarGroup>
-              <SidebarGroupContent>
-                <SidebarMenu aria-label="Settings back navigation">
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      type="button"
-                      className={`gap-2 font-sans text-[13px] ${compact ? 'justify-center px-0' : ''}`}
-                      title={t('Back', 'Zurueck')}
-                      aria-label="Back to workspace"
-                      onClick={onStartNewChat}
-                    >
-                      <ArrowLeft data-icon="inline-start" />
-                      {!compact && <span className="min-w-0 flex-1 truncate">{t('Back', 'Zurueck')}</span>}
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-
-            <SidebarGroup className="mt-3">
               {!compact && <SidebarGroupLabel>{t('Settings', 'Einstellungen')}</SidebarGroupLabel>}
               <SidebarGroupContent>
                 <SidebarMenu>
@@ -292,20 +272,7 @@ export function AppSidebar({
             <SidebarGroup>
               <SidebarGroupContent>
                 <SidebarMenu aria-label="Primary workspace menu">
-                  {isWorkspacePage && (
-                    <SidebarMenuItem>
-                      <SidebarMenuButton
-                        type="button"
-                        className={`gap-2 font-sans text-[13px] ${compact ? 'justify-center px-0' : ''}`}
-                        title="Back to Cowork"
-                        aria-label="Back to cowork"
-                        onClick={() => onSelectPage('cowork')}
-                      >
-                        <ArrowLeft data-icon="inline-start" />
-                        {!compact && <span className="min-w-0 flex-1 truncate">Back to Cowork</span>}
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  )}
+
                   <SidebarMenuItem>
                     <SidebarMenuButton
                       type="button"

@@ -11,6 +11,13 @@ body,
   border-color: #deddd4;
 }
 
+button,
+[role="button"],
+select,
+summary {
+  cursor: pointer;
+}
+
 body {
   margin: 0;
   overflow: hidden;
