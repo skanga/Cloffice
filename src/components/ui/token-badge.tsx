@@ -1,10 +1,5 @@
 import type { MessageUsage } from '@/app-types';
-import { formatCostUsd, formatTokenCount } from '@/lib/token-usage';
-
-/** Rough estimate: ~4 chars per token for typical English/code text. */
-export function estimateTokens(text: string): number {
-  return Math.max(1, Math.round(text.length / 4));
-}
+import { estimateTokens, formatCostUsd, formatTokenCount } from '@/lib/token-usage';
 
 type TokenBadgeProps = {
   usage?: MessageUsage;

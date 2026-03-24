@@ -60,6 +60,9 @@ type CoworkPageProps = {
 };
 
 const connectors = ['Web search', 'Desktop files', 'Gateway tools'];
+const COWORK_CHAT_COLUMN_MAX_WIDTH = 860;
+const COWORK_COMPOSER_COLUMN_MAX_WIDTH = 920;
+const COWORK_DEFAULT_MODEL_LABEL = 'Default model';
 
 function runPhaseClasses(phase: CoworkRunPhase): string {
   if (phase === 'completed') {
@@ -156,11 +159,6 @@ export function CoworkPage({
     return { user, assistant };
   }, [messages]);
 
-  const folderLabel = workingFolder.trim() || '(not set)';
-  const selectedModelLabel = selectedModel
-    ? models.find((model) => model.value === selectedModel)?.label || selectedModel
-    : 'Default';
-
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== 'Enter' || event.shiftKey) {
       return;
@@ -173,38 +171,70 @@ export function CoworkPage({
     formRef.current?.requestSubmit();
   };
 
+  const renderCoworkComposer = (textareaMinHeightClass: string) => (
+    <form
+      className="rounded-[26px] border border-border/90 bg-card/98 px-4 py-3.5 shadow-[0_14px_34px_rgba(24,23,20,0.10)]"
+      onSubmit={onSubmit}
+      ref={formRef}
+    >
+      <Textarea
+        value={taskPrompt}
+        onChange={(event) => onTaskPromptChange(event.target.value)}
+        placeholder="How can I help you today?"
+        rows={2}
+        onKeyDown={handleComposerKeyDown}
+        aria-label="Task prompt"
+        className={`${textareaMinHeightClass} resize-none border-0 bg-transparent px-0 py-1.5 font-sans text-[18px] leading-7 text-foreground shadow-none focus-visible:ring-0`}
+      />
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+        <p className="font-sans text-[11px] text-muted-foreground">Press Enter to send, Shift+Enter for a new line</p>
+
+        <div className="ml-auto flex items-center gap-2">
+          <select
+            value={selectedModel}
+            onChange={(event) => onModelChange(event.target.value)}
+            disabled={modelsLoading || changingModel || models.length === 0}
+            className="h-9 max-w-[260px] rounded-xl border border-border bg-background px-3 font-sans text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="">{COWORK_DEFAULT_MODEL_LABEL}</option>
+            {models.map((model) => (
+              <option key={model.value} value={model.value}>
+                {model.label}
+              </option>
+            ))}
+          </select>
+
+          <Button
+            type="submit"
+            size="icon"
+            aria-label={sending ? 'Sending' : 'Send task'}
+            disabled={!canSend}
+            className="h-9 w-9 rounded-xl border-0 bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
+          </Button>
+        </div>
+      </div>
+    </form>
+  );
+
   return (
     <section
       className={`grid h-full w-full min-h-0 overflow-hidden transition-[grid-template-columns,gap] duration-200 ${
         rightPanelOpen
           ? 'gap-4 grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_300px]'
           : 'gap-0 grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_0px]'
-      }`}
+      } p-0`}
     >
       <div
         className={`grid h-full min-h-0 overflow-hidden bg-transparent ${
-          isInitialWorkspace ? 'grid-rows-[minmax(0,1fr)]' : 'grid-rows-[auto_minmax(0,1fr)_auto]'
+          isInitialWorkspace ? 'grid-rows-[minmax(0,1fr)]' : 'grid-rows-[minmax(0,1fr)_auto]'
         }`}
       >
-        {!isInitialWorkspace ? (
-          <header className="flex flex-wrap items-center gap-2 px-2 py-2">
-            <p className="mr-1 text-sm font-medium text-foreground">Cowork</p>
-            <Badge variant="outline" className={`rounded-full font-sans text-[11px] ${runPhaseClasses(runPhase)}`}>
-              {runPhaseLabel(runPhase)}
-            </Badge>
-            <Badge variant="outline" className="rounded-full font-sans text-[11px]">
-              {selectedModelLabel}
-            </Badge>
-            <p className="max-w-[45%] truncate font-sans text-xs text-muted-foreground" title={folderLabel}>
-              {folderLabel}
-            </p>
-          </header>
-        ) : null}
-
-        <ScrollArea className="h-full px-2 py-4">
+        <ScrollArea className="h-full px-2">
           {isInitialWorkspace ? (
-            <div className="mx-auto grid h-full w-full max-w-[860px] place-items-center">
-              <div className="w-full max-w-[640px]">
+            <div className="mx-auto grid h-full w-full place-items-center" style={{ maxWidth: `${COWORK_COMPOSER_COLUMN_MAX_WIDTH}px` }}>
+              <div className="w-full">
                 <p className="mb-3 text-[clamp(1.8rem,2.8vw,2.5rem)] tracking-tight text-foreground">Let's knock something off your list</p>
                 <div className="rounded-2xl border border-border bg-card p-4">
                   <p className="font-sans text-sm text-muted-foreground">
@@ -212,55 +242,11 @@ export function CoworkPage({
                   </p>
                 </div>
 
-                <form className="mt-4 rounded-[28px] border border-border bg-card px-4 py-3.5 shadow-[0_16px_34px_rgba(24,23,20,0.08)]" onSubmit={onSubmit} ref={formRef}>
-                  <Textarea
-                    value={taskPrompt}
-                    onChange={(event) => onTaskPromptChange(event.target.value)}
-                    placeholder="How can I help you today?"
-                    rows={2}
-                    onKeyDown={handleComposerKeyDown}
-                    aria-label="Task prompt"
-                    className="min-h-[90px] resize-none border-0 bg-transparent px-0 py-1.5 font-sans text-[20px] leading-7 text-foreground shadow-none focus-visible:ring-0"
-                  />
-                  <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
-                    <div className="flex items-center gap-2">
-                      <Button type="button" variant="ghost" className="h-9 rounded-xl px-3 font-sans text-xs text-muted-foreground" aria-label="Select context">
-                        Task context
-                      </Button>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={selectedModel}
-                        onChange={(event) => onModelChange(event.target.value)}
-                        disabled={modelsLoading || changingModel || models.length === 0}
-                        className="h-9 max-w-[240px] rounded-xl border border-border bg-background px-3 font-sans text-xs text-foreground outline-none"
-                      >
-                        <option value="">Default model</option>
-                        {models.map((model) => (
-                          <option key={model.value} value={model.value}>
-                            {model.label}
-                          </option>
-                        ))}
-                      </select>
-
-                      <Button
-                        type="submit"
-                        size="icon"
-                        aria-label={sending ? 'Sending' : 'Send task'}
-                        disabled={!canSend}
-                        className="h-9 w-9 rounded-xl border-0 bg-primary text-primary-foreground hover:bg-primary/90"
-                      >
-                        {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
-                      </Button>
-                    </div>
-                  </div>
-                  <p className="mt-2 text-right font-sans text-[11px] text-muted-foreground">Enter send, Shift+Enter new line</p>
-                </form>
+                <div className="mt-4">{renderCoworkComposer('min-h-[90px]')}</div>
               </div>
             </div>
           ) : (
-            <div className="mx-auto grid w-full max-w-[860px] gap-3">
+            <div className="mx-auto grid w-full gap-3" style={{ maxWidth: `${COWORK_CHAT_COLUMN_MAX_WIDTH}px` }} role="log" aria-live="polite" aria-relevant="additions">
               {visibleMessages.map((message) => {
                 const inline = extractInlineActivityCards(message);
 
@@ -269,8 +255,8 @@ export function CoworkPage({
                     key={message.id}
                     className={
                       message.role === 'user'
-                        ? 'ml-auto w-[min(92%,700px)] px-2 py-1 text-right font-sans text-sm text-foreground'
-                        : 'w-[min(95%,760px)] px-2 py-1 font-sans text-sm text-foreground'
+                        ? 'ml-auto w-[min(92%,700px)] px-2 py-0 text-right font-sans text-sm text-foreground'
+                        : 'w-[min(95%,760px)] px-2 py-0 font-sans text-sm text-foreground'
                     }
                   >
                     <p
@@ -337,7 +323,7 @@ export function CoworkPage({
               })}
 
               {(sending || awaitingStream) && (
-                <article className="w-[min(95%,760px)] px-2 py-1 font-sans text-sm text-muted-foreground">
+                <article className="w-[min(95%,760px)] px-2 py-0 font-sans text-sm text-muted-foreground">
                   <div className="inline-flex items-center gap-2 rounded-xl bg-muted px-3 py-2">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     Working...
@@ -349,53 +335,9 @@ export function CoworkPage({
         </ScrollArea>
 
         {!isInitialWorkspace ? (
-          <div className="px-2 pb-3 pt-1">
-            <div className="mx-auto grid w-full max-w-[860px] gap-2">
-              <form className="rounded-[26px] border border-border bg-card px-4 py-3.5 shadow-[0_12px_28px_rgba(24,23,20,0.08)]" onSubmit={onSubmit} ref={formRef}>
-                <Textarea
-                  value={taskPrompt}
-                  onChange={(event) => onTaskPromptChange(event.target.value)}
-                  placeholder="How can I help you today?"
-                  rows={2}
-                  onKeyDown={handleComposerKeyDown}
-                  aria-label="Task prompt"
-                  className="min-h-[84px] resize-none border-0 bg-transparent px-0 py-1.5 font-sans text-[18px] leading-7 text-foreground shadow-none focus-visible:ring-0"
-                />
-                <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
-                  <div className="flex items-center gap-2">
-                    <Button type="button" variant="ghost" className="h-9 rounded-xl px-3 font-sans text-xs text-muted-foreground" aria-label="Select context">
-                      Task context
-                    </Button>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={selectedModel}
-                      onChange={(event) => onModelChange(event.target.value)}
-                      disabled={modelsLoading || changingModel || models.length === 0}
-                      className="h-9 max-w-[240px] rounded-xl border border-border bg-background px-3 font-sans text-xs text-foreground outline-none"
-                    >
-                      <option value="">Default model</option>
-                      {models.map((model) => (
-                        <option key={model.value} value={model.value}>
-                          {model.label}
-                        </option>
-                      ))}
-                    </select>
-
-                    <Button
-                      type="submit"
-                      size="icon"
-                      aria-label={sending ? 'Sending' : 'Send task'}
-                      disabled={!canSend}
-                      className="h-9 w-9 rounded-xl border-0 bg-primary text-primary-foreground hover:bg-primary/90"
-                    >
-                      {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                </div>
-                <p className="mt-2 text-right font-sans text-[11px] text-muted-foreground">Enter send, Shift+Enter new line</p>
-              </form>
+          <div className="px-2">
+            <div className="mx-auto grid w-full gap-2" style={{ maxWidth: `${COWORK_COMPOSER_COLUMN_MAX_WIDTH}px` }}>
+              {renderCoworkComposer('min-h-[84px]')}
             </div>
           </div>
         ) : null}

@@ -101,6 +101,11 @@ export function formatCostUsd(usd: number): string {
   return `$${usd.toFixed(2)}`;
 }
 
+/** Rough estimate: ~4 chars per token for typical English/code text. */
+export function estimateTokens(text: string): number {
+  return Math.max(1, Math.round(text.length / 4));
+}
+
 // ── Daily persistence ─────────────────────────────────────────────────────────
 
 const DAILY_KEY_PREFIX = 'relay.daily-usage.';

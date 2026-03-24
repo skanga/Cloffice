@@ -33,6 +33,16 @@ type ChatPageProps = {
   onOpenSettings?: () => void;
 };
 
+const MAX_ATTACHMENTS = 5;
+const MAX_ATTACHMENT_BYTES = 100_000;
+const MAX_ATTACHMENT_CONTENT_CHARS = 50_000;
+const COMPOSER_EXTRA_BOTTOM_SPACE = 16;
+const HEADER_OVERLAY_HEIGHT = 44;
+const CHAT_COLUMN_MAX_WIDTH = 760;
+const COMPOSER_COLUMN_MAX_WIDTH = 920;
+const DEFAULT_MODEL_FALLBACK_LABEL = 'Default model';
+const QUICK_PROMPTS = ['Writing', 'Learning', 'Code', 'Personal', "Claude's picks"] as const;
+
 export function ChatPage({
   taskPrompt,
   messages,
@@ -73,13 +83,9 @@ export function ChatPage({
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [composerDockHeight, setComposerDockHeight] = useState(170);
   const canSend = (taskPrompt.trim().length > 0 || attachedFiles.length > 0) && !sending;
-  const composerBottomInset = composerDockHeight + 72;
+  const composerBottomInset = composerDockHeight + COMPOSER_EXTRA_BOTTOM_SPACE;
 
   const scrollMessagesToBottom = (behavior: ScrollBehavior = 'auto') => {
-    if (messageEndRef.current) {
-      messageEndRef.current.scrollIntoView({ behavior, block: 'end' });
-      return;
-    }
     const viewport = messageViewportRef.current;
     if (!viewport) {
       return;
@@ -178,17 +184,17 @@ export function ChatPage({
   const handleDrop = async (event: DragEvent) => {
     event.preventDefault();
     setDragOver(false);
-    const files = Array.from(event.dataTransfer.files).slice(0, 5);
+    const files = Array.from(event.dataTransfer.files).slice(0, MAX_ATTACHMENTS);
     const textFiles: { name: string; content: string }[] = [];
     for (const file of files) {
-      if (file.size > 100_000) continue;
+      if (file.size > MAX_ATTACHMENT_BYTES) continue;
       const content = await readTextFile(file);
       if (content.trim()) {
-        textFiles.push({ name: file.name, content: content.slice(0, 50_000) });
+        textFiles.push({ name: file.name, content: content.slice(0, MAX_ATTACHMENT_CONTENT_CHARS) });
       }
     }
     if (textFiles.length > 0) {
-      setAttachedFiles((prev) => [...prev, ...textFiles].slice(0, 5));
+      setAttachedFiles((prev) => [...prev, ...textFiles].slice(0, MAX_ATTACHMENTS));
     }
   };
 
@@ -296,6 +302,56 @@ export function ChatPage({
     formRef.current?.requestSubmit();
   };
 
+  const renderSlashCommandMenu = () => {
+    if (!slashMenuOpen || slashCommands.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="absolute bottom-full left-4 z-20 mb-1 w-56 rounded-xl border border-border bg-popover p-1.5 shadow-lg">
+        {slashCommands.map((cmd, i) => (
+          <button
+            key={cmd.cmd}
+            type="button"
+            onClick={() => {
+              onTaskPromptChange('');
+              cmd.action();
+            }}
+            className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left font-sans text-sm transition ${i === slashMenuIndex ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/70'}`}
+          >
+            <span className="font-mono text-xs">{cmd.cmd}</span>
+            <span>{cmd.label}</span>
+          </button>
+        ))}
+      </div>
+    );
+  };
+
+  const renderAttachedFiles = () => {
+    if (attachedFiles.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {attachedFiles.map((f, i) => (
+          <span key={i} className="inline-flex items-center gap-1 rounded-lg bg-muted px-2 py-1 font-sans text-[11px] text-muted-foreground">
+            <Paperclip className="h-3 w-3" />
+            {f.name}
+            <button
+              type="button"
+              onClick={() => setAttachedFiles((prev) => prev.filter((_, j) => j !== i))}
+              className="ml-0.5 rounded hover:bg-muted/80"
+              aria-label={`Remove ${f.name}`}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+    );
+  };
+
   if (isInitial) {
     return (
       <section
@@ -312,29 +368,15 @@ export function ChatPage({
               </div>
             </div>
           )}
-          <div className="min-h-0 w-full max-w-[760px] mx-auto">
+          <div className="mx-auto min-h-0 w-full" style={{ maxWidth: `${COMPOSER_COLUMN_MAX_WIDTH}px` }}>
               <h1 className="mb-6 text-center text-[clamp(2rem,4vw,3rem)] tracking-tight text-foreground">{greetingTitle}</h1>
 
               <form
-                className="relative rounded-[28px] border border-border bg-card p-4 shadow-[0_16px_34px_rgba(24,23,20,0.08)]"
+                className="relative mx-auto w-full rounded-[26px] border border-border/90 bg-card/98 p-4 shadow-[0_14px_34px_rgba(24,23,20,0.10)]"
                 onSubmit={handleSubmitWithFiles}
                 ref={formRef}
               >
-                {slashMenuOpen && slashCommands.length > 0 && (
-                  <div className="absolute bottom-full left-4 z-20 mb-1 w-56 rounded-xl border border-border bg-popover p-1.5 shadow-lg">
-                    {slashCommands.map((cmd, i) => (
-                      <button
-                        key={cmd.cmd}
-                        type="button"
-                        onClick={() => { onTaskPromptChange(''); cmd.action(); }}
-                        className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left font-sans text-sm transition ${i === slashMenuIndex ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/70'}`}
-                      >
-                        <span className="font-mono text-xs">{cmd.cmd}</span>
-                        <span>{cmd.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                {renderSlashCommandMenu()}
                 <Textarea
                   value={taskPrompt}
                   onChange={(event) => onTaskPromptChange(event.target.value)}
@@ -345,19 +387,7 @@ export function ChatPage({
                   className="min-h-[86px] max-h-[40vh] resize-none border-0 bg-transparent px-0 py-1.5 font-sans text-[17px] leading-7 text-foreground shadow-none focus-visible:ring-0"
                 />
 
-                {attachedFiles.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {attachedFiles.map((f, i) => (
-                      <span key={i} className="inline-flex items-center gap-1 rounded-lg bg-muted px-2 py-1 font-sans text-[11px] text-muted-foreground">
-                        <Paperclip className="h-3 w-3" />
-                        {f.name}
-                        <button type="button" onClick={() => setAttachedFiles((prev) => prev.filter((_, j) => j !== i))} className="ml-0.5 rounded hover:bg-muted/80" aria-label={`Remove ${f.name}`}>
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
+                {renderAttachedFiles()}
 
                 <div className="mt-3 flex items-center justify-end gap-2 border-t border-border pt-3">
                   <div className="flex items-center gap-2">
@@ -367,7 +397,7 @@ export function ChatPage({
                       disabled={modelsLoading || changingModel || models.length === 0}
                       className="h-9 max-w-[240px] rounded-xl border border-border bg-background px-3 font-sans text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <option value="">Sonnet 4.6</option>
+                      <option value="">{DEFAULT_MODEL_FALLBACK_LABEL}</option>
                       {models.map((model) => (
                         <option key={model.value} value={model.value}>
                           {model.label}
@@ -391,7 +421,7 @@ export function ChatPage({
               </form>
 
               <div className="mt-3 flex flex-wrap justify-center gap-2">
-              {['Writing', 'Learning', 'Code', 'Personal', "Claude's picks"].map((item) => (
+              {QUICK_PROMPTS.map((item) => (
                 <Button
                   key={item}
                   type="button"
@@ -412,7 +442,7 @@ export function ChatPage({
 
   return (
     <section
-      className="relative grid h-full w-full min-h-0 grid-rows-[auto_minmax(0,1fr)]"
+      className="relative h-full w-full min-h-0"
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
       onDrop={(e) => void handleDrop(e)}
@@ -425,11 +455,11 @@ export function ChatPage({
           </div>
         </div>
       )}
-      <header className="flex items-center justify-between px-3 py-1">
+      <header className="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-3 py-1">
         <div className="relative" ref={headerMenuRef}>
           <button
             type="button"
-            className="inline-flex h-8 max-w-[460px] items-center gap-2 rounded-md border border-border bg-background px-2.5 font-sans text-sm font-medium text-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex h-8 max-w-[460px] items-center gap-2 rounded-md border border-border bg-background px-2.5 font-sans text-sm font-medium text-foreground shadow-sm transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-haspopup="menu"
             aria-expanded={headerMenuOpen}
             onClick={() => setHeaderMenuOpen((open) => !open)}
@@ -489,7 +519,7 @@ export function ChatPage({
           <button
             type="button"
             onClick={() => setArtifactPanelOpen((v) => !v)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 font-sans text-xs text-muted-foreground transition hover:bg-muted"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 font-sans text-xs text-muted-foreground shadow-sm transition hover:bg-muted"
             title={artifactPanelOpen ? 'Close artifacts' : 'Show code artifacts'}
           >
             {artifactPanelOpen ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />}
@@ -499,14 +529,24 @@ export function ChatPage({
         )}
       </header>
 
-      <div className={`grid min-h-0 ${artifactPanelOpen && codeArtifacts.length > 0 ? 'grid-cols-[minmax(0,1fr)_340px]' : 'grid-cols-[minmax(0,1fr)]'} gap-0 transition-[grid-template-columns] duration-200`}>
+      <div className={`grid h-full min-h-0 ${artifactPanelOpen && codeArtifacts.length > 0 ? 'grid-cols-[minmax(0,1fr)_340px]' : 'grid-cols-[minmax(0,1fr)]'} gap-0 transition-[grid-template-columns] duration-200`}>
       <div className="relative min-h-0">
         <div
           ref={messageViewportRef}
           onScroll={handleMessageViewportScroll}
+          role="log"
+          aria-live="polite"
+          aria-relevant="additions"
           className="h-full overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-1"
         >
-        <div className="mx-auto grid w-full max-w-[760px] gap-4 pb-4" style={{ paddingBottom: `${composerBottomInset}px` }}>
+        <div
+          className="mx-auto grid w-full gap-4 pb-4"
+          style={{
+            maxWidth: `${CHAT_COLUMN_MAX_WIDTH}px`,
+            paddingTop: `${HEADER_OVERLAY_HEIGHT + 8}px`,
+            paddingBottom: `calc(${composerBottomInset}px + env(safe-area-inset-bottom))`,
+          }}
+        >
           {messages.map((message) => (
             <article key={message.id} className={message.role === 'user' ? 'ml-auto min-w-0 w-[min(92%,620px)]' : 'min-w-0 w-full'}>
               {message.role === 'user' ? (
@@ -544,11 +584,16 @@ export function ChatPage({
             type="button"
             size="icon"
             variant="outline"
-            className="absolute right-5 z-20 h-9 w-9 rounded-full border-border bg-card/95 text-muted-foreground shadow-md hover:bg-muted"
-            style={{ bottom: `${composerBottomInset - 12}px` }}
+            className="absolute right-5 z-20 h-9 w-9 rounded-full border-border bg-card text-muted-foreground shadow-md hover:bg-muted"
+            style={{ bottom: `calc(${composerBottomInset - 12}px + env(safe-area-inset-bottom))` }}
             onClick={() => {
               autoScrollEnabledRef.current = true;
               setShowJumpToLatest(false);
+              const viewport = messageViewportRef.current;
+              if (viewport) {
+                viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
+                return;
+              }
               scrollMessagesToBottom('smooth');
             }}
             aria-label="Jump to latest message"
@@ -587,29 +632,15 @@ export function ChatPage({
 
       <div
         ref={composerDockRef}
-        className="pointer-events-none absolute right-0 bottom-0 left-0 z-30 px-3 pb-1 pt-2"
+        className="pointer-events-none absolute right-0 bottom-0 left-0 z-30 px-3 pb-0 pt-2"
       >
-        <div className="pointer-events-auto bg-background/95 supports-[backdrop-filter]:backdrop-blur">
+        <div className="pointer-events-auto mx-auto w-full" style={{ maxWidth: `${COMPOSER_COLUMN_MAX_WIDTH}px` }}>
         <form
-          className="relative mx-auto w-full max-w-[760px] rounded-[26px] border border-border bg-card p-3.5 shadow-[0_12px_28px_rgba(24,23,20,0.08)]"
+          className="relative mx-auto w-full rounded-[26px] border border-border bg-card p-4 shadow-[0_14px_34px_rgba(24,23,20,0.10)]"
           onSubmit={handleSubmitWithFiles}
           ref={formRef}
         >
-          {slashMenuOpen && slashCommands.length > 0 && (
-            <div className="absolute bottom-full left-4 z-20 mb-1 w-56 rounded-xl border border-border bg-popover p-1.5 shadow-lg">
-              {slashCommands.map((cmd, i) => (
-                <button
-                  key={cmd.cmd}
-                  type="button"
-                  onClick={() => { onTaskPromptChange(''); cmd.action(); }}
-                  className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left font-sans text-sm transition ${i === slashMenuIndex ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/70'}`}
-                >
-                  <span className="font-mono text-xs">{cmd.cmd}</span>
-                  <span>{cmd.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
+          {renderSlashCommandMenu()}
           <Textarea
             value={taskPrompt}
             onChange={(event) => onTaskPromptChange(event.target.value)}
@@ -620,29 +651,20 @@ export function ChatPage({
             className="min-h-[84px] max-h-[40vh] resize-none border-0 bg-transparent px-0 py-1 font-sans text-[16px] leading-7 shadow-none focus-visible:ring-0"
           />
 
-          {attachedFiles.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {attachedFiles.map((f, i) => (
-                <span key={i} className="inline-flex items-center gap-1 rounded-lg bg-muted px-2 py-1 font-sans text-[11px] text-muted-foreground">
-                  <Paperclip className="h-3 w-3" />
-                  {f.name}
-                  <button type="button" onClick={() => setAttachedFiles((prev) => prev.filter((_, j) => j !== i))} className="ml-0.5 rounded hover:bg-muted/80" aria-label={`Remove ${f.name}`}>
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
+          {renderAttachedFiles()}
 
-          <div className="mt-3 flex items-center justify-end gap-2 border-t border-border pt-3">
-            <div className="flex items-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+            <p className="font-sans text-[11px] text-muted-foreground">
+              Press Enter to send, Shift+Enter for a new line
+            </p>
+            <div className="ml-auto flex items-center gap-2">
               <select
                 value={selectedModel}
                 onChange={(event) => onModelChange(event.target.value)}
                 disabled={modelsLoading || changingModel || models.length === 0}
                 className="h-9 max-w-[240px] rounded-xl border border-border bg-background px-3 font-sans text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <option value="">Sonnet 4.5</option>
+                <option value="">{DEFAULT_MODEL_FALLBACK_LABEL}</option>
                 {models.map((model) => (
                   <option key={model.value} value={model.value}>
                     {model.label}
@@ -660,12 +682,9 @@ export function ChatPage({
               </Button>
             </div>
           </div>
-          <p className="mt-2 text-right font-sans text-[11px] text-muted-foreground">
-            Press Enter to send, Shift+Enter for a new line
-          </p>
         </form>
 
-        <p className="mt-1 text-center font-sans text-[11px] text-muted-foreground">{trimmedStatus || 'Claude is an AI and can make mistakes. Please verify cited sources.'}</p>
+        <p className="mt-2 text-center font-sans text-[11px] text-muted-foreground" aria-live="polite">{trimmedStatus || 'Claude is an AI and can make mistakes. Please verify cited sources.'}</p>
         </div>
       </div>
     </section>

@@ -40,8 +40,7 @@ import { ScrollArea } from './components/ui/scroll-area';
 import { OpenClawGatewayClient } from './lib/openclaw-gateway-client';
 import { createFileService, LocalFileService } from './lib/file-service';
 import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
-import { accumulateTodayUsage, addUsage, calcCostUsd, loadTodayUsage, parseUsageFromPayload } from './lib/token-usage';
-import { estimateTokens } from './components/ui/token-badge';
+import { accumulateTodayUsage, addUsage, loadTodayUsage, parseUsageFromPayload } from './lib/token-usage';
 
 import { OnboardingPage } from './features/auth/onboarding-page';
 import { useAuth } from './hooks/use-auth';
@@ -195,43 +194,6 @@ export default function App() {
   const [localActionSmokeRunning, setLocalActionSmokeRunning] = useState(false);
   const [gatewayConnected, setGatewayConnected] = useState(false);
   const [sessionUsage, setSessionUsage] = useState(() => loadTodayUsage());
-
-  // Derive an estimated session total from committed assistant messages that have no real usage.
-  // Real usage (from gateway) is preferred; estimation fills in the gap.
-  const displaySessionUsage = useMemo<{ inputTokens: number; outputTokens: number; costUsd?: number; estimated: boolean }>(() => {
-    const allMessages = [...chatMessages, ...coworkMessages];
-    let estimatedTokens = 0;
-    let hasRealUsage = sessionUsage.inputTokens + sessionUsage.outputTokens > 0;
-
-    for (const msg of allMessages) {
-      if (msg.role === 'assistant') {
-        if (!msg.usage) {
-          estimatedTokens += estimateTokens(msg.text);
-        }
-      }
-    }
-
-    if (hasRealUsage) {
-      return {
-        inputTokens: sessionUsage.inputTokens,
-        outputTokens: sessionUsage.outputTokens,
-        costUsd: sessionUsage.costUsd,
-        estimated: false,
-      };
-    }
-
-    if (estimatedTokens === 0) {
-      return { inputTokens: 0, outputTokens: 0, estimated: true };
-    }
-
-    return {
-      inputTokens: 0,
-      outputTokens: estimatedTokens,
-      costUsd: calcCostUsd(0, estimatedTokens),
-      estimated: true,
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatMessages, coworkMessages, sessionUsage]);
 
   const fileService = useMemo(
     () => createFileService(gatewayClientRef.current, draftGatewayUrl, Boolean(bridge)),
@@ -2516,7 +2478,7 @@ export default function App() {
             onLogout={handleLogout}
           />
 
-          <main className={`relative min-h-0 overflow-hidden ${activePage === 'files' || activePage === 'local-files' || activePage === 'chat' ? 'p-0' : 'p-5'}`}>
+          <main className="relative min-h-0 overflow-hidden p-0">
             <Dialog
               open={Boolean(recentRenameTarget)}
               onOpenChange={(nextOpen) => {
