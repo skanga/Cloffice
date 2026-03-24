@@ -498,7 +498,7 @@ export class OpenClawGatewayClient {
               client: {
                 id: CLIENT_ID,
                 displayName: 'Relay',
-                version: '0.1.0',
+                version: '2026.3.24',
                 platform,
                 mode: CLIENT_MODE,
                 deviceFamily: 'desktop',
@@ -511,7 +511,7 @@ export class OpenClawGatewayClient {
               auth,
               device,
               locale: typeof navigator !== 'undefined' ? navigator.language : 'en-US',
-              userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'relay/0.1.0',
+              userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'relay/2026.3.24',
             },
             8_000,
           );

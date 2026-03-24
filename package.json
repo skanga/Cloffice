@@ -1,6 +1,6 @@
 {
   "name": "relay",
-  "version": "0.1.0",
+  "version": "2026.3.24",
   "private": true,
   "description": "Electron desktop cowork client for OpenClaw backends",
   "main": "dist-electron/electron/main.js",
