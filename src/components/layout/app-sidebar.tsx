@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Brain,
-  BriefcaseBusiness,
   CalendarClock,
   ChevronUp,
   Code2,
@@ -11,7 +10,6 @@ import {
   Globe,
   HelpCircle,
   KeyRound,
-  Lightbulb,
   Link2,
   LogOut,
   MessageSquareText,
@@ -41,7 +39,8 @@ import {
 } from '@/components/ui/sidebar';
 
 type AppPage = 'chat' | 'cowork' | 'files' | 'activity' | 'memory' | 'scheduled' | 'safety' | 'settings';
-type SettingsSection = 'Profil' | 'Darstellung' | 'System-Prompt' | 'Gateway' | 'Konnektoren' | 'Konto' | 'Datenschutz' | 'Entwickler';
+type SettingsSection = 'Profile' | 'Appearance' | 'System Prompt' | 'Gateway' | 'Connectors' | 'Account' | 'Privacy' | 'Developer';
+type AppLanguage = 'en' | 'de';
 
 type RecentSidebarItem = {
   id: string;
@@ -66,6 +65,7 @@ type AppSidebarProps = {
   userEmail: string;
   guestMode: boolean;
   gatewayConnected: boolean;
+  language: AppLanguage;
   settingsSection: SettingsSection;
   recentItems: RecentSidebarItem[];
   scheduledItems: ScheduledSidebarItem[];
@@ -85,28 +85,37 @@ const chatNavItems = [{ label: 'Search', icon: Search }] as const;
 
 const coworkNavItems = [
   { label: 'Search', icon: Search },
-  { label: 'Ideas', icon: Lightbulb },
-  { label: 'Customize', icon: BriefcaseBusiness },
 ] as const;
 
 const workspaceNavItems: { label: string; icon: typeof FolderOpen; page: AppPage }[] = [
-  { label: 'Dateien', icon: FolderOpen, page: 'files' },
-  { label: 'Aktivitäten', icon: Zap, page: 'activity' },
+  { label: 'Files', icon: FolderOpen, page: 'files' },
+  { label: 'Activity', icon: Zap, page: 'activity' },
   { label: 'Memory', icon: Brain, page: 'memory' },
-  { label: 'Zeitplan', icon: CalendarClock, page: 'scheduled' },
-  { label: 'Sicherheit', icon: Shield, page: 'safety' },
+  { label: 'Schedule', icon: CalendarClock, page: 'scheduled' },
+  { label: 'Safety', icon: Shield, page: 'safety' },
 ];
 
 const settingsNavItems: { label: SettingsSection; icon: typeof User }[] = [
-  { label: 'Profil', icon: User },
-  { label: 'Darstellung', icon: Palette },
-  { label: 'System-Prompt', icon: MessageSquareText },
+  { label: 'Profile', icon: User },
+  { label: 'Appearance', icon: Palette },
+  { label: 'System Prompt', icon: MessageSquareText },
   { label: 'Gateway', icon: Wifi },
-  { label: 'Konnektoren', icon: Link2 },
-  { label: 'Konto', icon: KeyRound },
-  { label: 'Datenschutz', icon: Shield },
-  { label: 'Entwickler', icon: Code2 },
+  { label: 'Connectors', icon: Link2 },
+  { label: 'Account', icon: KeyRound },
+  { label: 'Privacy', icon: Shield },
+  { label: 'Developer', icon: Code2 },
 ];
+
+const sectionLabels: Record<SettingsSection, { en: string; de: string }> = {
+  Profile: { en: 'Profile', de: 'Profil' },
+  Appearance: { en: 'Appearance', de: 'Darstellung' },
+  'System Prompt': { en: 'System Prompt', de: 'System-Prompt' },
+  Gateway: { en: 'Gateway', de: 'Gateway' },
+  Connectors: { en: 'Connectors', de: 'Konnektoren' },
+  Account: { en: 'Account', de: 'Konto' },
+  Privacy: { en: 'Privacy', de: 'Datenschutz' },
+  Developer: { en: 'Developer', de: 'Entwickler' },
+};
 
 export function AppSidebar({
   sidebarOpen,
@@ -117,6 +126,7 @@ export function AppSidebar({
   userEmail,
   guestMode,
   gatewayConnected,
+  language,
   settingsSection,
   recentItems,
   scheduledItems,
@@ -131,6 +141,7 @@ export function AppSidebar({
   onSettingsSectionChange,
   onLogout,
 }: AppSidebarProps) {
+  const t = (en: string, de: string) => (language === 'de' ? de : en);
   const isChatView = activePage === 'chat';
   const isSettingsView = activePage === 'settings';
   const isWorkspacePage = ['files', 'activity', 'memory', 'scheduled', 'safety'].includes(activePage);
@@ -188,20 +199,20 @@ export function AppSidebar({
                     <SidebarMenuButton
                       type="button"
                       className={`gap-2 font-sans text-[13px] ${compact ? 'justify-center px-0' : ''}`}
-                      title="Zurück"
+                      title={t('Back', 'Zurueck')}
                       aria-label="Back to workspace"
                       onClick={onStartNewChat}
                     >
                       <ArrowLeft data-icon="inline-start" />
-                      {!compact && <span>Zurück</span>}
+                      {!compact && <span>{t('Back', 'Zurueck')}</span>}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
 
-            <SidebarGroup className="mt-1">
-              {!compact && <SidebarGroupLabel>Einstellungen</SidebarGroupLabel>}
+            <SidebarGroup className="mt-3">
+              {!compact && <SidebarGroupLabel>{t('Settings', 'Einstellungen')}</SidebarGroupLabel>}
               <SidebarGroupContent>
                 <SidebarMenu>
                   {settingsNavItems.map((item) => (
@@ -212,10 +223,10 @@ export function AppSidebar({
                         aria-current={settingsSection === item.label ? 'page' : undefined}
                         onClick={() => onSettingsSectionChange(item.label)}
                         className={`gap-2 font-sans text-[13px] ${compact ? 'justify-center px-0' : ''}`}
-                        title={item.label}
+                        title={sectionLabels[item.label][language]}
                       >
                         <item.icon data-icon="inline-start" />
-                        {!compact && <span>{item.label}</span>}
+                        {!compact && <span>{sectionLabels[item.label][language]}</span>}
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
@@ -229,6 +240,20 @@ export function AppSidebar({
             <SidebarGroup>
               <SidebarGroupContent>
                 <SidebarMenu aria-label="Primary workspace menu">
+                  {isWorkspacePage && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        type="button"
+                        className={`gap-2 font-sans text-[13px] ${compact ? 'justify-center px-0' : ''}`}
+                        title="Back to Cowork"
+                        aria-label="Back to cowork"
+                        onClick={() => onSelectPage('cowork')}
+                      >
+                        <ArrowLeft data-icon="inline-start" />
+                        {!compact && <span>Back to Cowork</span>}
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
                   <SidebarMenuItem>
                     <SidebarMenuButton
                       type="button"
@@ -267,31 +292,33 @@ export function AppSidebar({
             </SidebarGroup>
 
             {/* Workspace pages */}
-            <SidebarGroup className="mt-1">
-              {!compact && <SidebarGroupLabel>Workspace</SidebarGroupLabel>}
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {workspaceNavItems.map((item) => (
-                    <SidebarMenuItem key={item.label}>
-                      <SidebarMenuButton
-                        type="button"
-                        active={activePage === item.page}
-                        aria-current={activePage === item.page ? 'page' : undefined}
-                        onClick={() => onSelectPage(item.page)}
-                        className={`gap-2 font-sans text-[13px] ${compact ? 'justify-center px-0' : ''}`}
-                        title={item.label}
-                      >
-                        <item.icon data-icon="inline-start" />
-                        {!compact && <span>{item.label}</span>}
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
+            {!isChatView && (
+              <SidebarGroup className="mt-3">
+                {!compact && <SidebarGroupLabel>Workspace</SidebarGroupLabel>}
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {workspaceNavItems.map((item) => (
+                      <SidebarMenuItem key={item.label}>
+                        <SidebarMenuButton
+                          type="button"
+                          active={activePage === item.page}
+                          aria-current={activePage === item.page ? 'page' : undefined}
+                          onClick={() => onSelectPage(item.page)}
+                          className={`gap-2 font-sans text-[13px] ${compact ? 'justify-center px-0' : ''}`}
+                          title={item.label}
+                        >
+                          <item.icon data-icon="inline-start" />
+                          {!compact && <span>{item.label}</span>}
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            )}
 
             {!compact && (
-              <SidebarGroup className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] mt-1">
+              <SidebarGroup className="mt-3 grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
                 <SidebarGroupLabel>Recents</SidebarGroupLabel>
                 <SidebarGroupContent className="min-h-0">
                   <ScrollArea className="h-full min-h-0">
@@ -344,7 +371,7 @@ export function AppSidebar({
           <span className={`inline-block h-2 w-2 rounded-full ${gatewayConnected ? 'bg-[#2f7a58]' : 'bg-[#b42318]'}`} />
           {!compact && (
             <span className="font-sans text-[11px] text-muted-foreground">
-              {gatewayConnected ? 'Gateway verbunden' : 'Gateway getrennt'}
+              {gatewayConnected ? t('Gateway connected', 'Gateway verbunden') : t('Gateway disconnected', 'Gateway getrennt')}
             </span>
           )}
         </div>
@@ -364,20 +391,28 @@ export function AppSidebar({
               <div className="grid gap-1 p-1">
                 <button type="button" className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-foreground/80 hover:bg-muted hover:text-foreground" onClick={onOpenSettings}>
                   <Settings data-icon="inline-start" />
-                  Einstellungen
+                  {t('Settings', 'Einstellungen')}
                 </button>
-                <button type="button" className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-foreground/80 hover:bg-muted hover:text-foreground">
+                <button
+                  type="button"
+                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-foreground/80 hover:bg-muted hover:text-foreground"
+                  onClick={() => {
+                    onOpenSettings();
+                    onSettingsSectionChange('Appearance');
+                    setProfileMenuOpen(false);
+                  }}
+                >
                   <Globe data-icon="inline-start" />
-                  Sprache
+                  {t('Language', 'Sprache')}
                 </button>
                 <button type="button" className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-foreground/80 hover:bg-muted hover:text-foreground">
                   <HelpCircle data-icon="inline-start" />
-                  Hilfe erhalten
+                  {t('Get help', 'Hilfe erhalten')}
                 </button>
                 <Separator className="my-1" />
                 <button type="button" className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-foreground/80 hover:bg-muted hover:text-foreground" onClick={onLogout}>
                   <LogOut data-icon="inline-start" />
-                  {guestMode ? 'Exit local mode' : 'Abmelden'}
+                  {guestMode ? t('Exit local mode', 'Lokalen Modus beenden') : t('Sign out', 'Abmelden')}
                 </button>
               </div>
             </div>

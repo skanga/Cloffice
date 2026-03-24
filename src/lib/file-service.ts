@@ -63,39 +63,39 @@ export class LocalFileService implements FileService {
 
   async listDir(rootPath: string, relativePath?: string): Promise<FileListResult> {
     const bridge = window.relay;
-    if (!bridge) throw new Error('Desktop-Bridge nicht verfügbar.');
+    if (!bridge) throw new Error('Desktop bridge not available.');
     const result = await bridge.listDirInFolder(rootPath, relativePath);
     return { items: result.items, truncated: result.truncated };
   }
 
   async readFile(rootPath: string, relativePath: string): Promise<FileReadResult> {
     const bridge = window.relay;
-    if (!bridge) throw new Error('Desktop-Bridge nicht verfügbar.');
+    if (!bridge) throw new Error('Desktop bridge not available.');
     const result = await bridge.readFileInFolder(rootPath, relativePath);
     return { content: result.content };
   }
 
   async stat(rootPath: string, relativePath: string): Promise<FileStatResult> {
     const bridge = window.relay;
-    if (!bridge) throw new Error('Desktop-Bridge nicht verfügbar.');
+    if (!bridge) throw new Error('Desktop bridge not available.');
     return bridge.statInFolder(rootPath, relativePath);
   }
 
   async rename(rootPath: string, oldRelPath: string, newRelPath: string): Promise<void> {
     const bridge = window.relay;
-    if (!bridge) throw new Error('Desktop-Bridge nicht verfügbar.');
+    if (!bridge) throw new Error('Desktop bridge not available.');
     await bridge.renameInFolder(rootPath, oldRelPath, newRelPath);
   }
 
   async deleteFile(rootPath: string, relativePath: string): Promise<void> {
     const bridge = window.relay;
-    if (!bridge) throw new Error('Desktop-Bridge nicht verfügbar.');
+    if (!bridge) throw new Error('Desktop bridge not available.');
     await bridge.deleteInFolder(rootPath, relativePath);
   }
 
   async createFile(rootPath: string, relativePath: string, content: string): Promise<void> {
     const bridge = window.relay;
-    if (!bridge) throw new Error('Desktop-Bridge nicht verfügbar.');
+    if (!bridge) throw new Error('Desktop bridge not available.');
     await bridge.createFileInFolder(rootPath, relativePath, content);
   }
 
@@ -116,7 +116,7 @@ export class LocalFileService implements FileService {
  */
 export class WorkspaceRpcUnsupportedError extends Error {
   constructor(method: string) {
-    super(`Der OpenClaw-Server unterstützt "${method}" noch nicht. Server-Update erforderlich.`);
+    super(`The OpenClaw server does not support "${method}" yet. Server update required.`);
     this.name = 'WorkspaceRpcUnsupportedError';
   }
 }

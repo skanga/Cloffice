@@ -27,16 +27,16 @@ import { SidebarProvider } from './components/ui/sidebar';
 import { ScrollArea } from './components/ui/scroll-area';
 import { GatewayRequestError, OpenClawGatewayClient } from './lib/openclaw-gateway-client';
 import { createFileService, LocalFileService } from './lib/file-service';
-import { ActivityPage } from './pages/activity-page';
-import { ChatPage } from './pages/chat-page';
-import { CoworkPage } from './pages/cowork-page';
-import { FilesPage } from './pages/files-page';
-import { LoginPage } from './pages/login-page';
-import { MemoryPage } from './pages/memory-page';
-import { OnboardingPage } from './pages/onboarding-page';
-import { SafetyPage } from './pages/safety-page';
-import { ScheduledPage } from './pages/scheduled-page';
-import { SettingsPage } from './pages/settings-page';
+import { LoginPage } from './features/auth/login-page';
+import { OnboardingPage } from './features/auth/onboarding-page';
+import { ChatPage } from './features/chat/chat-page';
+import { CoworkPage } from './features/cowork/cowork-page';
+import { SettingsPage } from './features/settings/settings-page';
+import { ActivityPage } from './features/workspace/activity-page';
+import { FilesPage } from './features/workspace/files-page';
+import { MemoryPage } from './features/workspace/memory-page';
+import { SafetyPage } from './features/workspace/safety-page';
+import { ScheduledPage } from './features/workspace/scheduled-page';
 import {
   getSupabaseAuthConfigError,
   restoreSupabaseSession,
@@ -60,6 +60,7 @@ type UserPreferences = {
   responsePreferences: string;
   systemPrompt: string;
   theme: 'light' | 'auto' | 'dark';
+  language: 'en' | 'de';
 };
 
 const defaultPreferences: UserPreferences = {
@@ -69,6 +70,7 @@ const defaultPreferences: UserPreferences = {
   responsePreferences: '',
   systemPrompt: '',
   theme: 'light',
+  language: 'en',
 };
 
 const defaultConfig: AppConfig = {
@@ -77,7 +79,7 @@ const defaultConfig: AppConfig = {
 };
 
 type AppPage = 'chat' | 'cowork' | 'files' | 'activity' | 'memory' | 'scheduled' | 'safety' | 'settings';
-type SettingsSection = 'Profil' | 'Darstellung' | 'System-Prompt' | 'Gateway' | 'Konnektoren' | 'Konto' | 'Datenschutz' | 'Entwickler';
+type SettingsSection = 'Profile' | 'Appearance' | 'System Prompt' | 'Gateway' | 'Connectors' | 'Account' | 'Privacy' | 'Developer';
 
 type AuthSession = {
   email: string;
@@ -726,7 +728,7 @@ export default function App() {
   const [pairingRequestId, setPairingRequestId] = useState<string | null>(null);
   const [activeMenuItem, setActiveMenuItem] = useState('');
   const [activePage, setActivePage] = useState<AppPage>('cowork');
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>('Profil');
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('Profile');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [taskPrompt, setTaskPrompt] = useState('');
   const [workingFolder, setWorkingFolder] = useState('/Downloads');
@@ -1276,6 +1278,10 @@ export default function App() {
       root.classList.remove('dark');
     }
   }, [preferences.theme]);
+
+  useEffect(() => {
+    document.documentElement.lang = preferences.language;
+  }, [preferences.language]);
 
   useEffect(() => {
     const storedUsageMode = localStorage.getItem(RELAY_USAGE_MODE_KEY);
@@ -2954,6 +2960,7 @@ export default function App() {
             userEmail={userIdentityLabel}
             guestMode={guestMode}
             gatewayConnected={gatewayConnected}
+            language={preferences.language}
             settingsSection={settingsSection}
             recentItems={recentItems}
             scheduledItems={scheduledJobs}

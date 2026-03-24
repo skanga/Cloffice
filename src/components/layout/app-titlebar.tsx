@@ -42,6 +42,7 @@ export function AppTitlebar({
   const dragRegionStyle = { WebkitAppRegion: 'drag' } as CSSProperties;
   const noDragStyle = { WebkitAppRegion: 'no-drag' } as CSSProperties;
   const showModeTabs = !minimal && activePage !== 'settings';
+  const activeMode: 'chat' | 'cowork' = activePage === 'chat' ? 'chat' : 'cowork';
   const windowControlBaseClass =
     'inline-flex h-[44px] w-[46px] items-center justify-center border-0 bg-transparent text-muted-foreground transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40';
   const neutralWindowControlClass =
@@ -109,7 +110,7 @@ export function AppTitlebar({
         {showModeTabs && (
         <div className="inline-flex items-center" style={noDragStyle} aria-label="workspace mode">
           <Tabs
-            value={activePage === 'chat' || activePage === 'cowork' ? activePage : 'chat'}
+            value={activeMode}
             onValueChange={(nextMode) => {
               if (nextMode === 'chat' || nextMode === 'cowork') {
                 onSelectPage(nextMode);
