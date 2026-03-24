@@ -39,6 +39,7 @@ import { SidebarProvider } from './components/ui/sidebar';
 import { ScrollArea } from './components/ui/scroll-area';
 import { OpenClawGatewayClient } from './lib/openclaw-gateway-client';
 import { createFileService, LocalFileService } from './lib/file-service';
+import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
 
 import { OnboardingPage } from './features/auth/onboarding-page';
 import { useAuth } from './hooks/use-auth';
@@ -1662,7 +1663,11 @@ export default function App() {
         '```',
         'Only include relay_actions when local file actions are required.',
       ].join('\n');
+      const coworkMemoryContext = preferences.injectMemory
+        ? buildMemoryContext(loadMemoryEntries(), preferences.systemPrompt)
+        : preferences.systemPrompt.trim();
       const outboundMessage = [
+        coworkMemoryContext,
         folderContext ? `Working folder context: ${folderContext}` : '',
         relayFileInstruction,
         '',
@@ -1946,7 +1951,13 @@ export default function App() {
         touchedAt: Date.now(),
       });
 
-      const outboundMessage = buildOutboundChatPrompt(text, chatMessages);
+      const rawOutbound = buildOutboundChatPrompt(text, chatMessages);
+      const chatMemoryContext = preferences.injectMemory
+        ? buildMemoryContext(loadMemoryEntries(), preferences.systemPrompt)
+        : preferences.systemPrompt.trim();
+      const outboundMessage = chatMemoryContext
+        ? `${chatMemoryContext}\n\n${rawOutbound}`
+        : rawOutbound;
       setAwaitingChatStream(true);
       for (let attempt = 1; attempt <= 3; attempt += 1) {
         try {

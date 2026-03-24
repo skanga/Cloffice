@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 
+import type { MemoryEntry } from '@/app-types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,22 +25,11 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import { MEMORY_STORAGE_KEY } from '@/lib/memory-context';
 
 type MemoryPageProps = {
   gatewayConnected: boolean;
 };
-
-type MemoryEntry = {
-  id: string;
-  category: 'about-me' | 'rules' | 'knowledge' | 'reflection';
-  title: string;
-  content: string;
-  tags: string[];
-  createdAt: number;
-  updatedAt: number;
-};
-
-const MEMORY_STORAGE_KEY = 'relay.memory.entries';
 
 const CATEGORY_CONFIG = {
   'about-me': { icon: User, label: 'About me', color: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-950/30' },

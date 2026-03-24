@@ -147,12 +147,23 @@ export type TaskState = 'idle' | 'planned';
 
 export type CoworkRunPhase = 'idle' | 'sending' | 'streaming' | 'completed' | 'error';
 
+export type MemoryEntry = {
+  id: string;
+  category: 'about-me' | 'rules' | 'knowledge' | 'reflection';
+  title: string;
+  content: string;
+  tags: string[];
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type UserPreferences = {
   fullName: string;
   displayName: string;
   role: string;
   responsePreferences: string;
   systemPrompt: string;
+  injectMemory: boolean;
   theme: 'light' | 'auto' | 'dark';
   style: 'claude' | 'relay';
   language: 'en' | 'de';

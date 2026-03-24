@@ -7,6 +7,7 @@ const defaultPreferences: UserPreferences = {
   role: '',
   responsePreferences: '',
   systemPrompt: '',
+  injectMemory: true,
   theme: 'light',
   style: 'relay',
   language: 'en',

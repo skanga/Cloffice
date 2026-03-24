@@ -480,6 +480,30 @@ export function SettingsPage({
           <p className="mt-2 font-sans text-[11px] text-muted-foreground/60">
             {preferences.systemPrompt.length} {t('characters', 'Zeichen')}
           </p>
+          <div className="mt-4 flex items-center gap-3">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={preferences.injectMemory}
+              onClick={() => onUpdatePreferences({ injectMemory: !preferences.injectMemory })}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                preferences.injectMemory ? 'bg-primary' : 'bg-input'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform ${
+                  preferences.injectMemory ? 'translate-x-4' : 'translate-x-0'
+                }`}
+              />
+            </button>
+            <button
+              type="button"
+              className="font-sans text-sm text-foreground/80 cursor-pointer select-none text-left"
+              onClick={() => onUpdatePreferences({ injectMemory: !preferences.injectMemory })}
+            >
+              {t('Inject memory into conversations', 'Erinnerungen in Konversationen einbetten')}
+            </button>
+          </div>
         </section>
       )}
 
