@@ -1,6 +1,7 @@
 import type {
   AppConfig,
   HealthCheckResult,
+  GatewayDiscoveryResult,
   LocalFileApplyResult,
   LocalFileAppendResult,
   LocalFileCreateResult,
@@ -18,6 +19,9 @@ type RelayApi = {
   getConfig: () => Promise<AppConfig>;
   saveConfig: (config: AppConfig) => Promise<AppConfig>;
   healthCheck: (baseUrl: string) => Promise<HealthCheckResult>;
+  discoverGateway: () => Promise<GatewayDiscoveryResult>;
+  checkWorkspacePlugin: () => Promise<{ installed: boolean; error?: string }>;
+  installWorkspacePlugin: () => Promise<{ ok: boolean; output?: string; error?: string }>;
   minimizeWindow: () => Promise<void>;
   toggleMaximizeWindow: () => Promise<boolean>;
   isWindowMaximized: () => Promise<boolean>;

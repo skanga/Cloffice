@@ -119,6 +119,19 @@ export type LocalFileStatResult = {
   modifiedMs: number;
 };
 
+export type GatewayDiscoveryResult = {
+  /** A running gateway was found and responded to a health check. */
+  found: boolean;
+  /** The WebSocket URL of the discovered gateway (e.g. ws://127.0.0.1:18789). */
+  gatewayUrl: string | null;
+  /** An OpenClaw binary was found on disk but no gateway is running. */
+  binaryFound: boolean;
+  /** Filesystem path to the discovered binary, if any. */
+  binaryPath: string | null;
+  /** Human-readable summary of what was detected. */
+  message: string;
+};
+
 export type LocalActionType = 'create_file' | 'append_file' | 'read_file' | 'list_dir' | 'exists' | 'rename' | 'delete';
 
 export type LocalActionReceipt = {

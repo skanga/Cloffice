@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   AppConfig,
   HealthCheckResult,
+  GatewayDiscoveryResult,
   LocalFileApplyResult,
   LocalFileAppendResult,
   LocalFileCreateResult,
@@ -20,6 +21,12 @@ const api = {
   saveConfig: (config: AppConfig) => ipcRenderer.invoke('config:save', config) as Promise<AppConfig>,
   healthCheck: (baseUrl: string) =>
     ipcRenderer.invoke('backend:health-check', baseUrl) as Promise<HealthCheckResult>,
+  discoverGateway: () =>
+    ipcRenderer.invoke('gateway:discover') as Promise<GatewayDiscoveryResult>,
+  checkWorkspacePlugin: () =>
+    ipcRenderer.invoke('plugin:check-workspace') as Promise<{ installed: boolean; error?: string }>,
+  installWorkspacePlugin: () =>
+    ipcRenderer.invoke('plugin:install-workspace') as Promise<{ ok: boolean; output?: string; error?: string }>,
   minimizeWindow: () => ipcRenderer.invoke('window:minimize') as Promise<void>,
   toggleMaximizeWindow: () => ipcRenderer.invoke('window:toggle-maximize') as Promise<boolean>,
   isWindowMaximized: () => ipcRenderer.invoke('window:is-maximized') as Promise<boolean>,

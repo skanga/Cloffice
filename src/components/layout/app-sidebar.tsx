@@ -9,6 +9,7 @@ import {
   Download,
   FolderOpen,
   Globe,
+  HardDrive,
   HelpCircle,
   KeyRound,
   Link2,
@@ -41,7 +42,7 @@ import {
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 
-type AppPage = 'chat' | 'cowork' | 'files' | 'activity' | 'memory' | 'scheduled' | 'safety' | 'settings';
+type AppPage = 'chat' | 'cowork' | 'files' | 'local-files' | 'activity' | 'memory' | 'scheduled' | 'safety' | 'settings';
 type SettingsSection = 'Profile' | 'Appearance' | 'System Prompt' | 'Gateway' | 'Connectors' | 'Account' | 'Privacy' | 'Developer';
 type AppLanguage = 'en' | 'de';
 
@@ -94,7 +95,7 @@ const coworkNavItems = [
 ] as const;
 
 const workspaceNavItems: { label: string; icon: typeof FolderOpen; page: AppPage }[] = [
-  { label: 'Files', icon: FolderOpen, page: 'files' },
+  { label: 'Workspace', icon: FolderOpen, page: 'files' },
   { label: 'Activity', icon: Zap, page: 'activity' },
   { label: 'Memory', icon: Brain, page: 'memory' },
   { label: 'Schedule', icon: CalendarClock, page: 'scheduled' },
@@ -153,7 +154,7 @@ export function AppSidebar({
   const t = (en: string, de: string) => (language === 'de' ? de : en);
   const isChatView = activePage === 'chat';
   const isSettingsView = activePage === 'settings';
-  const isWorkspacePage = ['files', 'activity', 'memory', 'scheduled', 'safety'].includes(activePage);
+  const isWorkspacePage = ['files', 'local-files', 'activity', 'memory', 'scheduled', 'safety'].includes(activePage);
   const compact = !sidebarOpen;
   const navItems = isChatView ? chatNavItems : coworkNavItems;
   const safeRecentItems = recentItems ?? [];
@@ -312,28 +313,52 @@ export function AppSidebar({
 
             {/* Workspace pages */}
             {!isChatView && (
-              <SidebarGroup className="mt-3">
-                {!compact && <SidebarGroupLabel>Workspace</SidebarGroupLabel>}
-                <SidebarGroupContent>
-                  <SidebarMenu>
-                    {workspaceNavItems.map((item) => (
-                      <SidebarMenuItem key={item.label}>
+              <>
+                <SidebarGroup className="mt-3">
+                  {!compact && <SidebarGroupLabel>Workspace</SidebarGroupLabel>}
+                  <SidebarGroupContent>
+                    <SidebarMenu>
+                      {workspaceNavItems.map((item) => (
+                        <SidebarMenuItem key={item.label}>
+                          <SidebarMenuButton
+                            type="button"
+                            active={activePage === item.page}
+                            aria-current={activePage === item.page ? 'page' : undefined}
+                            onClick={() => onSelectPage(item.page)}
+                            className={`gap-2 font-sans text-[13px] ${compact ? 'justify-center px-0' : ''}`}
+                            title={item.label}
+                          >
+                            <item.icon data-icon="inline-start" />
+                            {!compact && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      ))}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </SidebarGroup>
+
+                {/* Local device files */}
+                <SidebarGroup className="mt-1">
+                  {!compact && <SidebarGroupLabel>Local</SidebarGroupLabel>}
+                  <SidebarGroupContent>
+                    <SidebarMenu>
+                      <SidebarMenuItem>
                         <SidebarMenuButton
                           type="button"
-                          active={activePage === item.page}
-                          aria-current={activePage === item.page ? 'page' : undefined}
-                          onClick={() => onSelectPage(item.page)}
+                          active={activePage === 'local-files'}
+                          aria-current={activePage === 'local-files' ? 'page' : undefined}
+                          onClick={() => onSelectPage('local-files')}
                           className={`gap-2 font-sans text-[13px] ${compact ? 'justify-center px-0' : ''}`}
-                          title={item.label}
+                          title="Local Files"
                         >
-                          <item.icon data-icon="inline-start" />
-                          {!compact && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
+                          <HardDrive data-icon="inline-start" />
+                          {!compact && <span className="min-w-0 flex-1 truncate">Local Files</span>}
                         </SidebarMenuButton>
                       </SidebarMenuItem>
-                    ))}
-                  </SidebarMenu>
-                </SidebarGroupContent>
-              </SidebarGroup>
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </SidebarGroup>
+              </>
             )}
 
             {!compact && (

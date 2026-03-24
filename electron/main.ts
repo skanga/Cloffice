@@ -2,6 +2,9 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, session } from 'electron';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import os from 'node:os';
 import type {
   LocalFileApplyResult,
   LocalFileAppendResult,
@@ -14,7 +17,10 @@ import type {
   LocalFileReadResult,
   LocalFileRenameResult,
   LocalFileStatResult,
+  GatewayDiscoveryResult,
 } from '../src/app-types.js';
+
+const execFileAsync = promisify(execFile);
 
 type AppConfig = {
   gatewayUrl: string;
@@ -650,6 +656,115 @@ async function runHealthCheck(gatewayUrl: string): Promise<HealthCheckResult> {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Gateway auto-discovery
+// ---------------------------------------------------------------------------
+
+const DEFAULT_PORTS = [18789, 18790];
+
+async function probeGatewayHealth(port: number): Promise<boolean> {
+  const candidates = [`http://127.0.0.1:${port}/health`, `http://127.0.0.1:${port}/`];
+  for (const url of candidates) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2000);
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (response.ok) return true;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
+function getOpenClawBinaryCandidates(): string[] {
+  const home = os.homedir();
+  const isWindows = process.platform === 'win32';
+  const bin = isWindows ? 'openclaw.exe' : 'openclaw';
+
+  const paths: string[] = [
+    // Standard install location
+    path.join(home, '.openclaw', 'bin', bin),
+    // Relay-managed location
+    path.join(home, '.relay', 'openclaw', bin),
+  ];
+
+  if (!isWindows) {
+    paths.push(
+      path.join('/usr', 'local', 'bin', 'openclaw'),
+      path.join(home, '.local', 'bin', 'openclaw'),
+    );
+  }
+
+  return paths;
+}
+
+async function findBinaryOnPath(): Promise<string | null> {
+  const command = process.platform === 'win32' ? 'where' : 'which';
+  // On Windows, npm global binaries are .cmd wrappers — try that first
+  const names = process.platform === 'win32' ? ['openclaw.cmd', 'openclaw'] : ['openclaw'];
+  for (const name of names) {
+    try {
+      const { stdout } = await execFileAsync(command, [name], { timeout: 3000 });
+      const firstLine = stdout.trim().split(/\r?\n/)[0];
+      if (firstLine) return firstLine;
+    } catch {
+      // not found, try next variant
+    }
+  }
+  return null;
+}
+
+async function findBinaryOnDisk(): Promise<string | null> {
+  for (const candidate of getOpenClawBinaryCandidates()) {
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+  return findBinaryOnPath();
+}
+
+async function discoverGateway(): Promise<GatewayDiscoveryResult> {
+  // Step 1: Probe default ports for a running gateway
+  for (const port of DEFAULT_PORTS) {
+    const alive = await probeGatewayHealth(port);
+    if (alive) {
+      return {
+        found: true,
+        gatewayUrl: `ws://127.0.0.1:${port}`,
+        binaryFound: true,
+        binaryPath: null,
+        message: `OpenClaw gateway detected on port ${port}.`,
+      };
+    }
+  }
+
+  // Step 2: No running gateway — check if binary is installed
+  const binaryPath = await findBinaryOnDisk();
+  if (binaryPath) {
+    return {
+      found: false,
+      gatewayUrl: null,
+      binaryFound: true,
+      binaryPath,
+      message: `OpenClaw binary found at ${binaryPath} but no gateway is running.`,
+    };
+  }
+
+  // Step 3: Nothing found
+  return {
+    found: false,
+    gatewayUrl: null,
+    binaryFound: false,
+    binaryPath: null,
+    message: 'No local OpenClaw installation detected.',
+  };
+}
+
 async function createWindow() {
   const preloadPath = fileURLToPath(new URL('./preload.cjs', import.meta.url));
 
@@ -701,6 +816,37 @@ app.whenReady().then(async () => {
   ipcMain.handle('config:get', async () => readConfig());
   ipcMain.handle('config:save', async (_event, config: AppConfig) => writeConfig(config));
   ipcMain.handle('backend:health-check', async (_event, baseUrl: string) => runHealthCheck(baseUrl));
+  ipcMain.handle('gateway:discover', async () => discoverGateway());
+  ipcMain.handle('plugin:check-workspace', async () => {
+    const binaryPath = await findBinaryOnDisk();
+    if (!binaryPath) return { installed: false, error: 'OpenClaw binary not found.' };
+    try {
+      const { stdout } = await execFileAsync(binaryPath, ['plugins', 'list'], {
+        timeout: 10_000,
+        shell: process.platform === 'win32',
+      });
+      return { installed: stdout.includes('openclaw-relay-workspace') };
+    } catch {
+      return { installed: false };
+    }
+  });
+  ipcMain.handle('plugin:install-workspace', async () => {
+    const binaryPath = await findBinaryOnDisk();
+    if (!binaryPath) {
+      return { ok: false as const, error: 'OpenClaw binary not found on this system.' };
+    }
+    try {
+      const { stdout, stderr } = await execFileAsync(
+        binaryPath,
+        ['plugins', 'install', '@seventeenlabs/openclaw-relay-workspace'],
+        { timeout: 60_000, shell: process.platform === 'win32' },
+      );
+      return { ok: true as const, output: stdout || stderr };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false as const, error: msg };
+    }
+  });
   ipcMain.handle('window:minimize', (event) => {
     const window = BrowserWindow.fromWebContents(event.sender);
     window?.minimize();

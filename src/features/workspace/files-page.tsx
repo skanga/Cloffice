@@ -10,6 +10,7 @@ import {
   Clock,
   Code,
   Copy,
+  Download,
   Edit3,
   Eye,
   File,
@@ -32,6 +33,7 @@ import {
   Search,
   Shield,
   Sparkles,
+  Terminal,
   Trash2,
   Upload,
   X,
@@ -65,6 +67,9 @@ type FilesPageProps = {
   onPickFolder: () => void;
   fileService: FileService;
   localFileService?: FileService | null;
+  gatewayUrl?: string;
+  /** Lock the page to a specific root. Omit to allow switching via tab bar. */
+  root?: ExplorerRoot;
 };
 
 type ExplorerRoot = 'workspace' | 'working-folder';
@@ -274,9 +279,29 @@ const FILE_PERMISSIONS: PermissionRef[] = [
   { id: 'file-move', name: 'Move', risk: 'medium' },
 ];
 
+/* ─── Copy Command Button ─────────────────── */
+function CopyCommandButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+      title="Copy to clipboard"
+      onClick={() => {
+        void navigator.clipboard.writeText(text).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        });
+      }}
+    >
+      {copied ? <Check className="size-3.5 text-primary" /> : <Copy className="size-3.5" />}
+    </button>
+  );
+}
+
 /* ═══════════════════════════════════════════ Main Component ═══════════════════════════════════════════ */
 
-export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder, fileService, localFileService }: FilesPageProps) {
+export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder, fileService, localFileService, gatewayUrl, root: rootProp }: FilesPageProps) {
   /* ── State ── */
   const [currentRelPath, setCurrentRelPath] = useState('');
   const [items, setItems] = useState<LocalFileListItem[]>([]);
@@ -345,26 +370,31 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
   const [remoteUnsupported, setRemoteUnsupported] = useState(false);
   const [agentTools, setAgentTools] = useState<Array<{ name: string; group?: string }>>([]);
   const [agentHasFileTools, setAgentHasFileTools] = useState(false);
+  const [installStatus, setInstallStatus] = useState<'idle' | 'installing' | 'success' | 'error'>('idle');
+  const [installError, setInstallError] = useState('');
+  // null = not checked yet, true/false = result
+  const [pluginInstalled, setPluginInstalled] = useState<boolean | null>(null);
+
+  // Check on mount whether the workspace plugin is already installed
+  useEffect(() => {
+    if (!window.relay?.checkWorkspacePlugin) return;
+    window.relay.checkWorkspacePlugin()
+      .then((r) => setPluginInstalled(r.installed))
+      .catch(() => setPluginInstalled(null));
+  }, []);
 
   const isRemote = fileService.mode === 'remote';
-  const localWorkingFolderAvailable = Boolean(localFileService && desktopBridgeAvailable && workingFolder.trim());
-  const [activeRoot, setActiveRoot] = useState<ExplorerRoot>('workspace');
-
-  useEffect(() => {
-    if (!localWorkingFolderAvailable && activeRoot === 'working-folder') {
-      setActiveRoot('workspace');
-    }
-  }, [activeRoot, localWorkingFolderAvailable]);
+  const activeRoot: ExplorerRoot = rootProp ?? 'workspace';
+  const isLocalGateway = !gatewayUrl || /127\.0\.0\.1|localhost/.test(gatewayUrl);
 
   const activeExplorerService = useMemo(() => {
-    if (activeRoot === 'working-folder' && localWorkingFolderAvailable && localFileService) {
+    if (activeRoot === 'working-folder' && localFileService) {
       return localFileService;
     }
     return fileService;
-  }, [activeRoot, localWorkingFolderAvailable, localFileService, fileService]);
+  }, [activeRoot, localFileService, fileService]);
 
   const activeRootPath = activeRoot === 'working-folder' ? workingFolder : (isRemote ? '' : workingFolder);
-  const showRootSwitcher = isRemote && localWorkingFolderAvailable;
 
   /* ── Directory Loading ── */
   const loadDirectory = useCallback(
@@ -404,6 +434,26 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
     },
     [activeExplorerService, activeRootPath, fileService],
   );
+
+  /* ── Plugin Install ── */
+  const handleInstallPlugin = useCallback(async () => {
+    if (!window.relay?.installWorkspacePlugin) return;
+    setInstallStatus('installing');
+    setInstallError('');
+    const result = await window.relay.installWorkspacePlugin();
+    if (result.ok) {
+      setInstallStatus('success');
+      setTimeout(() => {
+        setPluginInstalled(true);
+        setRemoteUnsupported(false);
+        setInstallStatus('idle');
+        void loadDirectory('');
+      }, 1200);
+    } else {
+      setInstallStatus('error');
+      setInstallError(result.error ?? 'Installation failed.');
+    }
+  }, [loadDirectory]);
 
   const loadSubDir = useCallback(
     async (relPath: string) => {
@@ -719,21 +769,29 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
     [previewContent, isImage, isMarkdown, mdRendered, selectedLang],
   );
 
-  const switchRoot = useCallback((nextRoot: ExplorerRoot) => {
-    setActiveRoot(nextRoot);
-    setCurrentRelPath('');
-    setItems([]);
-    setExpandedDirs(new Set());
-    setChildCache(new Map());
-    setSelectedPath(null);
-    setPreviewContent('');
-    setDiffOldContent('');
-    setDiffNewContent('');
-    setFileInfo(null);
-    setFilterQuery('');
-    setError('');
-    setRemoteUnsupported(false);
-  }, []);
+  /* ── Render: local-files root with no working folder ── */
+  if (rootProp === 'working-folder' && (!localFileService || !desktopBridgeAvailable || !workingFolder.trim())) {
+    return (
+      <section className="flex h-full items-center justify-center">
+        <div className="text-center">
+          <HardDrive className="mx-auto mb-3 size-10 text-muted-foreground/50" />
+          <h2 className="text-lg font-medium">No local folder selected</h2>
+          <p className="mt-1 font-sans text-sm text-muted-foreground">
+            Pick a local working folder to browse your files here.
+          </p>
+          {desktopBridgeAvailable && (
+            <button
+              type="button"
+              className="mt-4 rounded-lg border border-border px-4 py-2 font-sans text-sm font-medium hover:bg-accent"
+              onClick={onPickFolder}
+            >
+              Pick folder
+            </button>
+          )}
+        </div>
+      </section>
+    );
+  }
 
   /* ── Render: not available ── */
   if (!desktopBridgeAvailable && !isRemote) {
@@ -750,65 +808,101 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
     );
   }
 
-  /* ── Render: remote server doesn't support workspace RPCs ── */
-  if (remoteUnsupported && activeRoot === 'workspace') {
-    const fsTools = agentTools.filter((t) => ['read', 'write', 'edit', 'apply_patch'].includes(t.name));
+  /* ── Render: workspace plugin not installed or RPCs unsupported ── */
+  const showPluginInstallUi = rootProp !== 'working-folder' && (pluginInstalled === false || (remoteUnsupported && activeRoot === 'workspace'));
+  if (showPluginInstallUi) {
+    const INSTALL_CMD = 'openclaw plugins install @seventeenlabs/openclaw-relay-workspace';
     return (
       <section className="flex h-full items-center justify-center overflow-y-auto p-6">
-        <div className="max-w-lg text-center">
-          <AlertTriangle className="mx-auto mb-3 size-10 text-amber-500" />
-          <h2 className="text-lg font-medium">File Explorer is unavailable in remote mode</h2>
-          <p className="mt-2 font-sans text-sm text-muted-foreground">
-            The OpenClaw gateway does not currently expose direct file access RPCs.
-            The agent has its own file tools that can be used in chat.
-          </p>
-
-          {agentHasFileTools && fsTools.length > 0 && (
-            <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4 text-left">
-              <p className="mb-2 font-sans text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                Agent file tools available (group:fs):
-              </p>
-              <ul className="space-y-1 font-mono text-xs text-muted-foreground">
-                {fsTools.map((t) => (
-                  <li key={t.name} className="flex items-center gap-2">
-                    <span className="size-1.5 rounded-full bg-emerald-500" />
-                    {t.name}
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2 font-sans text-xs text-muted-foreground">
-                These tools are used by the agent in chat.
-                Ask it for example: <em>&quot;List all files in the workspace&quot;</em> or{' '}
-                <em>&quot;Read the AGENTS.md file&quot;</em>.
-              </p>
+        <div className="w-full max-w-md">
+          {/* Header */}
+          <div className="mb-6 text-center">
+            <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl border border-primary/30 bg-primary/10">
+              {installStatus === 'success'
+                ? <Check className="size-7 text-primary" />
+                : <Download className="size-7 text-primary" />}
             </div>
-          )}
-
-          <div className="mt-4 rounded-lg border border-border/60 bg-muted/30 p-4 text-left">
-              <p className="mb-2 font-sans text-xs font-medium text-foreground/80">Why no direct access?</p>
-            <p className="font-sans text-xs text-muted-foreground">
-              Der Agent-Workspace liegt auf dem Gateway-Host
-              (Standard: <code className="rounded bg-muted px-1 py-0.5">~/.openclaw/workspace</code>).
-              The file tools (<code className="rounded bg-muted px-1 py-0.5">read</code>,{' '}
-              <code className="rounded bg-muted px-1 py-0.5">write</code>,{' '}
-              <code className="rounded bg-muted px-1 py-0.5">edit</code>) werden{' '}
-              invoked by the AI model during chat, not directly via the gateway protocol.
+            <h2 className="text-base font-semibold">Workspace plugin required</h2>
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              The OpenClaw gateway needs the{' '}
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">openclaw-relay-workspace</code>{' '}
+              plugin to expose the file explorer.
             </p>
           </div>
 
-          <div className="mt-4 flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
-            {showRootSwitcher && (
+          {/* Local: auto-install */}
+          {isLocalGateway && desktopBridgeAvailable && (
+            <div className="rounded-xl border border-border bg-card p-5">
+              <p className="mb-3 text-sm font-medium">Install automatically</p>
+              <p className="mb-4 text-xs text-muted-foreground">
+                Relay can install the plugin on your local OpenClaw instance with one click.
+                OpenClaw will need to be restarted after installation.
+              </p>
+              {installStatus === 'error' && (
+                <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+                  <span className="font-medium">Installation failed: </span>{installError}
+                </div>
+              )}
               <Button
                 type="button"
                 variant="default"
-                size="sm"
-                onClick={() => switchRoot('working-folder')}
+                className="w-full gap-2"
+                disabled={installStatus === 'installing' || installStatus === 'success'}
+                onClick={() => void handleInstallPlugin()}
               >
-                <HardDrive className="mr-1.5 size-3.5" />
-                Go to local working folder
+                {installStatus === 'installing' && (
+                  <svg className="size-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                  </svg>
+                )}
+                {installStatus === 'success' && <Check className="size-4" />}
+                {installStatus === 'installing' ? 'Installing…' : installStatus === 'success' ? 'Installed — loading…' : 'Install Plugin'}
               </Button>
-            )}
-            {desktopBridgeAvailable && (
+            </div>
+          )}
+
+          {/* Remote or no bridge: show copy command */}
+          {(!isLocalGateway || !desktopBridgeAvailable) && (
+            <div className="rounded-xl border border-border bg-card p-5">
+              <div className="mb-2 flex items-center gap-2">
+                <Terminal className="size-3.5 text-muted-foreground" />
+                <p className="text-sm font-medium">Run on your server</p>
+              </div>
+              <p className="mb-3 text-xs text-muted-foreground">
+                SSH into your OpenClaw host and run this command, then restart OpenClaw.
+              </p>
+              <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 p-3">
+                <code className="flex-1 break-all font-mono text-xs">{INSTALL_CMD}</code>
+                <CopyCommandButton text={INSTALL_CMD} />
+              </div>
+            </div>
+          )}
+
+          {/* Retry / fallback buttons */}
+          <div className="mt-4 flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setRemoteUnsupported(false);
+                if (window.relay?.checkWorkspacePlugin) {
+                  window.relay.checkWorkspacePlugin()
+                    .then((r) => {
+                      setPluginInstalled(r.installed);
+                      if (r.installed) void loadDirectory('');
+                    })
+                    .catch(() => void loadDirectory(''));
+                } else {
+                  void loadDirectory('');
+                }
+              }}
+            >
+              <RefreshCw className="mr-1.5 size-3.5" />
+              Retry
+            </Button>
+            {rootProp !== 'workspace' && desktopBridgeAvailable && (
               <Button type="button" variant="outline" size="sm" onClick={onPickFolder}>
                 <Folder className="mr-1.5 size-3.5" />
                 Pick local folder
@@ -928,25 +1022,6 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
       <div className="flex min-h-0 flex-col overflow-hidden" onKeyDown={handleKeyDown} tabIndex={0}>
         {/* Toolbar */}
         <div className="flex items-center gap-1 border-b border-border/60 px-3 py-1.5">
-          {showRootSwitcher && (
-            <>
-              <button
-                type="button"
-                className={`rounded px-2 py-0.5 text-[11px] ${activeRoot === 'workspace' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
-                onClick={() => switchRoot('workspace')}
-              >
-                OpenClaw Workspace
-              </button>
-              <button
-                type="button"
-                className={`rounded px-2 py-0.5 text-[11px] ${activeRoot === 'working-folder' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
-                onClick={() => switchRoot('working-folder')}
-              >
-                Local working folder
-              </button>
-              <Separator orientation="vertical" className="mx-1 h-4" />
-            </>
-          )}
           <Button type="button" variant="ghost" size="icon-xs" className="size-6" onClick={navigateUp} title="Up one level">
             <FolderUp className="size-3.5" />
           </Button>

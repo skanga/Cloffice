@@ -4,7 +4,7 @@ import { ArrowLeft, Copy, Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose,
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-type AppPage = 'chat' | 'cowork' | 'files' | 'activity' | 'memory' | 'scheduled' | 'safety' | 'settings';
+type AppPage = 'chat' | 'cowork' | 'files' | 'local-files' | 'activity' | 'memory' | 'scheduled' | 'safety' | 'settings';
 
 type AppTitlebarProps = {
   sidebarOpen: boolean;
@@ -43,7 +43,7 @@ export function AppTitlebar({
   const noDragStyle = { WebkitAppRegion: 'no-drag' } as CSSProperties;
   const showModeTabs = !minimal && activePage !== 'settings';
   const activeMode: 'chat' | 'cowork' = activePage === 'chat' ? 'chat' : 'cowork';
-  const isWorkspacePage = ['files', 'activity', 'memory', 'scheduled', 'safety'].includes(activePage);
+  const isWorkspacePage = ['files', 'local-files', 'activity', 'memory', 'scheduled', 'safety'].includes(activePage);
   const isSettingsPage = activePage === 'settings';
   const showBackButton = isWorkspacePage || isSettingsPage;
   const windowControlBaseClass =

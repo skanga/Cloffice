@@ -1,12 +1,17 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import type { FormEvent } from 'react';
 
-import type { HealthCheckResult } from '@/app-types';
+import type { GatewayDiscoveryResult, HealthCheckResult } from '@/app-types';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 
 type OnboardingStep = 'welcome' | 'connect' | 'pairing' | 'ready';
+
+type DiscoveryState =
+  | { status: 'idle' }
+  | { status: 'scanning' }
+  | { status: 'done'; result: GatewayDiscoveryResult };
 
 type OnboardingPageProps = {
   draftGatewayUrl: string;
@@ -19,6 +24,88 @@ type OnboardingPageProps = {
   onSave: (event: FormEvent) => void;
   onComplete: () => void;
 };
+
+/* ── Inline brand mark (track logo from branding system) ── */
+function RelayMark({ size = 48 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 256 256" fill="none">
+      <rect width="256" height="256" rx="58" fill="#bbf451" />
+      <rect x="44" y="54" width="56" height="120" rx="28" fill="#1f2b09" />
+      <rect x="156" y="54" width="56" height="120" rx="28" fill="#1f2b09" />
+      <rect x="98" y="88" width="68" height="52" rx="24" fill="#1f2b09" />
+      <path d="M118 114H182" stroke="#bbf451" strokeWidth="9" strokeLinecap="round" />
+      <path d="M170 102L186 114L170 126" stroke="#bbf451" strokeWidth="9" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/* ── Step indicator ── */
+const STEP_LABELS = ['Welcome', 'Connect', 'Ready'] as const;
+
+function StepIndicator({ current }: { current: number }) {
+  return (
+    <div className="mb-10 flex items-center justify-center gap-1">
+      {STEP_LABELS.map((label, i) => {
+        const isActive = i === current;
+        const isDone = i < current;
+        return (
+          <div key={label} className="flex items-center gap-1">
+            {i > 0 && (
+              <div className={`mx-1 h-px w-6 transition-colors duration-300 ${isDone ? 'bg-[#bbf451]' : 'bg-border'}`} />
+            )}
+            <div className="flex items-center gap-1.5">
+              <div
+                className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold transition-all duration-300 ${
+                  isActive
+                    ? 'bg-[#bbf451] text-[#1f2b09] shadow-[0_0_0_3px_rgba(187,244,81,0.2)]'
+                    : isDone
+                      ? 'bg-[#bbf451]/20 text-[#7b9f2f]'
+                      : 'bg-muted text-muted-foreground/50'
+                }`}
+              >
+                {isDone ? (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                    <path d="M5 12l5 5L19 7" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                ) : (
+                  i + 1
+                )}
+              </div>
+              <span
+                className={`font-sans text-xs font-medium transition-colors duration-300 ${
+                  isActive ? 'text-foreground' : isDone ? 'text-[#7b9f2f]' : 'text-muted-foreground/50'
+                }`}
+              >
+                {label}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── Primary CTA button ── */
+function PrimaryButton({
+  children,
+  disabled,
+  className,
+  ...props
+}: React.ComponentProps<typeof Button>) {
+  return (
+    <Button
+      disabled={disabled}
+      className={cn(
+        'h-11 w-full border-0 bg-[#bbf451] font-sans text-sm font-semibold text-[#1f2b09] shadow-[0_1px_0_rgba(0,0,0,0.08),0_0_0_1px_rgba(187,244,81,0.2)_inset] hover:bg-[#a8df44] disabled:opacity-50',
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </Button>
+  );
+}
 
 export function OnboardingPage({
   draftGatewayUrl,
@@ -34,6 +121,29 @@ export function OnboardingPage({
   const [step, setStep] = useState<OnboardingStep>('welcome');
   const [copied, setCopied] = useState(false);
   const [connectAttempted, setConnectAttempted] = useState(false);
+  const [discovery, setDiscovery] = useState<DiscoveryState>({ status: 'idle' });
+
+  // Auto-discover gateway on mount
+  useEffect(() => {
+    const bridge = window.relay;
+    if (!bridge?.discoverGateway) return;
+
+    let cancelled = false;
+    setDiscovery({ status: 'scanning' });
+
+    bridge.discoverGateway().then((result) => {
+      if (cancelled) return;
+      setDiscovery({ status: 'done', result });
+
+      if (result.found && result.gatewayUrl) {
+        onDraftGatewayUrlChange(result.gatewayUrl);
+      }
+    }).catch(() => {
+      if (!cancelled) setDiscovery({ status: 'idle' });
+    });
+
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const effectivePairingId = useMemo(() => {
     if (pairingRequestId) return pairingRequestId;
@@ -61,11 +171,9 @@ export function OnboardingPage({
     onSave(event);
   };
 
-  // Auto-advance to pairing step when pairing is needed
   const needsPairing = connectAttempted && !saving && health && !health.ok && effectivePairingId;
   const isConnected = health?.ok === true;
 
-  // Derive visible step
   const visibleStep: OnboardingStep = (() => {
     if (step === 'welcome') return 'welcome';
     if (isConnected) return 'ready';
@@ -73,214 +181,366 @@ export function OnboardingPage({
     return 'connect';
   })();
 
+  const stepIndex = { welcome: 0, connect: 1, pairing: 1, ready: 2 }[visibleStep];
+
   return (
-    <main className="grid h-full place-items-center overflow-auto p-6">
-      <div className="w-full max-w-[520px]">
-        {/* Progress dots */}
-        <div className="mb-6 flex items-center justify-center gap-2">
-          {(['welcome', 'connect', 'ready'] as const).map((s, i) => {
-            const stepOrder = { welcome: 0, connect: 1, pairing: 1, ready: 2 };
-            const current = stepOrder[visibleStep];
-            const isActive = i === current;
-            const isDone = i < current;
-            return (
-              <div
-                key={s}
-                className={`h-1.5 rounded-full transition-all duration-300 ${
-                  isActive
-                    ? 'w-6 bg-[#de825e]'
-                    : isDone
-                      ? 'w-1.5 bg-[#de825e]/40'
-                      : 'w-1.5 bg-border'
-                }`}
-              />
-            );
-          })}
-        </div>
+    <main className="relative grid h-full place-items-center overflow-auto">
+      {/* Background decoration */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -right-32 -top-32 h-[480px] w-[480px] rounded-full bg-[#bbf451]/[0.04] blur-3xl" />
+        <div className="absolute -bottom-24 -left-24 h-[360px] w-[360px] rounded-full bg-[#bbf451]/[0.03] blur-3xl" />
+      </div>
 
-        {/* Step: Welcome */}
+      <div className="relative z-10 w-full max-w-[480px] px-6">
+        <StepIndicator current={stepIndex} />
+
+        {/* ── Welcome ── */}
         {visibleStep === 'welcome' && (
-          <Card className="rounded-2xl border-border bg-card shadow-[0_12px_30px_rgba(31,31,28,0.10)]">
-            <CardContent className="flex flex-col items-center px-8 pb-8 pt-10 text-center">
-              {/* Logo mark */}
-              <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,#ea9f7d,#de825e)] shadow-[0_4px_16px_rgba(222,130,94,0.3)]">
-                <span className="text-2xl font-bold text-white">R</span>
-              </div>
+          <div className="flex flex-col items-center text-center">
+            <div className="mb-6">
+              <RelayMark size={64} />
+            </div>
 
-              <h1 className="mb-2 text-2xl font-semibold tracking-tight">Welcome to Relay</h1>
-              <p className="mb-1 font-sans text-sm text-muted-foreground">
-                Your AI coworker, powered by OpenClaw.
-              </p>
-              <p className="mb-8 font-sans text-xs text-muted-foreground/70">
-                Connect to your OpenClaw Gateway to get started.
-              </p>
+            <h1 className="mb-2 font-sans text-[28px] font-bold leading-tight tracking-tight text-foreground">
+              Welcome to Relay
+            </h1>
+            <p className="mb-2 max-w-[340px] font-sans text-[15px] leading-relaxed text-muted-foreground">
+              AI operations with human control.
+              <br />
+              Connect your OpenClaw gateway to get started.
+            </p>
 
-              <Button
-                className="h-11 w-full max-w-[280px] border-0 bg-[linear-gradient(120deg,#ea9f7d,#de825e)] font-sans text-sm text-[#fffefb]"
-                onClick={() => setStep('connect')}
-              >
-                Get started
-              </Button>
-
-              <p className="mt-4 font-sans text-[11px] text-muted-foreground/60">
-                You can change these settings anytime.
-              </p>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Step: Connect */}
-        {visibleStep === 'connect' && (
-          <Card className="rounded-2xl border-border bg-card shadow-[0_12px_30px_rgba(31,31,28,0.10)]">
-            <CardContent className="px-8 pb-8 pt-8">
-              <h2 className="mb-1 text-xl font-semibold tracking-tight">Connect to your Gateway</h2>
-              <p className="mb-5 font-sans text-sm text-muted-foreground">
-                Enter your OpenClaw Gateway URL and access token.
-              </p>
-
-              <form className="grid gap-3" onSubmit={handleConnect}>
-                <label>
-                  <span className="mb-1 block font-sans text-xs text-muted-foreground">
-                    Gateway URL
+            {/* Discovery states */}
+            <div className="mb-8 mt-4 w-full max-w-[360px]">
+              {discovery.status === 'scanning' && (
+                <div className="flex items-center justify-center gap-2.5 rounded-xl border border-border bg-muted/30 px-5 py-3">
+                  <svg className="h-4 w-4 animate-spin text-[#7b9f2f]" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" opacity="0.2" />
+                    <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                  <span className="font-sans text-[13px] text-muted-foreground">
+                    Looking for OpenClaw on your machine…
                   </span>
-                  <Input
-                    value={draftGatewayUrl}
-                    onChange={(event) => onDraftGatewayUrlChange(event.target.value)}
-                    placeholder="ws://127.0.0.1:18789"
-                    className="font-sans"
-                  />
-                </label>
-
-                <label>
-                  <span className="mb-1 block font-sans text-xs text-muted-foreground">
-                    Access token
-                  </span>
-                  <Input
-                    type="password"
-                    value={draftGatewayToken}
-                    onChange={(event) => onDraftGatewayTokenChange(event.target.value)}
-                    placeholder="Paste token from OpenClaw setup"
-                    className="font-sans"
-                  />
-                </label>
-
-                {/* Connection error (non-pairing) */}
-                {connectAttempted && !saving && health && !health.ok && !effectivePairingId && (
-                  <div className="rounded-lg border border-[rgba(180,80,50,0.25)] bg-[rgba(180,80,50,0.06)] p-3">
-                    <p className="font-sans text-xs font-medium text-[#7a4a38]">Connection failed</p>
-                    <p className="mt-1 font-sans text-xs text-[#7a4a38]/80">{health.message}</p>
-                  </div>
-                )}
-
-                <div className="mt-1 flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-10 font-sans text-sm"
-                    onClick={() => {
-                      setStep('welcome');
-                      setConnectAttempted(false);
-                    }}
-                  >
-                    Back
-                  </Button>
-                  <Button
-                    type="submit"
-                    disabled={saving}
-                    className="h-10 flex-1 border-0 bg-[linear-gradient(120deg,#ea9f7d,#de825e)] font-sans text-sm text-[#fffefb]"
-                  >
-                    {saving ? 'Connecting...' : 'Connect'}
-                  </Button>
                 </div>
-              </form>
-            </CardContent>
-          </Card>
+              )}
+
+              {discovery.status === 'done' && discovery.result.found && (
+                <div className="rounded-xl border border-[#bbf451]/30 bg-[#bbf451]/[0.06] px-5 py-3.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[#bbf451]/20">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                        <path d="M5 12l5 5L19 7" stroke="#7b9f2f" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </div>
+                    <div className="text-left">
+                      <p className="font-sans text-[13px] font-semibold text-foreground">
+                        Gateway detected
+                      </p>
+                      <p className="font-mono text-[11px] text-muted-foreground">
+                        {discovery.result.gatewayUrl}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {discovery.status === 'done' && !discovery.result.found && discovery.result.binaryFound && (
+                <div className="rounded-xl border border-[#e8b931]/25 bg-[#e8b931]/[0.05] px-5 py-3.5">
+                  <div className="flex items-start gap-2.5">
+                    <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#e8b931]/20">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 9v4m0 4h.01" stroke="#a68523" strokeWidth="3" strokeLinecap="round" />
+                      </svg>
+                    </div>
+                    <div className="text-left">
+                      <p className="font-sans text-[13px] font-semibold text-foreground">
+                        OpenClaw installed but not running
+                      </p>
+                      <p className="mt-0.5 font-sans text-[12px] leading-relaxed text-muted-foreground">
+                        Start it with{' '}
+                        <code className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px]">openclaw</code>
+                        {' '}or connect to a remote gateway.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {(discovery.status === 'idle' ||
+                (discovery.status === 'done' && !discovery.result.found && !discovery.result.binaryFound)) && (
+                <div className="flex items-center justify-center gap-2 rounded-xl border border-border bg-muted/20 px-5 py-3">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-muted-foreground/60">
+                    <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" stroke="currentColor" strokeWidth="2" />
+                    <path d="M12 16v-4m0-4h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                  <span className="font-sans text-[13px] text-muted-foreground">
+                    Enter your gateway details to connect.
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="w-full max-w-[320px]">
+              {discovery.status === 'done' && discovery.result.found ? (
+                <>
+                  <PrimaryButton
+                    onClick={(e) => {
+                      setConnectAttempted(true);
+                      onSave(e as unknown as FormEvent);
+                    }}
+                    disabled={saving}
+                  >
+                    {saving ? (
+                      <span className="flex items-center gap-2">
+                        <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" opacity="0.2" />
+                          <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                        </svg>
+                        Connecting…
+                      </span>
+                    ) : (
+                      'Connect now'
+                    )}
+                  </PrimaryButton>
+                  <button
+                    type="button"
+                    className="mt-3 font-sans text-[12px] text-muted-foreground transition-colors hover:text-foreground"
+                    onClick={() => setStep('connect')}
+                  >
+                    Use a different gateway
+                  </button>
+                </>
+              ) : (
+                <PrimaryButton
+                  disabled={discovery.status === 'scanning'}
+                  onClick={() => setStep('connect')}
+                >
+                  {discovery.status === 'scanning' ? (
+                    <span className="flex items-center gap-2">
+                      <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" opacity="0.2" />
+                        <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                      </svg>
+                      Scanning…
+                    </span>
+                  ) : (
+                    'Get started'
+                  )}
+                </PrimaryButton>
+              )}
+            </div>
+
+            <p className="mt-6 font-sans text-[11px] text-muted-foreground/40">
+              Settings can be changed anytime from Preferences.
+            </p>
+          </div>
         )}
 
-        {/* Step: Pairing */}
-        {visibleStep === 'pairing' && (
-          <Card className="rounded-2xl border-border bg-card shadow-[0_12px_30px_rgba(31,31,28,0.10)]">
-            <CardContent className="px-8 pb-8 pt-8">
-              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-[rgba(222,130,94,0.12)]">
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="text-[#de825e]">
-                  <path d="M10 2a4 4 0 0 0-4 4v2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1V6a4 4 0 0 0-4-4Zm-2 4a2 2 0 1 1 4 0v2H8V6Zm2 6a1 1 0 0 1 1 1v1a1 1 0 1 1-2 0v-1a1 1 0 0 1 1-1Z" fill="currentColor"/>
+        {/* ── Connect ── */}
+        {visibleStep === 'connect' && (
+          <div className="rounded-2xl border border-border bg-card p-8 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.04)]">
+            <div className="mb-6">
+              <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-[#bbf451]/10">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-[#7b9f2f]">
+                  <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" stroke="currentColor" strokeWidth="2" />
+                  <path d="M12 8v4l3 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </div>
-
-              <h2 className="mb-1 text-xl font-semibold tracking-tight">Approve this device</h2>
-              <p className="mb-4 font-sans text-sm text-muted-foreground">
-                Run this command on your gateway host to approve Relay:
+              <h2 className="font-sans text-lg font-bold tracking-tight text-foreground">
+                Connect to your gateway
+              </h2>
+              <p className="mt-1 font-sans text-[13px] leading-relaxed text-muted-foreground">
+                Enter your OpenClaw gateway URL and optional access token.
               </p>
+            </div>
 
-              <div className="flex items-center gap-1">
-                <code className="flex-1 rounded-lg bg-[rgba(0,0,0,0.05)] px-3 py-2 font-mono text-xs text-[#7a4a38] select-all">
-                  openclaw devices approve {effectivePairingId}
-                </code>
-                <button
-                  type="button"
-                  className="shrink-0 rounded-lg bg-[rgba(0,0,0,0.05)] px-3 py-2 font-sans text-xs text-[#7a4a38] hover:bg-[rgba(0,0,0,0.1)]"
-                  onClick={copyCommand}
-                >
-                  {copied ? 'Copied!' : 'Copy'}
-                </button>
+            <form className="grid gap-4" onSubmit={handleConnect}>
+              <div>
+                <label className="mb-1.5 block font-sans text-[12px] font-medium text-foreground">
+                  Gateway URL
+                </label>
+                <Input
+                  value={draftGatewayUrl}
+                  onChange={(event) => onDraftGatewayUrlChange(event.target.value)}
+                  placeholder="ws://127.0.0.1:18789"
+                  className="h-10 font-mono text-[13px]"
+                />
               </div>
 
-              <p className="mt-4 font-sans text-xs text-muted-foreground/70">
-                After approving, click the button below to reconnect.
-              </p>
+              <div>
+                <label className="mb-1.5 block font-sans text-[12px] font-medium text-foreground">
+                  Access token
+                  <span className="ml-1.5 font-normal text-muted-foreground">(optional)</span>
+                </label>
+                <Input
+                  type="password"
+                  value={draftGatewayToken}
+                  onChange={(event) => onDraftGatewayTokenChange(event.target.value)}
+                  placeholder="Paste token from OpenClaw setup"
+                  className="h-10 font-mono text-[13px]"
+                />
+              </div>
 
-              <div className="mt-4 flex gap-2">
+              {/* Connection error */}
+              {connectAttempted && !saving && health && !health.ok && !effectivePairingId && (
+                <div className="rounded-xl border border-destructive/20 bg-destructive/[0.04] px-4 py-3">
+                  <p className="font-sans text-[13px] font-semibold text-destructive">Connection failed</p>
+                  <p className="mt-1 font-sans text-[12px] leading-relaxed text-destructive/70">
+                    {health.message}
+                  </p>
+                </div>
+              )}
+
+              <div className="mt-2 flex gap-2.5">
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-10 font-sans text-sm"
+                  className="h-10 flex-none px-5 font-sans text-[13px]"
                   onClick={() => {
-                    setStep('connect');
+                    setStep('welcome');
                     setConnectAttempted(false);
                   }}
                 >
                   Back
                 </Button>
-                <Button
-                  type="button"
-                  disabled={saving}
-                  className="h-10 flex-1 border-0 bg-[linear-gradient(120deg,#ea9f7d,#de825e)] font-sans text-sm text-[#fffefb]"
-                  onClick={(e) => handleConnect(e as unknown as FormEvent)}
-                >
-                  {saving ? 'Reconnecting...' : 'Reconnect'}
-                </Button>
+                <PrimaryButton type="submit" disabled={saving} className="h-10 flex-1 w-auto">
+                  {saving ? (
+                    <span className="flex items-center gap-2">
+                      <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" opacity="0.2" />
+                        <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                      </svg>
+                      Connecting…
+                    </span>
+                  ) : (
+                    'Connect'
+                  )}
+                </PrimaryButton>
               </div>
-            </CardContent>
-          </Card>
+            </form>
+          </div>
         )}
 
-        {/* Step: Ready */}
-        {visibleStep === 'ready' && (
-          <Card className="rounded-2xl border-border bg-card shadow-[0_12px_30px_rgba(31,31,28,0.10)]">
-            <CardContent className="flex flex-col items-center px-8 pb-8 pt-10 text-center">
-              <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-[rgba(47,122,88,0.1)]">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" className="text-[#2f7a58]">
-                  <path d="M9 12l2 2 4-4" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2"/>
+        {/* ── Pairing ── */}
+        {visibleStep === 'pairing' && (
+          <div className="rounded-2xl border border-border bg-card p-8 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.04)]">
+            <div className="mb-6">
+              <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-[#bbf451]/10">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-[#7b9f2f]">
+                  <rect x="5" y="11" width="14" height="10" rx="2" stroke="currentColor" strokeWidth="2" />
+                  <path d="M8 11V7a4 4 0 1 1 8 0v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  <circle cx="12" cy="16" r="1" fill="currentColor" />
                 </svg>
               </div>
-
-              <h2 className="mb-2 text-2xl font-semibold tracking-tight">You're all set</h2>
-              <p className="mb-1 font-sans text-sm text-muted-foreground">
-                Relay is connected to your OpenClaw Gateway.
+              <h2 className="font-sans text-lg font-bold tracking-tight text-foreground">
+                Approve this device
+              </h2>
+              <p className="mt-1 font-sans text-[13px] leading-relaxed text-muted-foreground">
+                Your gateway requires device approval. Run this command on your gateway host:
               </p>
-              <p className="mb-8 font-sans text-xs text-[#2f7a58]">
-                {health?.message}
-              </p>
+            </div>
 
+            <div className="rounded-xl border border-border bg-muted/30 p-1">
+              <div className="flex items-center justify-between rounded-lg bg-background px-4 py-3">
+                <code className="font-mono text-[12px] leading-none text-foreground select-all">
+                  openclaw devices approve {effectivePairingId}
+                </code>
+                <button
+                  type="button"
+                  className="ml-3 shrink-0 rounded-lg border border-border bg-background px-2.5 py-1.5 font-sans text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  onClick={copyCommand}
+                >
+                  {copied ? (
+                    <span className="flex items-center gap-1 text-[#7b9f2f]">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                        <path d="M5 12l5 5L19 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      Copied
+                    </span>
+                  ) : (
+                    'Copy'
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <p className="mt-4 font-sans text-[12px] leading-relaxed text-muted-foreground">
+              After running the command, click below to reconnect.
+            </p>
+
+            <div className="mt-5 flex gap-2.5">
               <Button
-                className="h-11 w-full max-w-[280px] border-0 bg-[linear-gradient(120deg,#ea9f7d,#de825e)] font-sans text-sm text-[#fffefb]"
-                onClick={onComplete}
+                type="button"
+                variant="outline"
+                className="h-10 flex-none px-5 font-sans text-[13px]"
+                onClick={() => {
+                  setStep('connect');
+                  setConnectAttempted(false);
+                }}
               >
-                Start using Relay
+                Back
               </Button>
-            </CardContent>
-          </Card>
+              <PrimaryButton
+                type="button"
+                disabled={saving}
+                className="h-10 flex-1 w-auto"
+                onClick={(e) => handleConnect(e as unknown as FormEvent)}
+              >
+                {saving ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" opacity="0.2" />
+                      <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                    </svg>
+                    Reconnecting…
+                  </span>
+                ) : (
+                  'Reconnect'
+                )}
+              </PrimaryButton>
+            </div>
+          </div>
+        )}
+
+        {/* ── Ready ── */}
+        {visibleStep === 'ready' && (
+          <div className="flex flex-col items-center text-center">
+            <div className="relative mb-6">
+              <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-[#bbf451]/10">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
+                  <path d="M5 12l5 5L19 7" stroke="#7b9f2f" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+              <div className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-card bg-[#bbf451]">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                  <path d="M5 12l5 5L19 7" stroke="#1f2b09" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+            </div>
+
+            <h2 className="mb-2 font-sans text-[28px] font-bold leading-tight tracking-tight text-foreground">
+              You're all set
+            </h2>
+            <p className="mb-2 font-sans text-[15px] leading-relaxed text-muted-foreground">
+              Relay is connected to your OpenClaw gateway.
+            </p>
+
+            {health?.message && (
+              <div className="mb-8 mt-2 inline-flex items-center gap-2 rounded-full border border-[#bbf451]/25 bg-[#bbf451]/[0.06] px-4 py-1.5">
+                <div className="h-1.5 w-1.5 rounded-full bg-[#7b9f2f]" />
+                <span className="font-mono text-[11px] text-[#7b9f2f]">
+                  {health.message}
+                </span>
+              </div>
+            )}
+
+            <div className="mt-4 w-full max-w-[320px]">
+              <PrimaryButton onClick={onComplete}>
+                Start using Relay
+              </PrimaryButton>
+            </div>
+          </div>
         )}
       </div>
     </main>

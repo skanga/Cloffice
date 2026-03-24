@@ -92,7 +92,7 @@ const defaultConfig: AppConfig = {
   gatewayToken: '',
 };
 
-type AppPage = 'chat' | 'cowork' | 'files' | 'activity' | 'memory' | 'scheduled' | 'safety' | 'settings';
+type AppPage = 'chat' | 'cowork' | 'files' | 'local-files' | 'activity' | 'memory' | 'scheduled' | 'safety' | 'settings';
 type SettingsSection = 'Profile' | 'Appearance' | 'System Prompt' | 'Gateway' | 'Connectors' | 'Account' | 'Privacy' | 'Developer';
 
 type AuthSession = {
@@ -3359,7 +3359,7 @@ export default function App() {
             onLogout={handleLogout}
           />
 
-          <main className={`relative min-h-0 overflow-hidden ${activePage === 'files' || activePage === 'chat' ? 'p-0' : 'p-5'}`}>
+          <main className={`relative min-h-0 overflow-hidden ${activePage === 'files' || activePage === 'local-files' || activePage === 'chat' ? 'p-0' : 'p-5'}`}>
             <Dialog
               open={Boolean(recentRenameTarget)}
               onOpenChange={(nextOpen) => {
@@ -3519,6 +3519,18 @@ export default function App() {
                   onPickFolder={handlePickWorkingFolder}
                   fileService={fileService}
                   localFileService={localFileService}
+                  gatewayUrl={draftGatewayUrl}
+                  root="workspace"
+                />
+              ) : activePage === 'local-files' ? (
+                <FilesPage
+                  workingFolder={workingFolder}
+                  desktopBridgeAvailable={Boolean(bridge)}
+                  onPickFolder={handlePickWorkingFolder}
+                  fileService={fileService}
+                  localFileService={localFileService}
+                  gatewayUrl={draftGatewayUrl}
+                  root="working-folder"
                 />
               ) : (
                 <>
