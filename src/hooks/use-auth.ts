@@ -94,7 +94,7 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authenticating, setAuthenticating] = useState(false);
   const [authError, setAuthError] = useState('');
-  const [guestMode, setGuestMode] = useState(false);
+  const [guestMode, setGuestMode] = useState(true);
   const [onboardingComplete, setOnboardingComplete] = useState(
     () => localStorage.getItem(RELAY_ONBOARDING_KEY) === 'true',
   );

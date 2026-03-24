@@ -39,7 +39,7 @@ import { SidebarProvider } from './components/ui/sidebar';
 import { ScrollArea } from './components/ui/scroll-area';
 import { OpenClawGatewayClient } from './lib/openclaw-gateway-client';
 import { createFileService, LocalFileService } from './lib/file-service';
-import { LoginPage } from './features/auth/login-page';
+
 import { OnboardingPage } from './features/auth/onboarding-page';
 import { useAuth } from './hooks/use-auth';
 import { usePreferences } from './hooks/use-preferences';
@@ -138,7 +138,7 @@ export default function App() {
     handleContinueAsGuest,
     completeOnboarding,
   } = useAuth({ onStatusChange: setStatus });
-  const needsOnboarding = canUseAppShell && !onboardingComplete;
+  const needsOnboarding = !onboardingComplete;
   const [sendingChat, setSendingChat] = useState(false);
   const [awaitingChatStream, setAwaitingChatStream] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -2411,7 +2411,7 @@ export default function App() {
           onSave={handleSave}
           onComplete={handleCompleteOnboarding}
         />
-      ) : canUseAppShell ? (
+      ) : (
         <SidebarProvider
           className={`grid h-full overflow-hidden transition-[grid-template-columns] duration-200 ${
             sidebarOpen ? 'grid-cols-[280px_minmax(0,1fr)]' : 'grid-cols-[64px_minmax(0,1fr)]'
@@ -2706,13 +2706,6 @@ export default function App() {
             </Suspense>
           </main>
         </SidebarProvider>
-      ) : (
-        <LoginPage
-          authenticating={authenticating}
-          errorMessage={authError}
-          onLogin={handleLogin}
-          onContinueAsGuest={handleContinueAsGuest}
-        />
       )}
     </div>
   );

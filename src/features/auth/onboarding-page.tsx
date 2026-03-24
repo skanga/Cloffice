@@ -122,6 +122,7 @@ export function OnboardingPage({
   const [copied, setCopied] = useState(false);
   const [connectAttempted, setConnectAttempted] = useState(false);
   const [discovery, setDiscovery] = useState<DiscoveryState>({ status: 'idle' });
+  const [showToken, setShowToken] = useState(false);
 
   // Auto-discover gateway on mount
   useEffect(() => {
@@ -175,9 +176,9 @@ export function OnboardingPage({
   const isConnected = health?.ok === true;
 
   const visibleStep: OnboardingStep = (() => {
-    if (step === 'welcome') return 'welcome';
     if (isConnected) return 'ready';
     if (needsPairing) return 'pairing';
+    if (step === 'welcome') return 'welcome';
     return 'connect';
   })();
 
@@ -305,7 +306,7 @@ export function OnboardingPage({
                   </PrimaryButton>
                   <button
                     type="button"
-                    className="mt-3 font-sans text-[12px] text-muted-foreground transition-colors hover:text-foreground"
+                    className="mt-3 inline-flex items-center gap-1.5 font-sans text-[13px] font-medium text-foreground/70 underline underline-offset-4 decoration-foreground/30 transition-colors hover:text-foreground hover:decoration-foreground"
                     onClick={() => setStep('connect')}
                   >
                     Use a different gateway
@@ -330,6 +331,15 @@ export function OnboardingPage({
                 </PrimaryButton>
               )}
             </div>
+
+            {connectAttempted && !saving && health && !health.ok && !effectivePairingId && (
+              <div className="mt-4 w-full max-w-[360px] rounded-xl border border-destructive/20 bg-destructive/[0.04] px-4 py-3 text-left">
+                <p className="font-sans text-[13px] font-semibold text-destructive">Connection failed</p>
+                <p className="mt-1 font-sans text-[12px] leading-relaxed text-destructive/70">
+                  {health.message}
+                </p>
+              </div>
+            )}
 
             <p className="mt-6 font-sans text-[11px] text-muted-foreground/40">
               Settings can be changed anytime from Preferences.
@@ -357,29 +367,67 @@ export function OnboardingPage({
 
             <form className="grid gap-4" onSubmit={handleConnect}>
               <div>
-                <label className="mb-1.5 block font-sans text-[12px] font-medium text-foreground">
+                <label className="mb-1.5 flex items-center gap-1.5 font-sans text-[12px] font-medium text-foreground">
                   Gateway URL
+                  <span className="relative ml-0.5 inline-flex group">
+                    <span className="flex h-4 w-4 cursor-default items-center justify-center rounded-full border border-muted-foreground/30 bg-muted text-[10px] font-semibold text-muted-foreground select-none">
+                      ?
+                    </span>
+                    <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-64 -translate-x-1/2 rounded-lg border border-border bg-popover px-3 py-2.5 font-normal text-[12px] leading-relaxed text-popover-foreground shadow-md opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+                      The URL of your running OpenClaw gateway. Use <code className="rounded bg-muted px-1 font-mono text-[11px]">http://localhost:18789</code> for a local instance, or your VPS/server address for a remote one.
+                    </span>
+                  </span>
                 </label>
                 <Input
                   value={draftGatewayUrl}
                   onChange={(event) => onDraftGatewayUrlChange(event.target.value)}
-                  placeholder="ws://127.0.0.1:18789"
+                  placeholder="e.g. http://localhost:18789 or https://your-vps.com"
                   className="h-10 font-mono text-[13px]"
                 />
               </div>
 
               <div>
-                <label className="mb-1.5 block font-sans text-[12px] font-medium text-foreground">
+                <label className="mb-1.5 flex items-center gap-1.5 font-sans text-[12px] font-medium text-foreground">
                   Access token
-                  <span className="ml-1.5 font-normal text-muted-foreground">(optional)</span>
+                  <span className="font-normal text-muted-foreground">(optional)</span>
+                  <span className="relative ml-0.5 inline-flex group">
+                    <span className="flex h-4 w-4 cursor-default items-center justify-center rounded-full border border-muted-foreground/30 bg-muted text-[10px] font-semibold text-muted-foreground select-none">
+                      ?
+                    </span>
+                    <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-64 -translate-x-1/2 rounded-lg border border-border bg-popover px-3 py-2.5 font-normal text-[12px] leading-relaxed text-popover-foreground shadow-md opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+                      Found in your <code className="rounded bg-muted px-1 font-mono text-[11px]">openclaw.json</code> file under <code className="rounded bg-muted px-1 font-mono text-[11px]">gateway → auth → token</code>. Leave blank if your gateway has no token auth enabled.
+                    </span>
+                  </span>
                 </label>
-                <Input
-                  type="password"
-                  value={draftGatewayToken}
-                  onChange={(event) => onDraftGatewayTokenChange(event.target.value)}
-                  placeholder="Paste token from OpenClaw setup"
-                  className="h-10 font-mono text-[13px]"
-                />
+                <div className="relative">
+                  <Input
+                    type={showToken ? 'text' : 'password'}
+                    value={draftGatewayToken}
+                    onChange={(event) => onDraftGatewayTokenChange(event.target.value)}
+                    placeholder="Paste your access token"
+                    className="h-10 pr-10 font-mono text-[13px]"
+                  />
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setShowToken((v) => !v)}
+                    className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+                    aria-label={showToken ? 'Hide token' : 'Show token'}
+                  >
+                    {showToken ? (
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                        <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                        <line x1="1" y1="1" x2="23" y2="23" />
+                      </svg>
+                    ) : (
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
               </div>
 
               {/* Connection error */}
