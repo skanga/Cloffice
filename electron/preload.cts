@@ -5,9 +5,12 @@ import type {
   LocalFileApplyResult,
   LocalFileAppendResult,
   LocalFileCreateResult,
+  LocalFileDeleteResult,
   LocalFileExistsResult,
   LocalFileListResult,
   LocalFileReadResult,
+  LocalFileRenameResult,
+  LocalFileStatResult,
   LocalFilePlanAction,
   LocalFilePlanResult,
 } from '../src/app-types.js';
@@ -59,6 +62,22 @@ const api = {
       rootPath,
       relativePath,
     }) as Promise<LocalFileExistsResult>,
+  renameInFolder: (rootPath: string, oldRelative: string, newRelative: string) =>
+    ipcRenderer.invoke('local:rename-in-folder', {
+      rootPath,
+      oldRelative,
+      newRelative,
+    }) as Promise<LocalFileRenameResult>,
+  deleteInFolder: (rootPath: string, relativePath: string) =>
+    ipcRenderer.invoke('local:delete-in-folder', {
+      rootPath,
+      relativePath,
+    }) as Promise<LocalFileDeleteResult>,
+  statInFolder: (rootPath: string, relativePath: string) =>
+    ipcRenderer.invoke('local:stat-in-folder', {
+      rootPath,
+      relativePath,
+    }) as Promise<LocalFileStatResult>,
 };
 
 contextBridge.exposeInMainWorld('relay', api);

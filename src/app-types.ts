@@ -85,6 +85,7 @@ export type LocalFileListItem = {
   path: string;
   kind: 'file' | 'directory';
   size?: number;
+  modifiedMs?: number;
 };
 
 export type LocalFileListResult = {
@@ -99,7 +100,26 @@ export type LocalFileExistsResult = {
   kind: 'file' | 'directory' | 'none';
 };
 
-export type LocalActionType = 'create_file' | 'append_file' | 'read_file' | 'list_dir' | 'exists';
+export type LocalFileRenameResult = {
+  oldPath: string;
+  newPath: string;
+  renamed: boolean;
+};
+
+export type LocalFileDeleteResult = {
+  path: string;
+  deleted: boolean;
+};
+
+export type LocalFileStatResult = {
+  path: string;
+  kind: 'file' | 'directory';
+  size: number;
+  createdMs: number;
+  modifiedMs: number;
+};
+
+export type LocalActionType = 'create_file' | 'append_file' | 'read_file' | 'list_dir' | 'exists' | 'rename' | 'delete';
 
 export type LocalActionReceipt = {
   id: string;

@@ -4,9 +4,12 @@ import type {
   LocalFileApplyResult,
   LocalFileAppendResult,
   LocalFileCreateResult,
+  LocalFileDeleteResult,
   LocalFileExistsResult,
   LocalFileListResult,
   LocalFileReadResult,
+  LocalFileRenameResult,
+  LocalFileStatResult,
   LocalFilePlanAction,
   LocalFilePlanResult,
 } from './app-types';
@@ -29,6 +32,9 @@ type RelayApi = {
   readFileInFolder: (rootPath: string, relativePath: string) => Promise<LocalFileReadResult>;
   listDirInFolder: (rootPath: string, relativePath?: string) => Promise<LocalFileListResult>;
   existsInFolder: (rootPath: string, relativePath: string) => Promise<LocalFileExistsResult>;
+  renameInFolder: (rootPath: string, oldRelative: string, newRelative: string) => Promise<LocalFileRenameResult>;
+  deleteInFolder: (rootPath: string, relativePath: string) => Promise<LocalFileDeleteResult>;
+  statInFolder: (rootPath: string, relativePath: string) => Promise<LocalFileStatResult>;
 };
 
 declare global {

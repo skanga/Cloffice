@@ -4,7 +4,7 @@ import { Copy, Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRight
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-type AppPage = 'chat' | 'cowork' | 'settings';
+type AppPage = 'chat' | 'cowork' | 'files' | 'activity' | 'memory' | 'scheduled' | 'safety' | 'settings';
 
 type AppTitlebarProps = {
   sidebarOpen: boolean;

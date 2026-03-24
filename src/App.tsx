@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
 import type {
@@ -26,10 +26,16 @@ import {
 import { SidebarProvider } from './components/ui/sidebar';
 import { ScrollArea } from './components/ui/scroll-area';
 import { GatewayRequestError, OpenClawGatewayClient } from './lib/openclaw-gateway-client';
+import { createFileService } from './lib/file-service';
+import { ActivityPage } from './pages/activity-page';
 import { ChatPage } from './pages/chat-page';
 import { CoworkPage } from './pages/cowork-page';
+import { FilesPage } from './pages/files-page';
 import { LoginPage } from './pages/login-page';
+import { MemoryPage } from './pages/memory-page';
 import { OnboardingPage } from './pages/onboarding-page';
+import { SafetyPage } from './pages/safety-page';
+import { ScheduledPage } from './pages/scheduled-page';
 import { SettingsPage } from './pages/settings-page';
 import {
   getSupabaseAuthConfigError,
@@ -45,13 +51,33 @@ const AUTH_LOCAL_STORAGE_KEY = 'relay.auth.local';
 const AUTH_SESSION_STORAGE_KEY = 'relay.auth.session';
 const RELAY_USAGE_MODE_KEY = 'relay.usage.mode';
 const RELAY_ONBOARDING_KEY = 'relay.onboarding.complete';
+const RELAY_PREFERENCES_KEY = 'relay.preferences';
+
+type UserPreferences = {
+  fullName: string;
+  displayName: string;
+  role: string;
+  responsePreferences: string;
+  systemPrompt: string;
+  theme: 'light' | 'auto' | 'dark';
+};
+
+const defaultPreferences: UserPreferences = {
+  fullName: '',
+  displayName: '',
+  role: '',
+  responsePreferences: '',
+  systemPrompt: '',
+  theme: 'light',
+};
 
 const defaultConfig: AppConfig = {
   gatewayUrl: DEFAULT_GATEWAY_URL,
   gatewayToken: '',
 };
 
-type AppPage = 'chat' | 'cowork' | 'settings';
+type AppPage = 'chat' | 'cowork' | 'files' | 'activity' | 'memory' | 'scheduled' | 'safety' | 'settings';
+type SettingsSection = 'Profil' | 'Darstellung' | 'System-Prompt' | 'Gateway' | 'Konnektoren' | 'Konto' | 'Datenschutz' | 'Entwickler';
 
 type AuthSession = {
   email: string;
@@ -700,6 +726,7 @@ export default function App() {
   const [pairingRequestId, setPairingRequestId] = useState<string | null>(null);
   const [activeMenuItem, setActiveMenuItem] = useState('');
   const [activePage, setActivePage] = useState<AppPage>('cowork');
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('Profil');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [taskPrompt, setTaskPrompt] = useState('');
   const [workingFolder, setWorkingFolder] = useState('/Downloads');
@@ -741,6 +768,29 @@ export default function App() {
   const [coworkRunStatus, setCoworkRunStatus] = useState('Ready for a new task.');
   const [localActionReceipts, setLocalActionReceipts] = useState<LocalActionReceipt[]>([]);
   const [localActionSmokeRunning, setLocalActionSmokeRunning] = useState(false);
+  const [preferences, setPreferences] = useState<UserPreferences>(() => {
+    try {
+      const stored = localStorage.getItem(RELAY_PREFERENCES_KEY);
+      if (stored) return { ...defaultPreferences, ...JSON.parse(stored) };
+    } catch { /* ignore */ }
+    return defaultPreferences;
+  });
+  const [gatewayConnected, setGatewayConnected] = useState(false);
+
+  const fileService = useMemo(
+    () => createFileService(gatewayClientRef.current, draftGatewayUrl, Boolean(bridge)),
+    // Re-create when connection state or URL changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [draftGatewayUrl, gatewayConnected, bridge],
+  );
+
+  const updatePreferences = useCallback((patch: Partial<UserPreferences>) => {
+    setPreferences((prev) => {
+      const next = { ...prev, ...patch };
+      localStorage.setItem(RELAY_PREFERENCES_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   const recentChatItems = toRecentSidebarItems(chatThreads, 'chat');
   const recentCoworkItems = toRecentSidebarItems(coworkThreads, 'cowork');
@@ -1150,6 +1200,78 @@ export default function App() {
     localStorage.setItem(LOCAL_CONFIG_KEY, JSON.stringify(nextConfig));
   };
 
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const mod = event.ctrlKey || event.metaKey;
+      if (!mod) return;
+
+      // Ctrl+N — new chat / new task
+      if (event.key === 'n') {
+        event.preventDefault();
+        if (activePage === 'cowork') {
+          setCoworkMessages([]);
+          setCoworkAwaitingStream(false);
+          setCoworkStreamingText('');
+          setCoworkRunPhase('idle');
+          setCoworkRunStatus('Ready for a new task.');
+          setLocalPlanActions([]);
+          setTaskPrompt('');
+          setStatus('Ready for a new task.');
+          setCoworkResetKey((c) => c + 1);
+        } else {
+          void handleStartNewChat();
+        }
+        return;
+      }
+
+      // Ctrl+K — open search
+      if (event.key === 'k') {
+        event.preventDefault();
+        setSearchOpen((prev) => !prev);
+        if (!searchOpen) {
+          setSearchQuery('');
+          setActiveMenuItem('Search');
+        }
+        return;
+      }
+
+      // Ctrl+Shift+S — settings
+      if (event.key === 'S' && event.shiftKey) {
+        event.preventDefault();
+        setActivePage('settings');
+        return;
+      }
+
+      // Ctrl+, — settings (common IDE shortcut)
+      if (event.key === ',') {
+        event.preventDefault();
+        setActivePage('settings');
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activePage, searchOpen]);
+
+  // Apply theme class to document
+  useEffect(() => {
+    const root = document.documentElement;
+    if (preferences.theme === 'dark') {
+      root.classList.add('dark');
+    } else if (preferences.theme === 'auto') {
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      root.classList.toggle('dark', prefersDark);
+      const handler = (e: MediaQueryListEvent) => root.classList.toggle('dark', e.matches);
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      mq.addEventListener('change', handler);
+      return () => mq.removeEventListener('change', handler);
+    } else {
+      root.classList.remove('dark');
+    }
+  }, [preferences.theme]);
+
   useEffect(() => {
     const storedUsageMode = localStorage.getItem(RELAY_USAGE_MODE_KEY);
     if (storedUsageMode === 'guest') {
@@ -1303,8 +1425,9 @@ export default function App() {
 
   useEffect(() => {
     const client = new OpenClawGatewayClient();
-    client.setConnectionHandler((_connected, message) => {
+    client.setConnectionHandler((connected, message) => {
       setStatus(message);
+      setGatewayConnected(connected);
     });
     client.setEventHandler((event) => {
       if (event.type === 'event' && event.event === 'chat') {
@@ -2580,22 +2703,20 @@ export default function App() {
   }, [draftGatewayToken, draftGatewayUrl]);
 
   useEffect(() => {
-    if (activePage !== 'cowork') {
+    if (activePage !== 'cowork' && activePage !== 'scheduled') {
       return;
     }
 
     void loadScheduledJobs();
     const client = gatewayClientRef.current;
-    if (client) {
+    if (client && activePage === 'cowork') {
       const sessionKey = normalizeSessionKey(coworkSessionKeyRef.current);
       void loadCoworkModels(client, sessionKey || undefined);
     }
   }, [activePage, loadScheduledJobs]);
 
   useEffect(() => {
-    if (activePage === 'chat' || activePage === 'settings' || activePage === 'cowork') {
-      setActiveMenuItem('');
-    }
+    setActiveMenuItem('');
   }, [activePage]);
 
   const handleMinimize = async () => {
@@ -2742,16 +2863,20 @@ export default function App() {
   const needsOnboarding = canUseAppShell && !onboardingComplete;
   const usageModeLabel = guestMode ? 'Local mode' : authSession ? 'Cloud mode' : 'Signed out';
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
-  const searchCandidates = (normalizedSearchQuery ? chatThreads : recentItems).map((item) => ({
+  const allThreadsForSearch = [
+    ...chatThreads.map((t) => ({ ...t, label: t.title, kind: 'chat' as const })),
+    ...coworkThreads.map((t) => ({ ...t, label: t.title, kind: 'cowork' as const })),
+  ];
+  const searchCandidates = (normalizedSearchQuery ? allThreadsForSearch : recentItems).map((item) => ({
     id: item.id,
     sessionKey: item.sessionKey,
-    label: 'title' in item ? item.title : item.label,
-    updatedAt: 'updatedAt' in item ? item.updatedAt : undefined,
-    kind: 'kind' in item ? item.kind : 'chat',
+    label: ('title' in item ? item.title : item.label) as string,
+    updatedAt: ('updatedAt' in item ? item.updatedAt : undefined) as number | undefined,
+    kind: ('kind' in item ? item.kind : 'chat') as 'chat' | 'cowork',
   }));
-  const matchingChats = searchCandidates.filter((thread) =>
-    thread.label.toLowerCase().includes(normalizedSearchQuery),
-  );
+  const matchingChats = normalizedSearchQuery
+    ? searchCandidates.filter((thread) => thread.label.toLowerCase().includes(normalizedSearchQuery))
+    : searchCandidates;
 
   const handleSearchOpenChange = (nextOpen: boolean) => {
     setSearchOpen(nextOpen);
@@ -2762,6 +2887,22 @@ export default function App() {
     }
     setActiveMenuItem('');
   };
+
+  const handleExportChat = useCallback(() => {
+    if (chatMessages.length === 0) return;
+    const lines = chatMessages.map((m) => {
+      const speaker = m.role === 'user' ? 'You' : m.role === 'system' ? 'System' : 'Assistant';
+      return `## ${speaker}\n\n${m.text}`;
+    });
+    const markdown = `# Chat Export — ${new Date().toLocaleDateString()}\n\n${lines.join('\n\n---\n\n')}\n`;
+    const blob = new Blob([markdown], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `relay-chat-${activeSessionKey || 'export'}-${Date.now()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [chatMessages, activeSessionKey]);
 
   return (
     <div className="grid h-full grid-rows-[44px_minmax(0,1fr)] overflow-hidden">
@@ -2807,6 +2948,8 @@ export default function App() {
             activeCoworkSessionKey={coworkSessionKey}
             userEmail={userIdentityLabel}
             guestMode={guestMode}
+            gatewayConnected={gatewayConnected}
+            settingsSection={settingsSection}
             recentItems={recentItems}
             scheduledItems={scheduledJobs}
             scheduledLoading={scheduledLoading}
@@ -2820,8 +2963,10 @@ export default function App() {
             onStartNewChat={handleStartNewChat}
             onStartNewTask={handleStartNewTask}
             onSelectMenuItem={setActiveMenuItem}
+            onSelectPage={(page) => setActivePage(page)}
             onOpenSearch={() => handleSearchOpenChange(true)}
             onOpenSettings={() => setActivePage('settings')}
+            onSettingsSectionChange={setSettingsSection}
             onLogout={handleLogout}
           />
 
@@ -2908,6 +3053,13 @@ export default function App() {
                 onCreateFileInWorkingFolder={handleCreateFileInWorkingFolder}
                 onRunLocalActionSmokeTest={handleRunLocalActionSmokeTest}
               />
+            ) : activePage === 'files' ? (
+              <FilesPage
+                workingFolder={workingFolder}
+                desktopBridgeAvailable={Boolean(bridge)}
+                onPickFolder={handlePickWorkingFolder}
+                fileService={fileService}
+              />
             ) : (
               <ScrollArea className="h-full">
                 {activePage === 'chat' && (
@@ -2925,21 +3077,59 @@ export default function App() {
                     onTaskPromptChange={setTaskPrompt}
                     onModelChange={handleModelChange}
                     onSubmit={handleSendChat}
+                    onExport={handleExportChat}
+                    onNewChat={handleStartNewChat}
+                    onClearChat={() => setChatMessages([])}
+                    onOpenSettings={() => setActivePage('settings')}
+                  />
+                )}
+
+                {activePage === 'activity' && (
+                  <ActivityPage
+                    chatMessages={chatMessages}
+                    coworkMessages={coworkMessages}
+                    activeSessionKey={activeSessionKey}
+                    coworkSessionKey={coworkSessionKey}
+                    gatewayConnected={gatewayConnected}
+                  />
+                )}
+
+                {activePage === 'memory' && (
+                  <MemoryPage
+                    gatewayConnected={gatewayConnected}
+                  />
+                )}
+
+                {activePage === 'scheduled' && (
+                  <ScheduledPage
+                    jobs={scheduledJobs}
+                    loading={scheduledLoading}
+                    status={status}
+                    onRefresh={loadScheduledJobs}
+                  />
+                )}
+
+                {activePage === 'safety' && (
+                  <SafetyPage
+                    gatewayConnected={gatewayConnected}
                   />
                 )}
 
                 {activePage === 'settings' && (
                   <SettingsPage
+                    activeSection={settingsSection}
                     draftGatewayUrl={draftGatewayUrl}
                     draftGatewayToken={draftGatewayToken}
                     health={health}
                     status={status}
                     saving={saving}
                     pairingRequestId={pairingRequestId}
+                    preferences={preferences}
                     onDraftGatewayUrlChange={setDraftGatewayUrl}
                     onDraftGatewayTokenChange={setDraftGatewayToken}
                     onSave={handleSave}
                     onResetPairing={handleResetPairing}
+                    onUpdatePreferences={updatePreferences}
                   />
                 )}
               </ScrollArea>

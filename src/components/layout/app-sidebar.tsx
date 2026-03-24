@@ -1,16 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowLeft,
+  Brain,
   BriefcaseBusiness,
   CalendarClock,
   ChevronUp,
+  Code2,
   Download,
+  FolderOpen,
   Globe,
   HelpCircle,
+  KeyRound,
   Lightbulb,
+  Link2,
   LogOut,
+  MessageSquareText,
+  Palette,
   Plus,
   Search,
   Settings,
+  Shield,
+  User,
+  Wifi,
+  Zap,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -28,7 +40,8 @@ import {
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 
-type AppPage = 'chat' | 'cowork' | 'settings';
+type AppPage = 'chat' | 'cowork' | 'files' | 'activity' | 'memory' | 'scheduled' | 'safety' | 'settings';
+type SettingsSection = 'Profil' | 'Darstellung' | 'System-Prompt' | 'Gateway' | 'Konnektoren' | 'Konto' | 'Datenschutz' | 'Entwickler';
 
 type RecentSidebarItem = {
   id: string;
@@ -52,6 +65,8 @@ type AppSidebarProps = {
   activeCoworkSessionKey: string;
   userEmail: string;
   guestMode: boolean;
+  gatewayConnected: boolean;
+  settingsSection: SettingsSection;
   recentItems: RecentSidebarItem[];
   scheduledItems: ScheduledSidebarItem[];
   scheduledLoading: boolean;
@@ -59,8 +74,10 @@ type AppSidebarProps = {
   onStartNewChat: () => void;
   onStartNewTask: () => void;
   onSelectMenuItem: (item: string) => void;
+  onSelectPage: (page: AppPage) => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
+  onSettingsSectionChange: (section: SettingsSection) => void;
   onLogout: () => void;
 };
 
@@ -68,10 +85,28 @@ const chatNavItems = [{ label: 'Search', icon: Search }] as const;
 
 const coworkNavItems = [
   { label: 'Search', icon: Search },
-  { label: 'Scheduled', icon: CalendarClock },
   { label: 'Ideas', icon: Lightbulb },
   { label: 'Customize', icon: BriefcaseBusiness },
 ] as const;
+
+const workspaceNavItems: { label: string; icon: typeof FolderOpen; page: AppPage }[] = [
+  { label: 'Dateien', icon: FolderOpen, page: 'files' },
+  { label: 'Aktivitäten', icon: Zap, page: 'activity' },
+  { label: 'Memory', icon: Brain, page: 'memory' },
+  { label: 'Zeitplan', icon: CalendarClock, page: 'scheduled' },
+  { label: 'Sicherheit', icon: Shield, page: 'safety' },
+];
+
+const settingsNavItems: { label: SettingsSection; icon: typeof User }[] = [
+  { label: 'Profil', icon: User },
+  { label: 'Darstellung', icon: Palette },
+  { label: 'System-Prompt', icon: MessageSquareText },
+  { label: 'Gateway', icon: Wifi },
+  { label: 'Konnektoren', icon: Link2 },
+  { label: 'Konto', icon: KeyRound },
+  { label: 'Datenschutz', icon: Shield },
+  { label: 'Entwickler', icon: Code2 },
+];
 
 export function AppSidebar({
   sidebarOpen,
@@ -81,6 +116,8 @@ export function AppSidebar({
   activeCoworkSessionKey,
   userEmail,
   guestMode,
+  gatewayConnected,
+  settingsSection,
   recentItems,
   scheduledItems,
   scheduledLoading,
@@ -88,11 +125,15 @@ export function AppSidebar({
   onStartNewChat,
   onStartNewTask,
   onSelectMenuItem,
+  onSelectPage,
   onOpenSearch,
   onOpenSettings,
+  onSettingsSectionChange,
   onLogout,
 }: AppSidebarProps) {
   const isChatView = activePage === 'chat';
+  const isSettingsView = activePage === 'settings';
+  const isWorkspacePage = ['files', 'activity', 'memory', 'scheduled', 'safety'].includes(activePage);
   const compact = !sidebarOpen;
   const navItems = isChatView ? chatNavItems : coworkNavItems;
   const safeRecentItems = recentItems ?? [];
@@ -137,134 +178,176 @@ export function AppSidebar({
       className="w-full rounded-none border-y-0 border-l-0 transition-all duration-200"
     >
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu aria-label="Primary workspace menu">
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  type="button"
-                  className={`gap-2 font-sans text-[13px] ${compact ? 'justify-center px-0' : ''}`}
-                  title={isChatView ? 'New Chat' : 'New Task'}
-                  aria-label={isChatView ? 'Start a new chat' : 'Start a new task'}
-                  onClick={isChatView ? onStartNewChat : onStartNewTask}
-                >
-                  <Plus data-icon="inline-start" />
-                  {!compact && <span>{isChatView ? 'New Chat' : 'New Task'}</span>}
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              {navItems.map((item) => (
-                <SidebarMenuItem key={item.label}>
-                  <SidebarMenuButton
-                    type="button"
-                    active={item.label === activeMenuItem}
-                    aria-current={item.label === activeMenuItem ? 'page' : undefined}
-                    onClick={() => {
-                      if (item.label === 'Search') {
-                        onOpenSearch();
-                        return;
-                      }
-                      onSelectMenuItem(item.label);
-                    }}
-                    className={`gap-2 font-sans text-[13px] ${compact ? 'justify-center px-0' : ''}`}
-                    title={item.label}
-                  >
-                    <item.icon data-icon="inline-start" />
-                    {!compact && <span>{item.label}</span>}
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {!compact && (
-          <SidebarGroup className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] mt-1">
-            <SidebarGroupLabel>Recents</SidebarGroupLabel>
-            <SidebarGroupContent className="min-h-0">
-              <ScrollArea className="h-full min-h-0">
-                <SidebarMenu className="pr-0.5">
-                  {safeRecentItems.length === 0 ? (
-                    <SidebarMenuItem>
-                      <SidebarMenuButton type="button" className="w-full justify-start font-sans text-[12px] text-muted-foreground" disabled>
-                        {isChatView ? 'No recent chats yet' : 'No recent runs yet'}
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ) : (
-                    safeRecentItems.map((item) => (
-                      <SidebarMenuItem key={item.id}>
-                        <SidebarMenuButton
-                          type="button"
-                            active={
-                              (item.kind === 'chat' && item.sessionKey === activeSessionKey) ||
-                              (item.kind === 'cowork' && item.sessionKey === activeCoworkSessionKey)
-                            }
-                            aria-current={
-                              (item.kind === 'chat' && item.sessionKey === activeSessionKey) ||
-                              (item.kind === 'cowork' && item.sessionKey === activeCoworkSessionKey)
-                                ? 'page'
-                                : undefined
-                            }
-                            aria-label={`Open ${item.kind === 'cowork' ? 'task' : 'chat'} ${item.label}`}
-                          className="w-full gap-2 font-sans text-[12px]"
-                          title={item.label}
-                          onClick={() => {
-                              onSelectRecentItem(item);
-                          }}
-                        >
-                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                              {item.kind === 'cowork' ? 'Task' : 'Chat'}
-                            </span>
-                          <span className="block truncate">{item.label}</span>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    ))
-                  )}
+        {isSettingsView ? (
+          /* ── Settings navigation ── */
+          <>
+            <SidebarGroup>
+              <SidebarGroupContent>
+                <SidebarMenu aria-label="Settings back navigation">
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      type="button"
+                      className={`gap-2 font-sans text-[13px] ${compact ? 'justify-center px-0' : ''}`}
+                      title="Zurück"
+                      aria-label="Back to workspace"
+                      onClick={onStartNewChat}
+                    >
+                      <ArrowLeft data-icon="inline-start" />
+                      {!compact && <span>Zurück</span>}
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
                 </SidebarMenu>
-              </ScrollArea>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
+              </SidebarGroupContent>
+            </SidebarGroup>
 
-        {!isChatView && !compact && (
-          <SidebarGroup className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] mt-1">
-            <SidebarGroupLabel>Scheduled</SidebarGroupLabel>
-            <SidebarGroupContent className="min-h-0">
-              <ScrollArea className="h-full min-h-0">
-                <SidebarMenu className="pr-0.5">
-                  {scheduledLoading ? (
-                    <SidebarMenuItem>
-                      <SidebarMenuButton type="button" className="w-full justify-start font-sans text-[12px] text-muted-foreground" disabled>
-                        Loading scheduled jobs...
+            <SidebarGroup className="mt-1">
+              {!compact && <SidebarGroupLabel>Einstellungen</SidebarGroupLabel>}
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {settingsNavItems.map((item) => (
+                    <SidebarMenuItem key={item.label}>
+                      <SidebarMenuButton
+                        type="button"
+                        active={settingsSection === item.label}
+                        aria-current={settingsSection === item.label ? 'page' : undefined}
+                        onClick={() => onSettingsSectionChange(item.label)}
+                        className={`gap-2 font-sans text-[13px] ${compact ? 'justify-center px-0' : ''}`}
+                        title={item.label}
+                      >
+                        <item.icon data-icon="inline-start" />
+                        {!compact && <span>{item.label}</span>}
                       </SidebarMenuButton>
                     </SidebarMenuItem>
-                  ) : safeScheduledItems.length === 0 ? (
-                    <SidebarMenuItem>
-                      <SidebarMenuButton type="button" className="w-full justify-start font-sans text-[12px] text-muted-foreground" disabled>
-                        No scheduled jobs
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ) : (
-                    safeScheduledItems.map((item) => (
-                      <SidebarMenuItem key={item.id}>
-                        <SidebarMenuButton
-                          type="button"
-                          className="w-full items-start gap-2 font-sans text-[12px]"
-                          onClick={() => onSelectMenuItem('Scheduled')}
-                        >
-                          <span className="block truncate font-medium text-foreground">{item.name}</span>
-                          <span className="text-[11px] text-muted-foreground">{item.schedule}</span>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    ))
-                  )}
+                  ))}
                 </SidebarMenu>
-              </ScrollArea>
-            </SidebarGroupContent>
-          </SidebarGroup>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </>
+        ) : (
+          /* ── Regular chat/cowork navigation ── */
+          <>
+            <SidebarGroup>
+              <SidebarGroupContent>
+                <SidebarMenu aria-label="Primary workspace menu">
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      type="button"
+                      className={`gap-2 font-sans text-[13px] ${compact ? 'justify-center px-0' : ''}`}
+                      title={isChatView ? 'New Chat' : 'New Task'}
+                      aria-label={isChatView ? 'Start a new chat' : 'Start a new task'}
+                      onClick={isChatView ? onStartNewChat : onStartNewTask}
+                    >
+                      <Plus data-icon="inline-start" />
+                      {!compact && <span>{isChatView ? 'New Chat' : 'New Task'}</span>}
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  {navItems.map((item) => (
+                    <SidebarMenuItem key={item.label}>
+                      <SidebarMenuButton
+                        type="button"
+                        active={item.label === activeMenuItem}
+                        aria-current={item.label === activeMenuItem ? 'page' : undefined}
+                        onClick={() => {
+                          if (item.label === 'Search') {
+                            onOpenSearch();
+                            return;
+                          }
+                          onSelectMenuItem(item.label);
+                        }}
+                        className={`gap-2 font-sans text-[13px] ${compact ? 'justify-center px-0' : ''}`}
+                        title={item.label}
+                      >
+                        <item.icon data-icon="inline-start" />
+                        {!compact && <span>{item.label}</span>}
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+
+            {/* Workspace pages */}
+            <SidebarGroup className="mt-1">
+              {!compact && <SidebarGroupLabel>Workspace</SidebarGroupLabel>}
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {workspaceNavItems.map((item) => (
+                    <SidebarMenuItem key={item.label}>
+                      <SidebarMenuButton
+                        type="button"
+                        active={activePage === item.page}
+                        aria-current={activePage === item.page ? 'page' : undefined}
+                        onClick={() => onSelectPage(item.page)}
+                        className={`gap-2 font-sans text-[13px] ${compact ? 'justify-center px-0' : ''}`}
+                        title={item.label}
+                      >
+                        <item.icon data-icon="inline-start" />
+                        {!compact && <span>{item.label}</span>}
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+
+            {!compact && (
+              <SidebarGroup className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] mt-1">
+                <SidebarGroupLabel>Recents</SidebarGroupLabel>
+                <SidebarGroupContent className="min-h-0">
+                  <ScrollArea className="h-full min-h-0">
+                    <SidebarMenu className="pr-0.5">
+                      {safeRecentItems.length === 0 ? (
+                        <SidebarMenuItem>
+                          <SidebarMenuButton type="button" className="w-full justify-start font-sans text-[12px] text-muted-foreground" disabled>
+                            {isChatView ? 'No recent chats yet' : 'No recent runs yet'}
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      ) : (
+                        safeRecentItems.map((item) => (
+                          <SidebarMenuItem key={item.id}>
+                            <SidebarMenuButton
+                              type="button"
+                              active={
+                                (item.kind === 'chat' && item.sessionKey === activeSessionKey) ||
+                                (item.kind === 'cowork' && item.sessionKey === activeCoworkSessionKey)
+                              }
+                              aria-current={
+                                (item.kind === 'chat' && item.sessionKey === activeSessionKey) ||
+                                (item.kind === 'cowork' && item.sessionKey === activeCoworkSessionKey)
+                                  ? 'page'
+                                  : undefined
+                              }
+                              aria-label={`Open ${item.kind === 'cowork' ? 'task' : 'chat'} ${item.label}`}
+                              className="w-full gap-2 font-sans text-[12px]"
+                              title={item.label}
+                              onClick={() => onSelectRecentItem(item)}
+                            >
+                              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                {item.kind === 'cowork' ? 'Task' : 'Chat'}
+                              </span>
+                              <span className="block truncate">{item.label}</span>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        ))
+                      )}
+                    </SidebarMenu>
+                  </ScrollArea>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            )}
+          </>
         )}
       </SidebarContent>
 
       <SidebarFooter>
+        <div className={`flex items-center gap-2 px-3 py-1 ${compact ? 'justify-center' : ''}`}>
+          <span className={`inline-block h-2 w-2 rounded-full ${gatewayConnected ? 'bg-[#2f7a58]' : 'bg-[#b42318]'}`} />
+          {!compact && (
+            <span className="font-sans text-[11px] text-muted-foreground">
+              {gatewayConnected ? 'Gateway verbunden' : 'Gateway getrennt'}
+            </span>
+          )}
+        </div>
         <div className="relative" ref={profileMenuRef}>
           {profileMenuOpen && (
             <div className={`absolute z-50 w-64 rounded-xl border border-border bg-white p-1 shadow-xl ${profilePopupPositionClass}`}>

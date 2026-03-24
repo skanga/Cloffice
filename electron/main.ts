@@ -6,11 +6,14 @@ import type {
   LocalFileApplyResult,
   LocalFileAppendResult,
   LocalFileCreateResult,
+  LocalFileDeleteResult,
   LocalFileExistsResult,
   LocalFileListResult,
   LocalFilePlanAction,
   LocalFilePlanResult,
   LocalFileReadResult,
+  LocalFileRenameResult,
+  LocalFileStatResult,
 } from '../src/app-types.js';
 
 type AppConfig = {
@@ -481,6 +484,7 @@ async function listDirInFolder(rootPath: string, relativePath?: string): Promise
         path: entryRelative,
         kind: 'file',
         size: fileStat.size,
+        modifiedMs: fileStat.mtimeMs,
       });
     }
   }
@@ -526,6 +530,58 @@ async function existsInFolder(rootPath: string, relativePath: string): Promise<L
       kind: 'none',
     };
   }
+}
+
+async function renameInFolder(rootPath: string, oldRelative: string, newRelative: string): Promise<LocalFileRenameResult> {
+  const root = await ensurePathAllowed(rootPath);
+  const normalizedOld = normalizeRelativePath(oldRelative);
+  const normalizedNew = normalizeRelativePath(newRelative);
+  if (!normalizedOld || !normalizedNew) throw new Error('Both old and new paths are required.');
+  if (path.isAbsolute(normalizedOld) || path.isAbsolute(normalizedNew)) throw new Error('Use relative paths.');
+  if (isHiddenOrBlockedPath(normalizedOld) || isHiddenOrBlockedPath(normalizedNew)) throw new Error('Path blocked by safety rules.');
+  const resolvedOld = path.resolve(root, normalizedOld);
+  const resolvedNew = path.resolve(root, normalizedNew);
+  if (!isPathInside(root, resolvedOld) || !isPathInside(root, resolvedNew)) throw new Error('Paths must remain inside working folder.');
+  await fs.access(resolvedOld);
+  await fs.mkdir(path.dirname(resolvedNew), { recursive: true });
+  await fs.rename(resolvedOld, resolvedNew);
+  return { oldPath: resolvedOld, newPath: resolvedNew, renamed: true };
+}
+
+async function deleteInFolder(rootPath: string, relativePath: string): Promise<LocalFileDeleteResult> {
+  const root = await ensurePathAllowed(rootPath);
+  const normalized = normalizeRelativePath(relativePath);
+  if (!normalized) throw new Error('A path is required.');
+  if (path.isAbsolute(normalized)) throw new Error('Use a relative path.');
+  if (isHiddenOrBlockedPath(normalized)) throw new Error('Path blocked by safety rules.');
+  const resolved = path.resolve(root, normalized);
+  if (!isPathInside(root, resolved)) throw new Error('Path must remain inside working folder.');
+  if (resolved === root) throw new Error('Cannot delete the root folder.');
+  const stat = await fs.stat(resolved);
+  if (stat.isDirectory()) {
+    await fs.rm(resolved, { recursive: true });
+  } else {
+    await fs.unlink(resolved);
+  }
+  return { path: resolved, deleted: true };
+}
+
+async function statInFolder(rootPath: string, relativePath: string): Promise<LocalFileStatResult> {
+  const root = await ensurePathAllowed(rootPath);
+  const normalized = normalizeRelativePath(relativePath);
+  if (!normalized) throw new Error('A path is required.');
+  if (path.isAbsolute(normalized)) throw new Error('Use a relative path.');
+  if (isHiddenOrBlockedPath(normalized)) throw new Error('Path blocked by safety rules.');
+  const resolved = path.resolve(root, normalized);
+  if (!isPathInside(root, resolved)) throw new Error('Path must remain inside working folder.');
+  const stat = await fs.stat(resolved);
+  return {
+    path: resolved,
+    kind: stat.isDirectory() ? 'directory' : 'file',
+    size: stat.size,
+    createdMs: stat.birthtimeMs,
+    modifiedMs: stat.mtimeMs,
+  };
 }
 
 async function readConfig(): Promise<AppConfig> {
@@ -814,6 +870,28 @@ app.whenReady().then(async () => {
     }
 
     return existsInFolder(rootPath, relativePath);
+  });
+  ipcMain.handle('local:rename-in-folder', async (_event, payload: { rootPath: string; oldRelative: string; newRelative: string }) => {
+    if (!payload || typeof payload !== 'object') throw new Error('Invalid rename payload.');
+    const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath : '';
+    const oldRelative = typeof payload.oldRelative === 'string' ? payload.oldRelative : '';
+    const newRelative = typeof payload.newRelative === 'string' ? payload.newRelative : '';
+    if (!rootPath.trim()) throw new Error('A folder path is required.');
+    return renameInFolder(rootPath, oldRelative, newRelative);
+  });
+  ipcMain.handle('local:delete-in-folder', async (_event, payload: { rootPath: string; relativePath: string }) => {
+    if (!payload || typeof payload !== 'object') throw new Error('Invalid delete payload.');
+    const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath : '';
+    const relativePath = typeof payload.relativePath === 'string' ? payload.relativePath : '';
+    if (!rootPath.trim()) throw new Error('A folder path is required.');
+    return deleteInFolder(rootPath, relativePath);
+  });
+  ipcMain.handle('local:stat-in-folder', async (_event, payload: { rootPath: string; relativePath: string }) => {
+    if (!payload || typeof payload !== 'object') throw new Error('Invalid stat payload.');
+    const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath : '';
+    const relativePath = typeof payload.relativePath === 'string' ? payload.relativePath : '';
+    if (!rootPath.trim()) throw new Error('A folder path is required.');
+    return statInFolder(rootPath, relativePath);
   });
 
   await createWindow();

@@ -32,6 +32,18 @@ export type GatewaySessionSummary = {
   kind: string;
 };
 
+export type GatewayToolEntry = {
+  name: string;
+  group?: string;
+  source: 'core' | 'plugin';
+  pluginId?: string;
+  optional?: boolean;
+};
+
+export type GatewayToolsCatalog = {
+  tools: GatewayToolEntry[];
+};
+
 type GatewaySessionsListResult = {
   defaults?: {
     mainSessionKey?: unknown;
@@ -259,6 +271,10 @@ export class OpenClawGatewayClient {
   private requestCounter = 0;
   private pending = new Map<string, RpcPending>();
   private grantedScopes: string[] = [];
+  private lastConnectOptions: GatewayConnectOptions | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempt = 0;
+  private reconnectEnabled = true;
 
   private onEventHandler: ((event: GatewayFrame) => void) | null = null;
   private onConnectionHandler: ((connected: boolean, message: string) => void) | null = null;
@@ -273,6 +289,34 @@ export class OpenClawGatewayClient {
 
   isConnected() {
     return this.socket?.readyState === WebSocket.OPEN;
+  }
+
+  private scheduleReconnect() {
+    if (!this.reconnectEnabled || !this.lastConnectOptions || this.reconnectTimer) {
+      return;
+    }
+    const delays = [1000, 2000, 4000, 8000, 15000, 30000];
+    const delay = delays[Math.min(this.reconnectAttempt, delays.length - 1)];
+    this.reconnectAttempt += 1;
+    this.onConnectionHandler?.(false, `Reconnecting in ${Math.round(delay / 1000)}s (attempt ${this.reconnectAttempt})...`);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (!this.lastConnectOptions || this.isConnected()) return;
+      void this.connect(this.lastConnectOptions)
+        .then(() => {
+          this.reconnectAttempt = 0;
+        })
+        .catch(() => {
+          this.scheduleReconnect();
+        });
+    }, delay);
+  }
+
+  private cancelReconnect() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
   }
 
   async getDeviceId(): Promise<string> {
@@ -336,6 +380,8 @@ export class OpenClawGatewayClient {
   }
 
   async connect(options: GatewayConnectOptions): Promise<void> {
+    this.lastConnectOptions = options;
+    this.cancelReconnect();
     const wsUrl = this.normalizeGatewayUrl(options.gatewayUrl);
 
     if (this.isConnected() && this.connectedUrl === wsUrl) {
@@ -510,6 +556,7 @@ export class OpenClawGatewayClient {
         this.rejectPending('Gateway connection closed.');
         this.onConnectionHandler?.(false, 'Disconnected from OpenClaw Gateway.');
         rejectIfPending(new Error('Gateway connection closed before connect completed.'));
+        this.scheduleReconnect();
       };
 
       socket.onmessage = (event) => {
@@ -537,6 +584,8 @@ export class OpenClawGatewayClient {
   }
 
   disconnect() {
+    this.reconnectEnabled = false;
+    this.cancelReconnect();
     this.socket?.close();
     this.socket = null;
     this.connectedUrl = null;
@@ -829,6 +878,178 @@ export class OpenClawGatewayClient {
       .filter((entry): entry is GatewayCronJob => Boolean(entry));
 
     return jobs;
+  }
+
+  /* ═══════════════════════════════════ Tools Catalog ═══════════════════════════════════ */
+
+  /**
+   * Fetches the runtime tool catalog from the gateway.
+   * Requires `operator.read` scope.
+   */
+  async fetchToolsCatalog(): Promise<GatewayToolsCatalog> {
+    const result = await this.call('tools.catalog', {});
+
+    if (!result || typeof result !== 'object') {
+      return { tools: [] };
+    }
+
+    const payload = result as Record<string, unknown>;
+    const rawTools = Array.isArray(payload.tools)
+      ? payload.tools
+      : Array.isArray(payload.catalog)
+        ? payload.catalog
+        : [];
+
+    const tools = rawTools
+      .map((entry): GatewayToolEntry | null => {
+        if (!entry || typeof entry !== 'object') return null;
+        const item = entry as Record<string, unknown>;
+        const name = typeof item.name === 'string' ? item.name : '';
+        if (!name) return null;
+        const tool: GatewayToolEntry = {
+          name,
+          source: item.source === 'plugin' ? 'plugin' : 'core',
+        };
+        if (typeof item.group === 'string') tool.group = item.group;
+        if (typeof item.pluginId === 'string') tool.pluginId = item.pluginId;
+        if (typeof item.optional === 'boolean') tool.optional = item.optional;
+        return tool;
+      })
+      .filter((entry): entry is GatewayToolEntry => entry !== null);
+
+    return { tools };
+  }
+
+  /* ═══════════════════════════════════ Workspace File RPCs ═══════════════════════════════════ */
+
+  /**
+   * List files in the agent's workspace directory.
+   * Calls `workspace.list` on the OpenClaw gateway.
+   */
+  async listWorkspaceFiles(relativePath?: string): Promise<{
+    items: Array<{ path: string; kind: 'file' | 'directory'; size?: number; modifiedMs?: number }>;
+    truncated: boolean;
+  }> {
+    const result = await this.call('workspace.list', {
+      path: relativePath ?? '',
+    });
+
+    if (!result || typeof result !== 'object') {
+      return { items: [], truncated: false };
+    }
+
+    const payload = result as Record<string, unknown>;
+    const rawItems = Array.isArray(payload.items)
+      ? payload.items
+      : Array.isArray(payload.files)
+        ? payload.files
+        : Array.isArray(payload.entries)
+          ? payload.entries
+          : [];
+
+    const items = rawItems
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') return null;
+        const item = entry as Record<string, unknown>;
+        const path = typeof item.path === 'string' ? item.path : typeof item.name === 'string' ? item.name : '';
+        if (!path) return null;
+        const kind = item.kind === 'directory' || item.type === 'directory' || item.isDirectory === true
+          ? ('directory' as const)
+          : ('file' as const);
+        const size = typeof item.size === 'number' ? item.size : undefined;
+        const modifiedMs = typeof item.modifiedMs === 'number'
+          ? item.modifiedMs
+          : typeof item.mtime === 'number'
+            ? item.mtime
+            : undefined;
+        return { path, kind, size, modifiedMs };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+    const truncated = typeof payload.truncated === 'boolean' ? payload.truncated : false;
+    return { items, truncated };
+  }
+
+  /**
+   * Read a file from the agent's workspace.
+   * Calls `workspace.read` on the OpenClaw gateway.
+   */
+  async readWorkspaceFile(relativePath: string): Promise<{ content: string }> {
+    const result = await this.call('workspace.read', { path: relativePath });
+
+    if (!result || typeof result !== 'object') {
+      return { content: '' };
+    }
+
+    const payload = result as Record<string, unknown>;
+    const content = typeof payload.content === 'string'
+      ? payload.content
+      : typeof payload.text === 'string'
+        ? payload.text
+        : typeof payload.data === 'string'
+          ? payload.data
+          : '';
+
+    return { content };
+  }
+
+  /**
+   * Get metadata for a workspace file or directory.
+   * Calls `workspace.stat` on the OpenClaw gateway.
+   */
+  async statWorkspaceFile(relativePath: string): Promise<{
+    kind: 'file' | 'directory';
+    size: number;
+    createdMs: number;
+    modifiedMs: number;
+  }> {
+    const result = await this.call('workspace.stat', { path: relativePath });
+
+    if (!result || typeof result !== 'object') {
+      throw new Error('Failed to stat workspace file.');
+    }
+
+    const payload = result as Record<string, unknown>;
+    const kind = payload.kind === 'directory' || payload.type === 'directory' || payload.isDirectory === true
+      ? ('directory' as const)
+      : ('file' as const);
+    const size = typeof payload.size === 'number' ? payload.size : 0;
+    const createdMs = typeof payload.createdMs === 'number'
+      ? payload.createdMs
+      : typeof payload.ctime === 'number'
+        ? payload.ctime
+        : 0;
+    const modifiedMs = typeof payload.modifiedMs === 'number'
+      ? payload.modifiedMs
+      : typeof payload.mtime === 'number'
+        ? payload.mtime
+        : 0;
+
+    return { kind, size, createdMs, modifiedMs };
+  }
+
+  /**
+   * Rename/move a file in the agent's workspace.
+   * Calls `workspace.rename` on the OpenClaw gateway.
+   */
+  async renameWorkspaceFile(oldPath: string, newPath: string): Promise<void> {
+    await this.call('workspace.rename', { oldPath, newPath });
+  }
+
+  /**
+   * Delete a file or directory in the agent's workspace.
+   * Calls `workspace.delete` on the OpenClaw gateway.
+   */
+  async deleteWorkspaceFile(path: string): Promise<void> {
+    await this.call('workspace.delete', { path });
+  }
+
+  /**
+   * Create (or overwrite) a file in the agent's workspace.
+   * Calls `workspace.write` on the OpenClaw gateway.
+   */
+  async writeWorkspaceFile(path: string, content: string): Promise<void> {
+    await this.call('workspace.write', { path, content });
   }
 
   private parseHistory(payload: unknown): GatewayChatMessage[] {

@@ -21,3 +21,22 @@ body {
     radial-gradient(circle at 90% 0%, #f0ece3 0%, transparent 24%),
     #f4f3ee;
 }
+
+/* Dark theme */
+html.dark * {
+  border-color: #3a3a36;
+}
+
+html.dark body {
+  color: #e8e6e0;
+  background:
+    radial-gradient(circle at 20% -10%, #2a2924 0%, transparent 35%),
+    radial-gradient(circle at 90% 0%, #242320 0%, transparent 24%),
+    #1c1b18;
+}
+
+html.dark .bg-background { background-color: #1c1b18; }
+html.dark .bg-muted { background-color: #2a2924; }
+html.dark .bg-white { background-color: #242320; }
+html.dark .text-foreground { color: #e8e6e0; }
+html.dark .text-muted-foreground { color: #8a887e; }
