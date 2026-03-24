@@ -17,6 +17,7 @@ type ChatPageProps = {
   sending: boolean;
   awaitingStream: boolean;
   sessionKey: string;
+  userDisplayName?: string;
   models: ChatModelOption[];
   selectedModel: string;
   modelsLoading: boolean;
@@ -37,6 +38,7 @@ export function ChatPage({
   sending,
   awaitingStream,
   sessionKey,
+  userDisplayName,
   models,
   selectedModel,
   modelsLoading,
@@ -62,7 +64,21 @@ export function ChatPage({
   const [artifactPanelOpen, setArtifactPanelOpen] = useState(false);
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [slashMenuIndex, setSlashMenuIndex] = useState(0);
+  const [greetingNow, setGreetingNow] = useState(() => new Date());
   const canSend = (taskPrompt.trim().length > 0 || attachedFiles.length > 0) && !sending;
+
+  const greetingTitle = useMemo(() => {
+    const hour = greetingNow.getHours();
+    const normalizedName = userDisplayName?.trim() || 'there';
+
+    const dayPart =
+      hour < 5 ? 'Good night' :
+      hour < 12 ? 'Good morning' :
+      hour < 18 ? 'Good afternoon' :
+      'Good evening';
+
+    return `${dayPart}, ${normalizedName}`;
+  }, [greetingNow, userDisplayName]);
 
   const slashCommands = useMemo(() => {
     const all = [
@@ -80,6 +96,16 @@ export function ChatPage({
     setSlashMenuOpen(slashCommands.length > 0 && taskPrompt.trim().startsWith('/'));
     setSlashMenuIndex(0);
   }, [slashCommands, taskPrompt]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setGreetingNow(new Date());
+    }, 60_000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   // Extract code blocks from assistant messages for the artifact panel
   const codeArtifacts = useMemo(() => {
@@ -213,7 +239,7 @@ export function ChatPage({
             </div>
           )}
           <div className="w-full max-w-[760px]">
-            <h1 className="mb-6 text-center text-[clamp(2rem,4vw,3rem)] tracking-tight text-foreground">Guten Tag, Christian</h1>
+            <h1 className="mb-6 text-center text-[clamp(2rem,4vw,3rem)] tracking-tight text-foreground">{greetingTitle}</h1>
 
             <form
               className="relative rounded-[28px] border border-border bg-card p-4 shadow-[0_16px_34px_rgba(24,23,20,0.08)]"
@@ -259,16 +285,7 @@ export function ChatPage({
                 </div>
               )}
 
-              <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-9 rounded-xl px-3 font-sans text-xs text-muted-foreground"
-                  aria-label="Add attachment"
-                >
-                  Context
-                </Button>
-
+              <div className="mt-3 flex items-center justify-end gap-2 border-t border-border pt-3">
                 <div className="flex items-center gap-2">
                   <select
                     value={selectedModel}
@@ -509,11 +526,7 @@ export function ChatPage({
             </div>
           )}
 
-          <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
-            <Button type="button" variant="ghost" className="h-9 rounded-xl px-3 font-sans text-xs text-muted-foreground" aria-label="Add attachment">
-              Context
-            </Button>
-
+          <div className="mt-3 flex items-center justify-end gap-2 border-t border-border pt-3">
             <div className="flex items-center gap-2">
               <select
                 value={selectedModel}

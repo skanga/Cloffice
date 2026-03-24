@@ -23,6 +23,16 @@ import {
   CommandItem,
   CommandList,
 } from './components/ui/command';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './components/ui/dialog';
+import { Input } from './components/ui/input';
 import { SidebarProvider } from './components/ui/sidebar';
 import { ScrollArea } from './components/ui/scroll-area';
 import { GatewayRequestError, OpenClawGatewayClient } from './lib/openclaw-gateway-client';
@@ -53,6 +63,7 @@ const AUTH_SESSION_STORAGE_KEY = 'relay.auth.session';
 const RELAY_USAGE_MODE_KEY = 'relay.usage.mode';
 const RELAY_ONBOARDING_KEY = 'relay.onboarding.complete';
 const RELAY_PREFERENCES_KEY = 'relay.preferences';
+const RELAY_RECENTS_KEY = 'relay.recents.v1';
 
 type UserPreferences = {
   fullName: string;
@@ -104,6 +115,11 @@ type ChatThread = {
   sessionKey: string;
   title: string;
   updatedAt: number;
+};
+
+type PersistedRecents = {
+  chatThreads?: ChatThread[];
+  coworkThreads?: ChatThread[];
 };
 
 type RelayFileAction =
@@ -184,7 +200,8 @@ const RECENT_CHAT_CHARS_PER_MESSAGE = 500;
 const SIDEBAR_RECENTS_LIMIT = 7;
 const SIDEBAR_RECENT_LABEL_LIMIT = 88;
 const MAX_THREAD_STORE_ITEMS = 100;
-const DEFAULT_THREAD_TITLE = 'New chat';
+const DEFAULT_CHAT_THREAD_TITLE = 'New chat';
+const DEFAULT_COWORK_THREAD_TITLE = 'New task';
 const MAIN_SESSION_KEY = 'main';
 const MAIN_THREAD_TITLE = 'Main chat';
 const COWORK_SEND_SPINNER_MS = 300;
@@ -249,6 +266,40 @@ function getThreadIdForSession(sessionKey: string): string {
   return `thread-${sessionKey}`;
 }
 
+function findMatchingSessionKey(sessionKeys: string[], requestedKey: string): string | null {
+  const requested = normalizeSessionKey(requestedKey);
+  if (!requested) {
+    return null;
+  }
+
+  const requestedLower = requested.toLowerCase();
+  const direct = sessionKeys.find((key) => normalizeSessionKey(key).toLowerCase() === requestedLower);
+  if (direct) {
+    return normalizeSessionKey(direct);
+  }
+
+  const requestedTail = requestedLower.includes(':')
+    ? requestedLower.slice(requestedLower.lastIndexOf(':') + 1)
+    : requestedLower;
+  if (!requestedTail) {
+    return null;
+  }
+
+  const byTail = sessionKeys.find((key) => {
+    const normalized = normalizeSessionKey(key).toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    if (normalized.endsWith(`:${requestedTail}`)) {
+      return true;
+    }
+    const tail = normalized.includes(':') ? normalized.slice(normalized.lastIndexOf(':') + 1) : normalized;
+    return tail === requestedTail;
+  });
+
+  return byTail ? normalizeSessionKey(byTail) : null;
+}
+
 function deriveThreadTitleFromMessages(messages: ChatMessage[]): string {
   const firstUserMessage = messages.find((message) => message.role === 'user');
   if (!firstUserMessage) {
@@ -258,17 +309,26 @@ function deriveThreadTitleFromMessages(messages: ChatMessage[]): string {
   return toRecentSidebarLabel(firstUserMessage.text);
 }
 
-function toFallbackThreadTitle(sessionKey: string): string {
+function toFallbackThreadTitle(sessionKey: string, kind: 'chat' | 'cowork' = 'chat'): string {
   const normalized = normalizeSessionKey(sessionKey);
   if (!normalized) {
-    return DEFAULT_THREAD_TITLE;
+    return kind === 'cowork' ? DEFAULT_COWORK_THREAD_TITLE : DEFAULT_CHAT_THREAD_TITLE;
   }
 
   if (normalized.toLowerCase() === MAIN_SESSION_KEY) {
     return MAIN_THREAD_TITLE;
   }
 
-  return DEFAULT_THREAD_TITLE;
+  return kind === 'cowork' ? DEFAULT_COWORK_THREAD_TITLE : DEFAULT_CHAT_THREAD_TITLE;
+}
+
+function isCustomChatThreadTitle(title: string, sessionKey: string): boolean {
+  const normalizedTitle = title.trim();
+  if (!normalizedTitle) {
+    return false;
+  }
+
+  return normalizedTitle !== toFallbackThreadTitle(sessionKey, 'chat');
 }
 
 function mergeChatThreads(existing: ChatThread[], incoming: ChatThread[]): ChatThread[] {
@@ -289,6 +349,57 @@ function mergeChatThreads(existing: ChatThread[], incoming: ChatThread[]): ChatT
   return Array.from(bySession.values())
     .sort((left, right) => right.updatedAt - left.updatedAt)
     .slice(0, MAX_THREAD_STORE_ITEMS);
+}
+
+function normalizeStoredThread(thread: unknown): ChatThread | null {
+  if (!thread || typeof thread !== 'object') {
+    return null;
+  }
+
+  const record = thread as Record<string, unknown>;
+  const sessionKey = typeof record.sessionKey === 'string' ? normalizeSessionKey(record.sessionKey) : '';
+  if (!sessionKey) {
+    return null;
+  }
+
+  const title = typeof record.title === 'string' ? toRecentSidebarLabel(record.title) : '';
+  const updatedAtRaw = typeof record.updatedAt === 'number' ? record.updatedAt : Number(record.updatedAt);
+  const updatedAt = Number.isFinite(updatedAtRaw) ? updatedAtRaw : Date.now();
+
+  return {
+    id: getThreadIdForSession(sessionKey),
+    sessionKey,
+    title: title || toFallbackThreadTitle(sessionKey, sessionKey.toLowerCase().includes('cowork') ? 'cowork' : 'chat'),
+    updatedAt,
+  };
+}
+
+function loadPersistedRecents(): PersistedRecents {
+  try {
+    const raw = localStorage.getItem(RELAY_RECENTS_KEY);
+    if (!raw) {
+      return { chatThreads: [], coworkThreads: [] };
+    }
+
+    const parsed = JSON.parse(raw) as PersistedRecents;
+    const chatThreads = Array.isArray(parsed?.chatThreads)
+      ? parsed.chatThreads
+          .map(normalizeStoredThread)
+          .filter((thread): thread is ChatThread => thread !== null)
+      : [];
+    const coworkThreads = Array.isArray(parsed?.coworkThreads)
+      ? parsed.coworkThreads
+          .map(normalizeStoredThread)
+          .filter((thread): thread is ChatThread => thread !== null)
+      : [];
+
+    return {
+      chatThreads: mergeChatThreads([], chatThreads),
+      coworkThreads: mergeChatThreads([], coworkThreads),
+    };
+  } catch {
+    return { chatThreads: [], coworkThreads: [] };
+  }
 }
 
 function toRecentSidebarItems(threads: ChatThread[], kind: 'chat' | 'cowork'): RecentWorkspaceEntry[] {
@@ -723,8 +834,8 @@ export default function App() {
   const [awaitingChatStream, setAwaitingChatStream] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [coworkMessages, setCoworkMessages] = useState<ChatMessage[]>([]);
-  const [chatThreads, setChatThreads] = useState<ChatThread[]>([]);
-  const [coworkThreads, setCoworkThreads] = useState<ChatThread[]>([]);
+  const [chatThreads, setChatThreads] = useState<ChatThread[]>(() => loadPersistedRecents().chatThreads ?? []);
+  const [coworkThreads, setCoworkThreads] = useState<ChatThread[]>(() => loadPersistedRecents().coworkThreads ?? []);
 
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -763,6 +874,10 @@ export default function App() {
   );
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [recentRenameTarget, setRecentRenameTarget] = useState<RecentWorkspaceEntry | null>(null);
+  const [recentRenameValue, setRecentRenameValue] = useState('');
+  const [recentDeleteTarget, setRecentDeleteTarget] = useState<RecentWorkspaceEntry | null>(null);
+  const [recentActionBusy, setRecentActionBusy] = useState(false);
   const [coworkResetKey, setCoworkResetKey] = useState(0);
   const [coworkRightPanelOpen, setCoworkRightPanelOpen] = useState(true);
   const [coworkSending, setCoworkSending] = useState(false);
@@ -831,8 +946,14 @@ export default function App() {
 
     setChatThreads((current) => {
       const existing = current.find((thread) => thread.sessionKey === normalizedSessionKey);
-      const canReplaceTitle = !existing || !existing.title || existing.title === DEFAULT_THREAD_TITLE;
-      const fallbackTitle = toFallbackThreadTitle(normalizedSessionKey);
+      // Keep recents list message-driven: don't create a new chat thread without
+      // any usable title signal (typically first user message/history).
+      if (!existing && !incomingTitle) {
+        return current;
+      }
+
+      const canReplaceTitle = !existing || !existing.title || existing.title === DEFAULT_CHAT_THREAD_TITLE;
+      const fallbackTitle = toFallbackThreadTitle(normalizedSessionKey, 'chat');
       const title = canReplaceTitle && incomingTitle ? incomingTitle : existing?.title || fallbackTitle;
       const updatedAt = touchedAt ?? existing?.updatedAt ?? Date.now();
 
@@ -858,8 +979,8 @@ export default function App() {
 
     setCoworkThreads((current) => {
       const existing = current.find((thread) => thread.sessionKey === normalizedSessionKey);
-      const canReplaceTitle = !existing || !existing.title || existing.title === DEFAULT_THREAD_TITLE;
-      const fallbackTitle = toFallbackThreadTitle(normalizedSessionKey);
+      const canReplaceTitle = !existing || !existing.title || existing.title === DEFAULT_COWORK_THREAD_TITLE;
+      const fallbackTitle = toFallbackThreadTitle(normalizedSessionKey, 'cowork');
       const title = canReplaceTitle && incomingTitle ? incomingTitle : existing?.title || fallbackTitle;
       const updatedAt = touchedAt ?? existing?.updatedAt ?? Date.now();
 
@@ -872,6 +993,59 @@ export default function App() {
 
       return mergeChatThreads(current, [nextThread]);
     });
+  };
+
+  const renameThread = (sessionKey: string, title: string, kind: 'chat' | 'cowork') => {
+    const normalizedSessionKey = normalizeSessionKey(sessionKey);
+    const normalizedTitle = toRecentSidebarLabel(title);
+    if (!normalizedSessionKey || !normalizedTitle) {
+      return;
+    }
+
+    const apply = (current: ChatThread[]) => {
+      const existing = current.find((thread) => thread.sessionKey === normalizedSessionKey);
+      if (!existing) {
+        return current;
+      }
+      const nextThread: ChatThread = {
+        ...existing,
+        title: normalizedTitle,
+        updatedAt: Date.now(),
+      };
+      return mergeChatThreads(current, [nextThread]);
+    };
+
+    if (kind === 'cowork') {
+      setCoworkThreads(apply);
+    } else {
+      setChatThreads(apply);
+    }
+  };
+
+  const removeThread = (sessionKey: string, kind: 'chat' | 'cowork') => {
+    const normalizedSessionKey = normalizeSessionKey(sessionKey);
+    if (!normalizedSessionKey) {
+      return;
+    }
+
+    if (kind === 'cowork') {
+      setCoworkThreads((current) => current.filter((thread) => thread.sessionKey !== normalizedSessionKey));
+      coworkMessageCache.current.delete(normalizedSessionKey);
+      if (coworkSessionKeyRef.current === normalizedSessionKey) {
+        commitCoworkSessionKey('');
+        setCoworkMessages([]);
+      }
+      return;
+    }
+
+    setChatThreads((current) => current.filter((thread) => thread.sessionKey !== normalizedSessionKey));
+    threadMessageCache.current.delete(normalizedSessionKey);
+    if (activeSessionKeyRef.current === normalizedSessionKey) {
+      commitActiveSessionKey('');
+      setChatMessages([]);
+      setAwaitingChatStream(false);
+      setTaskPrompt('');
+    }
   };
 
   const pushLocalActionReceipts = (entries: LocalActionReceipt[]) => {
@@ -900,9 +1074,9 @@ export default function App() {
         id: getThreadIdForSession(to),
         sessionKey: to,
         title:
-          target?.title && target.title !== DEFAULT_THREAD_TITLE
+          target?.title && target.title !== DEFAULT_CHAT_THREAD_TITLE
             ? target.title
-            : source?.title || target?.title || DEFAULT_THREAD_TITLE,
+            : source?.title || target?.title || DEFAULT_CHAT_THREAD_TITLE,
         updatedAt: Math.max(source?.updatedAt ?? 0, target?.updatedAt ?? 0, Date.now()),
       };
 
@@ -919,8 +1093,22 @@ export default function App() {
       return !!normalized;
     });
 
+    const existingSessionKeys = new Set(
+      filtered.map((session) => normalizeSessionKey(session.key).toLowerCase()).filter(Boolean),
+    );
+
     const threadsOrNull = await Promise.all(
       filtered.slice(0, 20).map(async (session, index) => {
+        const sessionTitle = session.title ? toRecentSidebarLabel(session.title) : '';
+        if (sessionTitle) {
+          return {
+            id: getThreadIdForSession(session.key),
+            sessionKey: session.key,
+            title: sessionTitle,
+            updatedAt: Date.now() - index,
+          } satisfies ChatThread;
+        }
+
         try {
           const history = await client.getHistory(session.key, 30);
           const titleFromHistory = deriveThreadTitleFromMessages(history);
@@ -941,8 +1129,46 @@ export default function App() {
     );
 
     const threads = threadsOrNull.filter((thread): thread is ChatThread => thread !== null);
-    setChatThreads(mergeChatThreads([], threads));
+    setChatThreads((current) => {
+      const validCurrent = current.filter((thread) =>
+        existingSessionKeys.has(normalizeSessionKey(thread.sessionKey).toLowerCase()),
+      );
+
+      const incomingPreservingCustomTitles = threads.map((thread) => {
+        const existing = validCurrent.find(
+          (entry) => normalizeSessionKey(entry.sessionKey).toLowerCase() === normalizeSessionKey(thread.sessionKey).toLowerCase(),
+        );
+        if (existing && isCustomChatThreadTitle(existing.title, existing.sessionKey)) {
+          return {
+            ...thread,
+            title: existing.title,
+            updatedAt: Math.max(thread.updatedAt, existing.updatedAt),
+          } satisfies ChatThread;
+        }
+
+        return thread;
+      });
+
+      return mergeChatThreads(validCurrent, incomingPreservingCustomTitles);
+    });
+
+    // Keep cowork recents consistent with live gateway sessions too.
+    setCoworkThreads((current) =>
+      current.filter((thread) => existingSessionKeys.has(normalizeSessionKey(thread.sessionKey).toLowerCase())),
+    );
   };
+
+  useEffect(() => {
+    const payload: PersistedRecents = {
+      chatThreads,
+      coworkThreads,
+    };
+    try {
+      localStorage.setItem(RELAY_RECENTS_KEY, JSON.stringify(payload));
+    } catch {
+      // ignore localStorage quota/privacy failures
+    }
+  }, [chatThreads, coworkThreads]);
 
   const loadChatSession = async (sessionKeyInput: string, statusMessage?: string) => {
     const client = gatewayClientRef.current;
@@ -965,21 +1191,63 @@ export default function App() {
         token: draftGatewayToken,
       });
 
-      const [history] = await Promise.all([
-        client.getHistory(requestedSessionKey, 30),
-        loadModelsForSession(client, requestedSessionKey),
-      ]);
+      let resolvedSessionKey = requestedSessionKey;
+      let history: ChatMessage[];
+
+      try {
+        const [loadedHistory] = await Promise.all([
+          client.getHistory(resolvedSessionKey, 30),
+          loadModelsForSession(client, resolvedSessionKey),
+        ]);
+        history = loadedHistory;
+      } catch (error) {
+        const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+        const isMissingSession = message.includes('no session found') || message.includes('no sendable session found');
+        if (!isMissingSession) {
+          throw error;
+        }
+
+        let retrySessionKey = '';
+        try {
+          const liveSessions = await client.listSessions(200);
+          const liveKeys = liveSessions.map((session) => session.key);
+          retrySessionKey = findMatchingSessionKey(liveKeys, resolvedSessionKey) ?? '';
+        } catch {
+          // fallback below
+        }
+
+        if (!retrySessionKey) {
+          retrySessionKey = normalizeSessionKey(await client.resolveSessionKey(resolvedSessionKey));
+        }
+
+        if (!retrySessionKey) {
+          throw error;
+        }
+
+        resolvedSessionKey = retrySessionKey;
+        if (resolvedSessionKey !== requestedSessionKey) {
+          rekeyChatThread(requestedSessionKey, resolvedSessionKey);
+        }
+
+        const [loadedHistory] = await Promise.all([
+          client.getHistory(resolvedSessionKey, 30),
+          loadModelsForSession(client, resolvedSessionKey),
+        ]);
+        history = loadedHistory;
+      }
 
       if (requestId !== chatLoadRequestRef.current) {
         return;
       }
 
+      commitActiveSessionKey(resolvedSessionKey);
+
       setChatMessages(history);
       if (history.length > 0) {
-        threadMessageCache.current.set(requestedSessionKey, history);
+        threadMessageCache.current.set(resolvedSessionKey, history);
       }
       const titleFromHistory = deriveThreadTitleFromMessages(history);
-      upsertChatThread(requestedSessionKey, {
+      upsertChatThread(resolvedSessionKey, {
         title: titleFromHistory || undefined,
       });
 
@@ -989,11 +1257,19 @@ export default function App() {
         } else if (history.length === 0) {
           setStatus(`${statusMessage}: no messages in this chat yet.`);
         } else {
-          setStatus(`${statusMessage}: ${toFallbackThreadTitle(requestedSessionKey)}`);
+          setStatus(`${statusMessage}: ${toFallbackThreadTitle(resolvedSessionKey, 'chat')}`);
         }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to load chat session.';
+      const normalizedMessage = message.toLowerCase();
+      const isMissingSession =
+        normalizedMessage.includes('no session found') ||
+        normalizedMessage.includes('no sendable session found') ||
+        normalizedMessage.includes('session not found');
+      if (isMissingSession) {
+        removeThread(requestedSessionKey, 'chat');
+      }
       setStatus(message);
     }
   };
@@ -1043,7 +1319,7 @@ export default function App() {
         setStatus(
           titleFromHistory
             ? `${statusMessage}: ${titleFromHistory}`
-            : `${statusMessage}: ${toFallbackThreadTitle(requestedSessionKey)}`,
+            : `${statusMessage}: ${toFallbackThreadTitle(requestedSessionKey, 'cowork')}`,
         );
       }
     } catch (error) {
@@ -1899,7 +2175,16 @@ export default function App() {
         }
 
         if (eventSessionKey && eventSessionKey !== activeSessionKeyRef.current) {
-          return;
+          const previousActive = normalizeSessionKey(activeSessionKeyRef.current);
+          if (previousActive) {
+            rekeyChatThread(previousActive, eventSessionKey);
+            const cachedMessages = threadMessageCache.current.get(previousActive);
+            if (cachedMessages) {
+              threadMessageCache.current.set(eventSessionKey, cachedMessages);
+              threadMessageCache.current.delete(previousActive);
+            }
+          }
+          commitActiveSessionKey(eventSessionKey);
         }
 
         if (state === 'error') {
@@ -2066,6 +2351,8 @@ export default function App() {
         token: nextConfig.gatewayToken,
       });
 
+      await loadRecentChatsFromBackend(client);
+
       const sessionKey = normalizeSessionKey(activeSessionKeyRef.current);
       if (sessionKey) {
         void loadModelsForSession(client, sessionKey);
@@ -2181,7 +2468,7 @@ export default function App() {
 
       let sessionKey = normalizeSessionKey(coworkSessionKeyRef.current);
       if (!sessionKey) {
-        sessionKey = normalizeSessionKey(await client.createChatSession());
+        sessionKey = normalizeSessionKey(await client.createCoworkSession());
         if (!sessionKey) {
           throw new Error('No cowork session key returned from Gateway.');
         }
@@ -2697,6 +2984,80 @@ export default function App() {
     void loadCoworkSession(normalized, 'Opened task');
   };
 
+  const handleRenameRecentItem = (item: RecentWorkspaceEntry) => {
+    setRecentRenameTarget(item);
+    setRecentRenameValue(item.label);
+  };
+
+  const handleConfirmRenameRecentItem = async () => {
+    if (!recentRenameTarget) {
+      return;
+    }
+
+    const currentLabel = recentRenameTarget.label.trim();
+    const nextTitle = toRecentSidebarLabel(recentRenameValue);
+    if (!nextTitle) {
+      setStatus('Title cannot be empty.');
+      return;
+    }
+
+    if (nextTitle === currentLabel) {
+      setRecentRenameTarget(null);
+      setRecentRenameValue('');
+      return;
+    }
+
+    const client = gatewayClientRef.current;
+    setRecentActionBusy(true);
+    try {
+      if (client) {
+        try {
+          await ensureConnectedClient(client);
+          await client.setSessionTitle(recentRenameTarget.sessionKey, nextTitle);
+        } catch {
+          setStatus('Renamed locally. Gateway title sync is not available on this server.');
+        }
+      }
+
+      renameThread(recentRenameTarget.sessionKey, nextTitle, recentRenameTarget.kind);
+      setStatus(`${recentRenameTarget.kind === 'cowork' ? 'Task' : 'Chat'} renamed.`);
+      setRecentRenameTarget(null);
+      setRecentRenameValue('');
+    } finally {
+      setRecentActionBusy(false);
+    }
+  };
+
+  const handleDeleteRecentItem = (item: RecentWorkspaceEntry) => {
+    setRecentDeleteTarget(item);
+  };
+
+  const handleConfirmDeleteRecentItem = async () => {
+    if (!recentDeleteTarget) {
+      return;
+    }
+
+    const client = gatewayClientRef.current;
+    if (!client) {
+      setStatus('Gateway client not initialized.');
+      return;
+    }
+
+    setRecentActionBusy(true);
+    try {
+      await ensureConnectedClient(client);
+      await client.deleteSession(recentDeleteTarget.sessionKey);
+      removeThread(recentDeleteTarget.sessionKey, recentDeleteTarget.kind);
+      setStatus(`${recentDeleteTarget.kind === 'cowork' ? 'Task' : 'Chat'} deleted.`);
+      setRecentDeleteTarget(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to delete session.';
+      setStatus(message);
+    } finally {
+      setRecentActionBusy(false);
+    }
+  };
+
   const loadScheduledJobs = useCallback(async () => {
     const client = gatewayClientRef.current;
     if (!client) {
@@ -2985,6 +3346,8 @@ export default function App() {
               }
               handleOpenRecentChat(item.sessionKey);
             }}
+            onRenameRecentItem={handleRenameRecentItem}
+            onDeleteRecentItem={handleDeleteRecentItem}
             onStartNewChat={handleStartNewChat}
             onStartNewTask={handleStartNewTask}
             onSelectMenuItem={setActiveMenuItem}
@@ -2997,6 +3360,75 @@ export default function App() {
           />
 
           <main className={`relative min-h-0 overflow-hidden ${activePage === 'files' ? 'p-0' : 'p-5'}`}>
+            <Dialog
+              open={Boolean(recentRenameTarget)}
+              onOpenChange={(nextOpen) => {
+                if (!nextOpen && !recentActionBusy) {
+                  setRecentRenameTarget(null);
+                  setRecentRenameValue('');
+                }
+              }}
+            >
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Rename {recentRenameTarget?.kind === 'cowork' ? 'task' : 'chat'}</DialogTitle>
+                  <DialogDescription>
+                    Set a custom title for this recent item.
+                  </DialogDescription>
+                </DialogHeader>
+                <Input
+                  value={recentRenameValue}
+                  onChange={(event) => setRecentRenameValue(event.target.value)}
+                  placeholder="Enter title"
+                  autoFocus
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      if (!recentActionBusy) {
+                        void handleConfirmRenameRecentItem();
+                      }
+                    }
+                  }}
+                />
+                <DialogFooter>
+                  <DialogClose render={<Button variant="outline" disabled={recentActionBusy} />}>Cancel</DialogClose>
+                  <Button type="button" onClick={() => void handleConfirmRenameRecentItem()} disabled={recentActionBusy}>
+                    Save
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog
+              open={Boolean(recentDeleteTarget)}
+              onOpenChange={(nextOpen) => {
+                if (!nextOpen && !recentActionBusy) {
+                  setRecentDeleteTarget(null);
+                }
+              }}
+            >
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle className="text-red-600 dark:text-red-400">Delete recent session</DialogTitle>
+                  <DialogDescription>
+                    Delete {recentDeleteTarget?.kind === 'cowork' ? 'task' : 'chat'} "{recentDeleteTarget?.label}" and all of its messages?
+                    This action cannot be undone.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <DialogClose render={<Button variant="outline" disabled={recentActionBusy} />}>Cancel</DialogClose>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={() => void handleConfirmDeleteRecentItem()}
+                    disabled={recentActionBusy}
+                  >
+                    Delete
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
             <CommandDialog
               open={searchOpen}
               onOpenChange={handleSearchOpenChange}
@@ -3097,6 +3529,7 @@ export default function App() {
                     sending={sendingChat}
                     awaitingStream={awaitingChatStream}
                     sessionKey={activeSessionKey}
+                    userDisplayName={preferences.displayName || preferences.fullName}
                     models={chatModels}
                     selectedModel={selectedModel}
                     modelsLoading={modelsLoading}

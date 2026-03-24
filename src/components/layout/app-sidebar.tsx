@@ -16,10 +16,12 @@ import {
   LogOut,
   MessageSquareText,
   Palette,
+  Pencil,
   Plus,
   Search,
   Settings,
   Shield,
+  Trash2,
   User,
   Wifi,
   Zap,
@@ -73,6 +75,8 @@ type AppSidebarProps = {
   scheduledItems: ScheduledSidebarItem[];
   scheduledLoading: boolean;
   onSelectRecentItem: (item: RecentSidebarItem) => void;
+  onRenameRecentItem: (item: RecentSidebarItem) => void;
+  onDeleteRecentItem: (item: RecentSidebarItem) => void;
   onStartNewChat: () => void;
   onStartNewTask: () => void;
   onSelectMenuItem: (item: string) => void;
@@ -135,6 +139,8 @@ export function AppSidebar({
   scheduledItems,
   scheduledLoading,
   onSelectRecentItem,
+  onRenameRecentItem,
+  onDeleteRecentItem,
   onStartNewChat,
   onStartNewTask,
   onSelectMenuItem,
@@ -378,28 +384,58 @@ export function AppSidebar({
                       ) : (
                         safeRecentItems.map((item) => (
                           <SidebarMenuItem key={item.id}>
-                            <SidebarMenuButton
-                              type="button"
-                              active={
-                                (item.kind === 'chat' && item.sessionKey === activeSessionKey) ||
-                                (item.kind === 'cowork' && item.sessionKey === activeCoworkSessionKey)
-                              }
-                              aria-current={
-                                (item.kind === 'chat' && item.sessionKey === activeSessionKey) ||
-                                (item.kind === 'cowork' && item.sessionKey === activeCoworkSessionKey)
-                                  ? 'page'
-                                  : undefined
-                              }
-                              aria-label={`Open ${item.kind === 'cowork' ? 'task' : 'chat'} ${item.label}`}
-                              className="w-full gap-2 font-sans text-[12px]"
-                              title={item.label}
-                              onClick={() => onSelectRecentItem(item)}
-                            >
-                              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                {item.kind === 'cowork' ? 'Task' : 'Chat'}
-                              </span>
-                              <span className="block truncate">{item.label}</span>
-                            </SidebarMenuButton>
+                            <div className="group flex items-center gap-1">
+                              <SidebarMenuButton
+                                type="button"
+                                active={
+                                  (item.kind === 'chat' && item.sessionKey === activeSessionKey) ||
+                                  (item.kind === 'cowork' && item.sessionKey === activeCoworkSessionKey)
+                                }
+                                aria-current={
+                                  (item.kind === 'chat' && item.sessionKey === activeSessionKey) ||
+                                  (item.kind === 'cowork' && item.sessionKey === activeCoworkSessionKey)
+                                    ? 'page'
+                                    : undefined
+                                }
+                                aria-label={`Open ${item.kind === 'cowork' ? 'task' : 'chat'} ${item.label}`}
+                                className="min-w-0 flex-1 gap-2 font-sans text-[12px]"
+                                title={item.label}
+                                onClick={() => onSelectRecentItem(item)}
+                              >
+                                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                  {item.kind === 'cowork' ? 'Task' : 'Chat'}
+                                </span>
+                                <span className="block truncate">{item.label}</span>
+                              </SidebarMenuButton>
+                              <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="size-6"
+                                  title={`Rename ${item.kind === 'cowork' ? 'task' : 'chat'}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    onRenameRecentItem(item);
+                                  }}
+                                >
+                                  <Pencil className="size-3.5" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="size-6 text-destructive hover:text-destructive"
+                                  title={`Delete ${item.kind === 'cowork' ? 'task' : 'chat'}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    onDeleteRecentItem(item);
+                                  }}
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              </div>
+                            </div>
                           </SidebarMenuItem>
                         ))
                       )}

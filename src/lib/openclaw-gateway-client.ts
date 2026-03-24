@@ -30,6 +30,7 @@ export type GatewayCronJob = {
 export type GatewaySessionSummary = {
   key: string;
   kind: string;
+  title?: string;
 };
 
 export type GatewayToolEntry = {
@@ -52,6 +53,7 @@ type GatewaySessionsListResult = {
   sessions?: Array<{
     key?: unknown;
     kind?: unknown;
+    title?: unknown;
   }>;
 };
 
@@ -343,7 +345,7 @@ export class OpenClawGatewayClient {
     return this.resolveSessionKey('main');
   }
 
-  async createChatSession(): Promise<string> {
+  private async createSessionByKind(kind: 'chat' | 'cowork'): Promise<string> {
     const uuid =
       typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
         ? crypto.randomUUID()
@@ -366,7 +368,8 @@ export class OpenClawGatewayClient {
       // no prefix available
     }
 
-    const newKey = agentPrefix ? `${agentPrefix}:relay-${uuid}` : `relay-${uuid}`;
+    const keyBase = kind === 'cowork' ? `relay-cowork-${uuid}` : `relay-chat-${uuid}`;
+    const newKey = agentPrefix ? `${agentPrefix}:${keyBase}` : keyBase;
 
     // Register the session via sessions.patch so the Gateway knows about it
     // before the first chat.send
@@ -377,6 +380,14 @@ export class OpenClawGatewayClient {
     }
 
     return newKey;
+  }
+
+  async createChatSession(): Promise<string> {
+    return this.createSessionByKind('chat');
+  }
+
+  async createCoworkSession(): Promise<string> {
+    return this.createSessionByKind('cowork');
   }
 
   async connect(options: GatewayConnectOptions): Promise<void> {
@@ -786,9 +797,12 @@ export class OpenClawGatewayClient {
       }
 
       const kind = typeof record.kind === 'string' ? record.kind.trim() : '';
+      const titleCandidates = [record.title, record.name, record.label];
+      const title = titleCandidates.find((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
       sessions.push({
         key,
         kind: kind || (dedupeKey === 'main' ? 'main' : 'chat'),
+        title: title?.trim(),
       });
       seen.add(dedupeKey);
     }
@@ -806,6 +820,27 @@ export class OpenClawGatewayClient {
       key,
       model: modelValue && modelValue.trim() ? modelValue.trim() : null,
     });
+  }
+
+  async setSessionTitle(sessionKey: string, title: string | null): Promise<void> {
+    const key = sessionKey.trim();
+    if (!key) {
+      throw new Error('Session key is required.');
+    }
+
+    await this.call('sessions.patch', {
+      key,
+      title: title && title.trim() ? title.trim() : null,
+    });
+  }
+
+  async deleteSession(sessionKey: string): Promise<void> {
+    const key = sessionKey.trim();
+    if (!key) {
+      throw new Error('Session key is required.');
+    }
+
+    await this.call('sessions.delete', { key });
   }
 
   async listCronJobs(): Promise<GatewayCronJob[]> {
@@ -1074,12 +1109,26 @@ export class OpenClawGatewayClient {
         const role = typeof item.role === 'string' ? item.role : 'assistant';
         const id = typeof item.id === 'string' ? item.id : `history-${index}`;
 
-        const text =
-          typeof item.text === 'string'
-            ? item.text
-            : typeof item.content === 'string'
-              ? item.content
-              : '';
+        let text = '';
+        if (typeof item.text === 'string') {
+          text = item.text;
+        } else if (typeof item.content === 'string') {
+          text = item.content;
+        } else if (Array.isArray(item.content)) {
+          const parts = item.content
+            .map((part) => {
+              if (!part || typeof part !== 'object') {
+                return '';
+              }
+              const piece = part as Record<string, unknown>;
+              if (piece.type === 'text' && typeof piece.text === 'string') {
+                return piece.text;
+              }
+              return '';
+            })
+            .filter((part) => part.length > 0);
+          text = parts.join('');
+        }
 
         if (!text) {
           return null;
