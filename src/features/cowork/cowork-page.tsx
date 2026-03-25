@@ -331,6 +331,76 @@ export function CoworkPage({
             </div>
           ) : (
             <div className="mx-auto grid w-full gap-3" style={{ maxWidth: `${COWORK_CHAT_COLUMN_MAX_WIDTH}px` }} role="log" aria-live="polite" aria-relevant="additions">
+              {pendingApprovals.length > 0 ? (
+                <Card
+                  className="overflow-visible rounded-2xl border-amber-300/70 bg-amber-50/60 dark:border-amber-700/40 dark:bg-amber-950/20"
+                  data-testid="pending-approvals-card"
+                >
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Action required: approvals ({pendingApprovals.length})</CardTitle>
+                  </CardHeader>
+                  <CardContent className="grid gap-2 pt-0">
+                    {pendingApprovals.map((approval) => {
+                      const rejectReason = approvalRejectReasons[approval.id] || '';
+                      return (
+                        <div key={approval.id} className="rounded-xl border border-border bg-card p-2.5" data-testid={`pending-approval-${approval.id}`}>
+                          <div className="mb-1.5 flex items-center gap-2">
+                            <Badge variant="outline" className={`rounded-full font-sans text-[10px] uppercase ${approvalRiskClasses(approval.riskLevel)}`}>
+                              {approval.riskLevel}
+                            </Badge>
+                            <p className="break-words font-sans text-[12px] text-foreground">{approval.summary}</p>
+                          </div>
+                          <p className="break-words font-sans text-[11px] text-muted-foreground">Scope: {approval.scopeName}</p>
+                          {approval.projectTitle ? (
+                            <p className="break-words font-sans text-[11px] text-muted-foreground">Project: {approval.projectTitle}</p>
+                          ) : null}
+                          <p className="break-all font-sans text-[11px] text-muted-foreground">Path: {approval.path}</p>
+                          {approval.preview ? (
+                            <div className="mt-1.5 rounded border border-border bg-background p-1.5">
+                              <p className="max-h-36 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[10px] text-muted-foreground">{approval.preview}</p>
+                            </div>
+                          ) : null}
+                          <Input
+                            data-testid={`pending-approval-reason-${approval.id}`}
+                            value={rejectReason}
+                            onChange={(event) =>
+                              setApprovalRejectReasons((current) => ({
+                                ...current,
+                                [approval.id]: event.target.value,
+                              }))
+                            }
+                            placeholder="Rejection reason (required to reject)"
+                            className="mt-2 h-8 font-sans text-xs"
+                          />
+                          <div className="mt-2 flex items-center gap-1.5">
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="h-7 border-0 bg-primary text-primary-foreground hover:bg-primary/90"
+                              onClick={() => onApprovePendingAction(approval.id)}
+                              data-testid={`pending-approval-approve-${approval.id}`}
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7"
+                              onClick={() => onRejectPendingAction(approval.id, rejectReason)}
+                              disabled={!rejectReason.trim()}
+                              data-testid={`pending-approval-reject-${approval.id}`}
+                            >
+                              Reject
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              ) : null}
+
               {visibleMessages.map((message) => {
                 const inline = extractInlineActivityCards(message);
 
@@ -498,76 +568,6 @@ export function CoworkPage({
               )}
             </CardContent>
           </Card>
-
-          {pendingApprovals.length > 0 ? (
-            <Card
-              className="overflow-visible rounded-2xl border-amber-300/70 bg-amber-50/60 dark:border-amber-700/40 dark:bg-amber-950/20"
-              data-testid="pending-approvals-card"
-            >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Pending approvals ({pendingApprovals.length})</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-2 pt-0">
-                {pendingApprovals.map((approval) => {
-                  const rejectReason = approvalRejectReasons[approval.id] || '';
-                  return (
-                    <div key={approval.id} className="rounded-xl border border-border bg-card p-2" data-testid={`pending-approval-${approval.id}`}>
-                      <div className="mb-1.5 flex items-center gap-2">
-                        <Badge variant="outline" className={`rounded-full font-sans text-[10px] uppercase ${approvalRiskClasses(approval.riskLevel)}`}>
-                          {approval.riskLevel}
-                        </Badge>
-                        <p className="break-words font-sans text-[12px] text-foreground">{approval.summary}</p>
-                      </div>
-                      <p className="break-words font-sans text-[11px] text-muted-foreground">Scope: {approval.scopeName}</p>
-                      {approval.projectTitle ? (
-                        <p className="break-words font-sans text-[11px] text-muted-foreground">Project: {approval.projectTitle}</p>
-                      ) : null}
-                      <p className="break-all font-sans text-[11px] text-muted-foreground">Path: {approval.path}</p>
-                      {approval.preview ? (
-                        <div className="mt-1.5 rounded border border-border bg-background p-1.5">
-                          <p className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[10px] text-muted-foreground">{approval.preview}</p>
-                        </div>
-                      ) : null}
-                      <Input
-                        data-testid={`pending-approval-reason-${approval.id}`}
-                        value={rejectReason}
-                        onChange={(event) =>
-                          setApprovalRejectReasons((current) => ({
-                            ...current,
-                            [approval.id]: event.target.value,
-                          }))
-                        }
-                        placeholder="Rejection reason (required to reject)"
-                        className="mt-2 h-8 font-sans text-xs"
-                      />
-                      <div className="mt-2 flex items-center gap-1.5">
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="h-7 border-0 bg-primary text-primary-foreground hover:bg-primary/90"
-                          onClick={() => onApprovePendingAction(approval.id)}
-                          data-testid={`pending-approval-approve-${approval.id}`}
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="h-7"
-                          onClick={() => onRejectPendingAction(approval.id, rejectReason)}
-                          disabled={!rejectReason.trim()}
-                          data-testid={`pending-approval-reject-${approval.id}`}
-                        >
-                          Reject
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          ) : null}
 
           <Card className="overflow-hidden rounded-2xl border-border bg-card/90" data-testid="cowork-project-recents">
             <CardHeader className="pb-2">
