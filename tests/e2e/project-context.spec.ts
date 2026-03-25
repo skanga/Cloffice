@@ -408,6 +408,198 @@ test.describe('Cowork project runtime rules', () => {
     expect(afterSecondWrite.support).toBeTruthy();
   });
 
+  test('realistic flow: one project executes a multi-task sprint with approvals', async () => {
+    const project = await window.evaluate(async () => {
+      const bridge = window.relay;
+      if (!bridge?.getDownloadsPath || !bridge.createFileInFolder) {
+        throw new Error('Desktop bridge is unavailable for multi-task sprint setup.');
+      }
+
+      const downloads = await bridge.getDownloadsPath();
+      const runTag = Date.now();
+      const folderName = `relay-product-launch-${runTag}`;
+      const root = `${downloads}${downloads.endsWith('\\') ? '' : '\\'}${folderName}`;
+
+      await bridge.createFileInFolder(downloads, `${folderName}/README.md`, '# Product Launch Sprint\n', true);
+
+      return {
+        root,
+        folderName,
+      };
+    });
+
+    const projectTitle = 'Product Launch Sprint';
+    await createProjectFromSidebar(window, {
+      title: projectTitle,
+      description: 'Coordinate launch planning, QA checks, and status updates.',
+      rootFolder: project.root,
+    });
+
+    const tasks = [
+      {
+        relPath: 'plans/sprint-brief.md',
+        content: 'Task 1: defined sprint brief with goals and scope.',
+      },
+      {
+        relPath: 'plans/qa-checklist.md',
+        content: 'Task 2: prepared QA checklist for release validation.',
+      },
+      {
+        relPath: 'reports/day-1-status.md',
+        content: 'Task 3: logged day one launch status and blockers.',
+      },
+    ];
+
+    for (const [index, task] of tasks.entries()) {
+      await sendCoworkPrompt(
+        window,
+        `Sprint task ${index + 1}: Return one relay_actions append_file action for ${task.relPath} with content "${task.content}".`,
+      );
+
+      const { approvalCard } = await waitForFirstApproval(window);
+      await expect(approvalCard.getByText(`Project: ${projectTitle}`)).toBeVisible();
+
+      await approveFirstPendingAction(window);
+      await expect(window.locator('p', { hasText: 'append_file • ok' }).first()).toBeVisible({ timeout: 30000 });
+    }
+
+    const verification = await window.evaluate(async ({ root, tasks }) => {
+      const bridge = window.relay;
+      if (!bridge?.existsInFolder || !bridge.readFileInFolder) {
+        throw new Error('Desktop bridge is unavailable for multi-task sprint verification.');
+      }
+
+      const results = [] as Array<{ relPath: string; exists: boolean; content: string }>;
+
+      for (const task of tasks) {
+        const existsResult = await bridge.existsInFolder(root, task.relPath);
+        const content = existsResult.exists ? (await bridge.readFileInFolder(root, task.relPath)).content : '';
+
+        results.push({
+          relPath: task.relPath,
+          exists: existsResult.exists,
+          content,
+        });
+      }
+
+      return results;
+    }, { root: project.root, tasks });
+
+    for (const result of verification) {
+      const expectedTask = tasks.find((task) => task.relPath === result.relPath);
+      expect(expectedTask).toBeDefined();
+      expect(result.exists).toBeTruthy();
+      expect(result.content).toContain(expectedTask?.content ?? '');
+    }
+  });
+
+  test('realistic flow: one rejected task does not write while approved tasks persist', async () => {
+    const project = await window.evaluate(async () => {
+      const bridge = window.relay;
+      if (!bridge?.getDownloadsPath || !bridge.createFileInFolder) {
+        throw new Error('Desktop bridge is unavailable for mixed approval sprint setup.');
+      }
+
+      const downloads = await bridge.getDownloadsPath();
+      const runTag = Date.now();
+      const folderName = `relay-release-ops-${runTag}`;
+      const root = `${downloads}${downloads.endsWith('\\') ? '' : '\\'}${folderName}`;
+
+      await bridge.createFileInFolder(downloads, `${folderName}/README.md`, '# Release Ops Sprint\n', true);
+
+      return {
+        root,
+      };
+    });
+
+    const projectTitle = 'Release Ops Sprint';
+    await createProjectFromSidebar(window, {
+      title: projectTitle,
+      description: 'Test mixed approval outcomes in a realistic project sprint.',
+      rootFolder: project.root,
+    });
+
+    const tasks = [
+      {
+        relPath: 'plans/release-brief.md',
+        content: 'Task A: release brief approved and persisted.',
+        shouldApprove: true,
+      },
+      {
+        relPath: 'plans/rejected-risky-change.md',
+        content: 'Task B: this content should never be written due to rejection.',
+        shouldApprove: false,
+      },
+      {
+        relPath: 'reports/release-status.md',
+        content: 'Task C: release status approved and persisted.',
+        shouldApprove: true,
+      },
+    ];
+
+    for (const [index, task] of tasks.entries()) {
+      await sendCoworkPrompt(
+        window,
+        `Sprint task ${index + 1}: Return one relay_actions append_file action for ${task.relPath} with content "${task.content}".`,
+      );
+
+      const { approvalCard, approvalId } = await waitForFirstApproval(window);
+      await expect(approvalCard.getByText(`Project: ${projectTitle}`)).toBeVisible();
+
+      if (task.shouldApprove) {
+        await window.getByTestId(`pending-approval-approve-${approvalId}`).click();
+        await expect(approvalCard).toHaveCount(0);
+        await expect(window.locator('p', { hasText: 'append_file • ok' }).first()).toBeVisible({ timeout: 30000 });
+      } else {
+        const rejectReason = window.getByTestId(`pending-approval-reason-${approvalId}`);
+        const rejectButton = window.getByTestId(`pending-approval-reject-${approvalId}`);
+
+        await expect(rejectButton).toBeDisabled();
+        await rejectReason.fill('Rejected by operator during mixed sprint E2E.');
+        await expect(rejectButton).toBeEnabled();
+        await rejectButton.click();
+        await expect(approvalCard).toHaveCount(0);
+        await expect(window.locator('p', { hasText: 'append_file • error' }).first()).toBeVisible({ timeout: 30000 });
+      }
+    }
+
+    const verification = await window.evaluate(async ({ root, tasks }) => {
+      const bridge = window.relay;
+      if (!bridge?.existsInFolder || !bridge.readFileInFolder) {
+        throw new Error('Desktop bridge is unavailable for mixed sprint verification.');
+      }
+
+      const results = [] as Array<{ relPath: string; shouldApprove: boolean; exists: boolean; content: string }>;
+
+      for (const task of tasks) {
+        const existsResult = await bridge.existsInFolder(root, task.relPath);
+        const content = existsResult.exists ? (await bridge.readFileInFolder(root, task.relPath)).content : '';
+
+        results.push({
+          relPath: task.relPath,
+          shouldApprove: task.shouldApprove,
+          exists: existsResult.exists,
+          content,
+        });
+      }
+
+      return results;
+    }, { root: project.root, tasks });
+
+    for (const result of verification) {
+      const expectedTask = tasks.find((task) => task.relPath === result.relPath);
+      expect(expectedTask).toBeDefined();
+
+      if (result.shouldApprove) {
+        expect(result.exists).toBeTruthy();
+        expect(result.content).toContain(expectedTask?.content ?? '');
+      } else {
+        expect(result.exists).toBeFalsy();
+        expect(result.content).toBe('');
+      }
+    }
+  });
+
   test('projects can be renamed and deleted from sidebar with persistence', async () => {
     const workspaceRoot = await window.evaluate(async () => {
       const bridge = window.relay;
