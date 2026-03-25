@@ -6,6 +6,8 @@ import type {
   ChatActivityItem,
   ChatMessage,
   ChatModelOption,
+  CoworkProjectTask,
+  CoworkProjectTaskStatus,
   CoworkProject,
   CoworkRunPhase,
   HealthCheckResult,
@@ -91,6 +93,7 @@ const DEFAULT_GATEWAY_URL = 'ws://127.0.0.1:18789';
 const LOCAL_CONFIG_KEY = 'relay.config';
 const COWORK_PROJECTS_STORAGE_KEY = 'relay.cowork.projects.v1';
 const COWORK_ACTIVE_PROJECT_STORAGE_KEY = 'relay.cowork.projects.active.v1';
+const COWORK_TASKS_STORAGE_KEY = 'relay.cowork.tasks.v1';
 
 const defaultConfig: AppConfig = {
   gatewayUrl: DEFAULT_GATEWAY_URL,
@@ -124,6 +127,12 @@ type CoworkRunProjectContext = {
   projectTitle: string;
   rootFolder: string;
   startedAt: number;
+};
+
+type CoworkTaskQueueEntry = {
+  taskId: string;
+  runId?: string;
+  status: CoworkProjectTaskStatus;
 };
 
 function validateProjectRelativePath(inputPath: string, options?: { allowEmpty?: boolean }): { ok: true } | { ok: false; reason: string } {
@@ -197,6 +206,63 @@ function loadActiveCoworkProjectId(): string {
   }
 }
 
+function loadCoworkTasks(): CoworkProjectTask[] {
+  try {
+    const raw = localStorage.getItem(COWORK_TASKS_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((entry): CoworkProjectTask | null => {
+        if (!entry || typeof entry !== 'object') {
+          return null;
+        }
+
+        const record = entry as Record<string, unknown>;
+        const id = typeof record.id === 'string' ? record.id.trim() : '';
+        const projectId = typeof record.projectId === 'string' ? record.projectId.trim() : '';
+        const projectTitle = typeof record.projectTitle === 'string' ? record.projectTitle.trim() : '';
+        const sessionKey = typeof record.sessionKey === 'string' ? record.sessionKey.trim() : '';
+        const runId = typeof record.runId === 'string' ? record.runId.trim() : undefined;
+        const prompt = typeof record.prompt === 'string' ? record.prompt : '';
+        const status = typeof record.status === 'string' ? (record.status as CoworkProjectTaskStatus) : 'queued';
+        const summary = typeof record.summary === 'string' ? record.summary : undefined;
+        const outcome = typeof record.outcome === 'string' ? record.outcome : undefined;
+        const createdAt = typeof record.createdAt === 'number' ? record.createdAt : Date.now();
+        const updatedAt = typeof record.updatedAt === 'number' ? record.updatedAt : createdAt;
+
+        if (!id || !projectId || !sessionKey || !prompt) {
+          return null;
+        }
+
+        return {
+          id,
+          projectId,
+          projectTitle,
+          sessionKey,
+          runId,
+          prompt,
+          status,
+          summary,
+          outcome,
+          createdAt,
+          updatedAt,
+        };
+      })
+      .filter((item): item is CoworkProjectTask => item !== null)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, 250);
+  } catch {
+    return [];
+  }
+}
+
 declare global {
   interface Window {
     relayE2E?: RelayE2EBridge;
@@ -226,6 +292,7 @@ export default function App() {
   const approvalResolversRef = useRef<Map<string, ApprovalResolverEntry>>(new Map());
   const pendingCoworkRunContextsRef = useRef<Map<string, CoworkRunProjectContext[]>>(new Map());
   const resolvedCoworkRunContextsRef = useRef<Map<string, CoworkRunProjectContext>>(new Map());
+  const pendingCoworkTaskQueueRef = useRef<Map<string, CoworkTaskQueueEntry[]>>(new Map());
 
   const [config, setConfig] = useState<AppConfig>(defaultConfig);
   const [configReady, setConfigReady] = useState(false);
@@ -267,6 +334,7 @@ export default function App() {
   const [workingFolder, setWorkingFolder] = useState('/Downloads');
   const [coworkProjects, setCoworkProjects] = useState<CoworkProject[]>(() => loadCoworkProjects());
   const [activeCoworkProjectId, setActiveCoworkProjectId] = useState(() => loadActiveCoworkProjectId());
+  const [coworkTasks, setCoworkTasks] = useState<CoworkProjectTask[]>(() => loadCoworkTasks());
   const [taskState, setTaskState] = useState<TaskState>('idle');
   const [localPlanActions, setLocalPlanActions] = useState<LocalFilePlanAction[]>([]);
   const [localPlanLoading, setLocalPlanLoading] = useState(false);
@@ -325,6 +393,91 @@ export default function App() {
     () => coworkProjects.find((project) => project.id === activeCoworkProjectId) ?? null,
     [coworkProjects, activeCoworkProjectId],
   );
+  const visibleCoworkTasks = useMemo(() => {
+    if (!activeCoworkProjectId) {
+      return [] as CoworkProjectTask[];
+    }
+    return coworkTasks
+      .filter((task) => task.projectId === activeCoworkProjectId)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, 25);
+  }, [activeCoworkProjectId, coworkTasks]);
+
+  const setCoworkTaskStatus = (
+    taskId: string,
+    status: CoworkProjectTaskStatus,
+    options?: { summary?: string; outcome?: string; runId?: string },
+  ) => {
+    const now = Date.now();
+    setCoworkTasks((current) =>
+      current.map((task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              status,
+              runId: options?.runId ?? task.runId,
+              summary: options?.summary ?? task.summary,
+              outcome: options?.outcome ?? task.outcome,
+              updatedAt: now,
+            }
+          : task,
+      ),
+    );
+  };
+
+  const queueCoworkTask = (sessionKey: string, entry: CoworkTaskQueueEntry) => {
+    const normalized = normalizeSessionKey(sessionKey);
+    if (!normalized) {
+      return;
+    }
+
+    const queue = pendingCoworkTaskQueueRef.current.get(normalized) ?? [];
+    pendingCoworkTaskQueueRef.current.set(normalized, [...queue, entry]);
+  };
+
+  const resolveCoworkTaskForRun = (sessionKey: string, runId: string): CoworkTaskQueueEntry | null => {
+    const normalized = normalizeSessionKey(sessionKey);
+    if (!normalized) {
+      return null;
+    }
+
+    const queue = pendingCoworkTaskQueueRef.current.get(normalized) ?? [];
+    if (queue.length === 0) {
+      return null;
+    }
+
+    let index = queue.findIndex((item) => item.runId === runId);
+    if (index < 0) {
+      index = queue.findIndex((item) => !item.runId);
+    }
+    if (index < 0) {
+      index = 0;
+    }
+
+    const selected = queue[index];
+    const updated: CoworkTaskQueueEntry = {
+      ...selected,
+      runId,
+    };
+    queue[index] = updated;
+    pendingCoworkTaskQueueRef.current.set(normalized, queue);
+    return updated;
+  };
+
+  const finalizeCoworkTaskRun = (sessionKey: string, taskId: string) => {
+    const normalized = normalizeSessionKey(sessionKey);
+    if (!normalized) {
+      return;
+    }
+
+    const queue = pendingCoworkTaskQueueRef.current.get(normalized) ?? [];
+    const next = queue.filter((entry) => entry.taskId !== taskId);
+    if (next.length > 0) {
+      pendingCoworkTaskQueueRef.current.set(normalized, next);
+    } else {
+      pendingCoworkTaskQueueRef.current.delete(normalized);
+    }
+  };
 
   const enqueueCoworkRunContext = (sessionKey: string, context: CoworkRunProjectContext) => {
     const normalizedSessionKey = normalizeSessionKey(sessionKey);
@@ -715,6 +868,14 @@ export default function App() {
 
   useEffect(() => {
     try {
+      localStorage.setItem(COWORK_TASKS_STORAGE_KEY, JSON.stringify(coworkTasks.slice(0, 250)));
+    } catch {
+      // ignore persistence failures
+    }
+  }, [coworkTasks]);
+
+  useEffect(() => {
+    try {
       if (activeCoworkProjectId) {
         localStorage.setItem(COWORK_ACTIVE_PROJECT_STORAGE_KEY, activeCoworkProjectId);
       } else {
@@ -737,6 +898,16 @@ export default function App() {
 
     setActiveCoworkProjectId(coworkProjects[0]?.id ?? '');
   }, [activeCoworkProjectId, coworkProjects]);
+
+  useEffect(() => {
+    if (coworkProjects.length === 0) {
+      setCoworkTasks([]);
+      return;
+    }
+
+    const validProjectIds = new Set(coworkProjects.map((project) => project.id));
+    setCoworkTasks((current) => current.filter((task) => validProjectIds.has(task.projectId)));
+  }, [coworkProjects]);
 
   useEffect(() => {
     if (!activeCoworkProject) {
@@ -1205,6 +1376,15 @@ export default function App() {
                 : 'Cowork stream failed.';
             setCoworkRunStatus(errorMessage);
             setStatus(errorMessage);
+            const taskEntry = resolveCoworkTaskForRun(eventSessionKey || coworkSessionKeyRef.current, runId);
+            if (taskEntry) {
+              setCoworkTaskStatus(taskEntry.taskId, 'failed', {
+                runId,
+                summary: errorMessage,
+                outcome: errorMessage,
+              });
+              finalizeCoworkTaskRun(eventSessionKey || coworkSessionKeyRef.current, taskEntry.taskId);
+            }
             return;
           }
 
@@ -1213,6 +1393,13 @@ export default function App() {
             setCoworkRunPhase('streaming');
             setCoworkRunStatus('Cowork is streaming a response.');
             setCoworkStreamingText(visibleText);
+            const taskEntry = resolveCoworkTaskForRun(eventSessionKey || coworkSessionKeyRef.current, runId);
+            if (taskEntry) {
+              setCoworkTaskStatus(taskEntry.taskId, 'running', {
+                runId,
+                summary: 'Streaming response from cowork.',
+              });
+            }
             const streamId = `cowork-stream-${runId}`;
             setCoworkMessages((current) => {
               if (!visibleText) {
@@ -1319,6 +1506,13 @@ export default function App() {
 
             const actionRunKey = `${eventSessionKey || 'unknown'}:${runId}`;
             const runContext = resolveCoworkRunContext(eventSessionKey || coworkSessionKeyRef.current, runId);
+            const taskEntry = resolveCoworkTaskForRun(eventSessionKey || coworkSessionKeyRef.current, runId);
+            if (taskEntry) {
+              setCoworkTaskStatus(taskEntry.taskId, 'completed', {
+                runId,
+                summary: state === 'aborted' ? 'Run ended early.' : 'Run completed.',
+              });
+            }
             if (
               relayActions.length > 0 &&
               !executedCoworkActionRunsRef.current.has(actionRunKey)
@@ -1334,6 +1528,17 @@ export default function App() {
                   setCoworkRunStatus(summary);
                   setStatus(summary);
                   pushLocalActionReceipts(actionReceipts);
+
+                  if (taskEntry) {
+                    const nextStatus: CoworkProjectTaskStatus =
+                      errors.length > 0 ? 'failed' : actionReceipts.some((item) => item.status === 'ok') ? 'completed' : 'failed';
+                    setCoworkTaskStatus(taskEntry.taskId, nextStatus, {
+                      runId,
+                      summary,
+                      outcome: errors.length > 0 ? errors.join('\n') : previews.join('\n'),
+                    });
+                    finalizeCoworkTaskRun(eventSessionKey || coworkSessionKeyRef.current, taskEntry.taskId);
+                  }
 
                   const machineReadableReceipt = {
                     relay_action_receipts: actionReceipts,
@@ -1506,6 +1711,12 @@ export default function App() {
                         : summarizeActionPreview(action);
 
                     setCoworkRunStatus(`Awaiting approval for ${action.type} (${actionPath})...`);
+                    if (taskEntry) {
+                      setCoworkTaskStatus(taskEntry.taskId, 'needs_approval', {
+                        runId,
+                        summary: `Needs approval: ${action.type} ${actionPath}`,
+                      });
+                    }
                     const decision = await requestActionApproval({
                       id: approvalId,
                       runId,
@@ -1527,6 +1738,13 @@ export default function App() {
                       const reason = decision.reason || 'Rejected by operator.';
                       const code = decision.expired ? 'APPROVAL_TIMEOUT' : 'REJECTED_BY_OPERATOR';
                       errors.push(`${actionPath}: ${reason}`);
+                      if (taskEntry) {
+                        setCoworkTaskStatus(taskEntry.taskId, 'rejected', {
+                          runId,
+                          summary: `Rejected: ${action.type} ${actionPath}`,
+                          outcome: reason,
+                        });
+                      }
                       actionReceipts.push({
                         id: actionId,
                         type: action.type,
@@ -1539,6 +1757,12 @@ export default function App() {
                     }
 
                     previews.push(`Approved ${action.type} -> ${actionPath}`);
+                    if (taskEntry) {
+                      setCoworkTaskStatus(taskEntry.taskId, 'approved', {
+                        runId,
+                        summary: `Approved: ${action.type} ${actionPath}`,
+                      });
+                    }
                   }
 
                   try {
@@ -1713,6 +1937,15 @@ export default function App() {
                 postActionReceipt(summary, actionReceipts, previews, errors);
               })();
             } else if (relayActions.length === 0) {
+              if (taskEntry) {
+                setCoworkTaskStatus(taskEntry.taskId, 'completed', {
+                  runId,
+                  summary: 'No relay actions requested; assistant response completed.',
+                  outcome: visibleText,
+                });
+                finalizeCoworkTaskRun(eventSessionKey || coworkSessionKeyRef.current, taskEntry.taskId);
+              }
+
               const noActionMessage: ChatMessage = {
                 id: `cowork-actions-missing-${runId}`,
                 role: 'system',
@@ -2065,6 +2298,30 @@ export default function App() {
         commitCoworkSessionKey(sessionKey);
       }
 
+      const now = Date.now();
+      const queuedTaskId = `task-${now}-${Math.random().toString(36).slice(2, 8)}`;
+      const projectId = activeCoworkProject?.id ?? 'unscoped';
+      const projectTitle = activeCoworkProject?.name ?? 'Unscoped';
+
+      setCoworkTasks((current) => {
+        const next: CoworkProjectTask = {
+          id: queuedTaskId,
+          projectId,
+          projectTitle,
+          sessionKey,
+          prompt: text,
+          status: 'queued',
+          summary: 'Task queued for execution.',
+          createdAt: now,
+          updatedAt: now,
+        };
+        return [next, ...current].slice(0, 250);
+      });
+      queueCoworkTask(sessionKey, {
+        taskId: queuedTaskId,
+        status: 'queued',
+      });
+
       setTaskState('planned');
       setCoworkAwaitingStream(true);
       const outboundMessageId = `cowork-user-${Date.now()}`;
@@ -2083,6 +2340,11 @@ export default function App() {
       }
 
       const folderContext = workingFolderRef.current;
+
+      setCoworkTaskStatus(queuedTaskId, 'running', {
+        summary: 'Sending task to cowork.',
+      });
+
       enqueueCoworkRunContext(sessionKey, {
         projectId: activeCoworkProject?.id ?? '',
         projectTitle: activeCoworkProject?.name ?? '',
@@ -3178,6 +3440,7 @@ export default function App() {
                   fileCreateLoading={localFileCreateLoading}
                   localActionReceipts={localActionReceipts}
                   pendingApprovals={pendingApprovals}
+                  projectTasks={visibleCoworkTasks}
                   localActionSmokeRunning={localActionSmokeRunning}
                   fileDraftPath={localFileDraftPath}
                   fileDraftContent={localFileDraftContent}

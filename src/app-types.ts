@@ -153,6 +153,29 @@ export type LocalActionReceipt = {
 
 export type TaskState = 'idle' | 'planned';
 
+export type CoworkProjectTaskStatus =
+  | 'queued'
+  | 'running'
+  | 'needs_approval'
+  | 'approved'
+  | 'rejected'
+  | 'completed'
+  | 'failed';
+
+export type CoworkProjectTask = {
+  id: string;
+  projectId: string;
+  projectTitle: string;
+  sessionKey: string;
+  runId?: string;
+  prompt: string;
+  status: CoworkProjectTaskStatus;
+  summary?: string;
+  outcome?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type CoworkRunPhase = 'idle' | 'sending' | 'streaming' | 'completed' | 'error';
 
 export type SafetyRiskLevel = 'low' | 'medium' | 'high' | 'critical';

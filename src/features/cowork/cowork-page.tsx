@@ -8,6 +8,8 @@ import type {
   ChatActivityItem,
   ChatMessage,
   ChatModelOption,
+  CoworkProjectTask,
+  CoworkProjectTaskStatus,
   CoworkRunPhase,
   LocalActionReceipt,
   LocalFilePlanAction,
@@ -52,6 +54,7 @@ type CoworkPageProps = {
   fileCreateLoading: boolean;
   localActionReceipts: LocalActionReceipt[];
   pendingApprovals: PendingApprovalAction[];
+  projectTasks: CoworkProjectTask[];
   localActionSmokeRunning: boolean;
   fileDraftPath: string;
   fileDraftContent: string;
@@ -61,7 +64,7 @@ type CoworkPageProps = {
   onModelChange: (value: string) => void;
   onFileDraftPathChange: (value: string) => void;
   onFileDraftContentChange: (value: string) => void;
-  onPickWorkingFolder: () => void | Promise<void>;
+  onPickWorkingFolder: () => void | Promise<void | string | undefined>;
   onSubmit: (event: FormEvent) => void | Promise<void>;
   onCreateLocalPlan: () => void | Promise<void>;
   onApplyLocalPlan: () => void | Promise<void>;
@@ -110,6 +113,30 @@ function runPhaseLabel(phase: CoworkRunPhase): string {
   return 'Idle';
 }
 
+function taskStatusClasses(status: CoworkProjectTaskStatus): string {
+  if (status === 'completed') {
+    return 'border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
+  }
+  if (status === 'failed' || status === 'rejected') {
+    return 'border-destructive/35 bg-destructive/10 text-destructive';
+  }
+  if (status === 'needs_approval') {
+    return 'border-amber-500/40 bg-amber-500/12 text-amber-800 dark:text-amber-300';
+  }
+  if (status === 'approved') {
+    return 'border-blue-500/40 bg-blue-500/12 text-blue-700 dark:text-blue-300';
+  }
+  if (status === 'running') {
+    return 'border-violet-500/35 bg-violet-500/12 text-violet-700 dark:text-violet-300';
+  }
+  return 'border-border bg-muted text-muted-foreground';
+}
+
+function taskStatusLabel(status: CoworkProjectTaskStatus): string {
+  if (status === 'needs_approval') return 'Needs approval';
+  return status.replace('_', ' ');
+}
+
 function isSystemLikeMessage(message: ChatMessage): boolean {
   return message.role === 'system' && message.meta?.kind !== 'activity';
 }
@@ -152,6 +179,7 @@ export function CoworkPage({
   fileCreateLoading,
   localActionReceipts,
   pendingApprovals,
+  projectTasks,
   localActionSmokeRunning,
   fileDraftPath,
   fileDraftContent,
@@ -251,7 +279,7 @@ export function CoworkPage({
     <section
       className={`grid h-full w-full min-h-0 overflow-hidden transition-[grid-template-columns,gap] duration-200 ${
         rightPanelOpen
-          ? 'gap-4 grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_300px]'
+          ? 'gap-4 grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_420px]'
           : 'gap-0 grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_0px]'
       } p-0`}
     >
@@ -373,14 +401,49 @@ export function CoworkPage({
       </div>
 
       <aside
-        className={`grid min-h-0 w-full overflow-hidden transition-opacity duration-200 lg:grid-rows-[auto_auto_minmax(0,1fr)] ${
+        className={`min-h-0 w-full transition-opacity duration-200 ${
           rightPanelOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
         }`}
       >
-        <div className="grid min-h-0 w-full gap-3">
+        <div className="flex h-full min-h-0 w-full flex-col gap-3 overflow-y-auto pr-1">
+          <Card className="overflow-visible rounded-2xl border-border bg-card/90" data-testid="project-tasks-card">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Project tasks ({projectTasks.length})</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2 pt-0">
+              {projectTasks.length === 0 ? (
+                <p className="font-sans text-xs text-muted-foreground">No tasks yet for this project.</p>
+              ) : (
+                <div className="grid gap-2">
+                  {projectTasks.map((task) => (
+                    <div key={task.id} className="rounded-xl border border-border bg-background p-2" data-testid={`project-task-${task.id}`}>
+                      <div className="mb-1.5 flex items-center gap-2">
+                        <Badge
+                          variant="outline"
+                          className={`rounded-full font-sans text-[10px] capitalize ${taskStatusClasses(task.status)}`}
+                          data-testid={`project-task-status-${task.id}`}
+                        >
+                          {taskStatusLabel(task.status)}
+                        </Badge>
+                        {task.runId ? <span className="font-mono text-[10px] text-muted-foreground">{task.runId}</span> : null}
+                      </div>
+                      <p className="whitespace-pre-wrap break-words font-sans text-[12px] text-foreground">{task.prompt}</p>
+                      {task.summary ? (
+                        <p className="mt-1 whitespace-pre-wrap break-words font-sans text-[11px] text-muted-foreground">{task.summary}</p>
+                      ) : null}
+                      <p className="mt-1 font-sans text-[10px] text-muted-foreground">
+                        Updated {new Date(task.updatedAt).toLocaleTimeString()}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {pendingApprovals.length > 0 ? (
             <Card
-              className="rounded-2xl border-amber-300/70 bg-amber-50/60 dark:border-amber-700/40 dark:bg-amber-950/20"
+              className="overflow-visible rounded-2xl border-amber-300/70 bg-amber-50/60 dark:border-amber-700/40 dark:bg-amber-950/20"
               data-testid="pending-approvals-card"
             >
               <CardHeader className="pb-2">
@@ -395,16 +458,16 @@ export function CoworkPage({
                         <Badge variant="outline" className={`rounded-full font-sans text-[10px] uppercase ${approvalRiskClasses(approval.riskLevel)}`}>
                           {approval.riskLevel}
                         </Badge>
-                        <p className="truncate font-sans text-[12px] text-foreground">{approval.summary}</p>
+                        <p className="break-words font-sans text-[12px] text-foreground">{approval.summary}</p>
                       </div>
-                      <p className="truncate font-sans text-[11px] text-muted-foreground">Scope: {approval.scopeName}</p>
+                      <p className="break-words font-sans text-[11px] text-muted-foreground">Scope: {approval.scopeName}</p>
                       {approval.projectTitle ? (
-                        <p className="truncate font-sans text-[11px] text-muted-foreground">Project: {approval.projectTitle}</p>
+                        <p className="break-words font-sans text-[11px] text-muted-foreground">Project: {approval.projectTitle}</p>
                       ) : null}
-                      <p className="truncate font-sans text-[11px] text-muted-foreground">Path: {approval.path}</p>
+                      <p className="break-all font-sans text-[11px] text-muted-foreground">Path: {approval.path}</p>
                       {approval.preview ? (
                         <div className="mt-1.5 rounded border border-border bg-background p-1.5">
-                          <p className="line-clamp-4 whitespace-pre-wrap font-mono text-[10px] text-muted-foreground">{approval.preview}</p>
+                          <p className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[10px] text-muted-foreground">{approval.preview}</p>
                         </div>
                       ) : null}
                       <Input
@@ -448,7 +511,7 @@ export function CoworkPage({
             </Card>
           ) : null}
 
-          <Card className="rounded-2xl border-border bg-card/90">
+          <Card className="overflow-visible rounded-2xl border-border bg-card/90">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Run status</CardTitle>
             </CardHeader>
@@ -462,7 +525,7 @@ export function CoworkPage({
             </CardContent>
           </Card>
 
-          <Card className="rounded-2xl border-border bg-card/90">
+          <Card className="overflow-visible rounded-2xl border-border bg-card/90">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Working folder</CardTitle>
             </CardHeader>
@@ -532,11 +595,11 @@ export function CoworkPage({
             </CardContent>
           </Card>
 
-          <Card className="min-h-0 rounded-2xl border-border bg-card/90">
+          <Card className="overflow-visible rounded-2xl border-border bg-card/90">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Context</CardTitle>
             </CardHeader>
-            <CardContent className="grid h-full min-h-0 gap-2 pt-0">
+            <CardContent className="grid gap-2 pt-0">
               <div>
                 <p className="font-sans text-[11px] uppercase tracking-wide text-muted-foreground">Connectors</p>
                 <div className="mt-1 flex flex-wrap gap-1.5">

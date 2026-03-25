@@ -600,6 +600,251 @@ test.describe('Cowork project runtime rules', () => {
     }
   });
 
+  test('task queue statuses reflect approval and rejection outcomes', async () => {
+    const project = await window.evaluate(async () => {
+      const bridge = window.relay;
+      if (!bridge?.getDownloadsPath || !bridge.createFileInFolder) {
+        throw new Error('Desktop bridge is unavailable for task queue status setup.');
+      }
+
+      const downloads = await bridge.getDownloadsPath();
+      const runTag = Date.now();
+      const folderName = `relay-task-queue-status-${runTag}`;
+      const root = `${downloads}${downloads.endsWith('\\') ? '' : '\\'}${folderName}`;
+
+      await bridge.createFileInFolder(downloads, `${folderName}/README.md`, '# Task Queue Status\n', true);
+
+      return {
+        root,
+      };
+    });
+
+    await createProjectFromSidebar(window, {
+      title: 'Task Queue Status Project',
+      description: 'Verify task queue status transitions for approvals and rejections.',
+      rootFolder: project.root,
+    });
+
+    await expect(window.getByTestId('project-tasks-card')).toBeVisible();
+
+    const approvedPrompt = 'QUEUE-STATUS-APPROVED: Return one relay_actions append_file action for queue/approved.md with content "approved task".';
+    await sendCoworkPrompt(window, approvedPrompt);
+
+    const approvedTaskItem = window.locator('[data-testid^="project-task-"]', {
+      hasText: 'QUEUE-STATUS-APPROVED',
+    }).first();
+    await expect(approvedTaskItem).toBeVisible({ timeout: 20000 });
+    await expect(approvedTaskItem).toContainText(/needs approval|running/i);
+
+    const { approvalCard: approvedCard, approvalId: approvedApprovalId } = await waitForFirstApproval(window);
+    await window.getByTestId(`pending-approval-approve-${approvedApprovalId}`).click();
+    await expect(approvedCard).toHaveCount(0);
+    await expect(window.locator('p', { hasText: 'append_file • ok' }).first()).toBeVisible({ timeout: 30000 });
+    await expect(approvedTaskItem).toContainText(/completed/i);
+
+    const rejectedPrompt = 'QUEUE-STATUS-REJECTED: Return one relay_actions append_file action for queue/rejected.md with content "rejected task".';
+    await sendCoworkPrompt(window, rejectedPrompt);
+
+    const rejectedTaskItem = window.locator('[data-testid^="project-task-"]', {
+      hasText: 'QUEUE-STATUS-REJECTED',
+    }).first();
+    await expect(rejectedTaskItem).toBeVisible({ timeout: 20000 });
+    await expect(rejectedTaskItem).toContainText(/needs approval|running/i);
+
+    const { approvalCard: rejectedCard, approvalId: rejectedApprovalId } = await waitForFirstApproval(window);
+    const rejectReason = window.getByTestId(`pending-approval-reason-${rejectedApprovalId}`);
+    await rejectReason.fill('Reject queue status task in E2E.');
+    await window.getByTestId(`pending-approval-reject-${rejectedApprovalId}`).click();
+    await expect(rejectedCard).toHaveCount(0);
+    await expect(window.locator('p', { hasText: 'append_file • error' }).first()).toBeVisible({ timeout: 30000 });
+    await expect(rejectedTaskItem).toContainText(/failed|rejected/i);
+
+    const fileCheck = await window.evaluate(async (root) => {
+      const bridge = window.relay;
+      if (!bridge?.existsInFolder) {
+        throw new Error('Desktop bridge is unavailable for queue status verification.');
+      }
+
+      const approved = await bridge.existsInFolder(root, 'queue/approved.md');
+      const rejected = await bridge.existsInFolder(root, 'queue/rejected.md');
+
+      return {
+        approved: approved.exists,
+        rejected: rejected.exists,
+      };
+    }, project.root);
+
+    expect(fileCheck.approved).toBeTruthy();
+    expect(fileCheck.rejected).toBeFalsy();
+  });
+
+  test('long realistic flow: multi-project operations week with mixed outcomes and persistence', async () => {
+    test.setTimeout(240000);
+
+    const roots = await window.evaluate(async () => {
+      const bridge = window.relay;
+      if (!bridge?.getDownloadsPath || !bridge.createFileInFolder) {
+        throw new Error('Desktop bridge is unavailable for long realistic setup.');
+      }
+
+      const downloads = await bridge.getDownloadsPath();
+      const runTag = Date.now();
+      const opsFolder = `relay-ops-week-${runTag}`;
+      const supportFolder = `relay-support-week-${runTag}`;
+      const opsRoot = `${downloads}${downloads.endsWith('\\') ? '' : '\\'}${opsFolder}`;
+      const supportRoot = `${downloads}${downloads.endsWith('\\') ? '' : '\\'}${supportFolder}`;
+
+      await bridge.createFileInFolder(downloads, `${opsFolder}/README.md`, '# Ops Week\n', true);
+      await bridge.createFileInFolder(downloads, `${supportFolder}/README.md`, '# Support Week\n', true);
+
+      return {
+        opsRoot,
+        supportRoot,
+      };
+    });
+
+    await createProjectFromSidebar(window, {
+      title: 'Ops Week Project',
+      description: 'Daily operations planning and reporting.',
+      rootFolder: roots.opsRoot,
+    });
+
+    await createProjectFromSidebar(window, {
+      title: 'Support Week Project',
+      description: 'Support escalations and customer follow-up.',
+      rootFolder: roots.supportRoot,
+    });
+
+    await window.locator('button[data-slot="sidebar-menu-button"]', { hasText: 'Ops Week Project' }).click();
+
+    const runCoworkTask = async (args: {
+      tag: string;
+      prompt: string;
+      expectsApproval: boolean;
+      approve?: boolean;
+      rejectReason?: string;
+      expectedStatusPattern: RegExp;
+    }) => {
+      await sendCoworkPrompt(window, args.prompt);
+
+      const taskItem = window.locator('[data-testid^="project-task-"]', { hasText: args.tag }).first();
+      await expect(taskItem).toBeVisible({ timeout: 25000 });
+
+      if (args.expectsApproval) {
+        const { approvalCard, approvalId } = await waitForFirstApproval(window, 30000);
+
+        if (args.approve === false) {
+          const reason = args.rejectReason || 'Rejected by long realistic E2E flow.';
+          const rejectReasonInput = window.getByTestId(`pending-approval-reason-${approvalId}`);
+          const rejectButton = window.getByTestId(`pending-approval-reject-${approvalId}`);
+          await rejectReasonInput.fill(reason);
+          await expect(rejectButton).toBeEnabled();
+          await rejectButton.click();
+          await expect(approvalCard).toHaveCount(0);
+          await expect(window.locator('p', { hasText: 'append_file • error' }).first()).toBeVisible({ timeout: 30000 });
+        } else {
+          await window.getByTestId(`pending-approval-approve-${approvalId}`).click();
+          await expect(approvalCard).toHaveCount(0);
+          await expect(window.locator('p', { hasText: 'append_file • ok' }).first()).toBeVisible({ timeout: 30000 });
+        }
+      } else {
+        await expect(window.locator('[data-testid^="pending-approval-"]')).toHaveCount(0, { timeout: 15000 });
+      }
+
+      await expect(taskItem).toContainText(args.expectedStatusPattern, { timeout: 30000 });
+    };
+
+    await runCoworkTask({
+      tag: 'LONG-OPS-A1',
+      prompt: 'LONG-OPS-A1: Return one relay_actions append_file action for ops/day1-plan.md with content "day1 plan approved".',
+      expectsApproval: true,
+      approve: true,
+      expectedStatusPattern: /completed/i,
+    });
+
+    await runCoworkTask({
+      tag: 'LONG-OPS-A2',
+      prompt: 'LONG-OPS-A2: Return one relay_actions append_file action for ops/day1-standup.md with content "standup notes approved".',
+      expectsApproval: true,
+      approve: true,
+      expectedStatusPattern: /completed/i,
+    });
+
+    await runCoworkTask({
+      tag: 'LONG-OPS-A3',
+      prompt: 'LONG-OPS-A3: Return one relay_actions append_file action for ops/risky-change.md with content "this must be rejected".',
+      expectsApproval: true,
+      approve: false,
+      rejectReason: 'Risky change rejected in long realistic E2E.',
+      expectedStatusPattern: /failed|rejected/i,
+    });
+
+    await runCoworkTask({
+      tag: 'LONG-OPS-A4',
+      prompt: 'LONG-OPS-A4: Provide a plain text operations summary only. Do not return relay_actions or JSON.',
+      expectsApproval: true,
+      approve: true,
+      expectedStatusPattern: /completed/i,
+    });
+
+    await runCoworkTask({
+      tag: 'LONG-OPS-A5',
+      prompt: 'LONG-OPS-A5: Return one relay_actions append_file action for reports/day1-closeout.md with content "closeout approved".',
+      expectsApproval: true,
+      approve: true,
+      expectedStatusPattern: /completed/i,
+    });
+
+    await window.locator('button[data-slot="sidebar-menu-button"]', { hasText: 'Support Week Project' }).click();
+
+    await runCoworkTask({
+      tag: 'LONG-OPS-B1',
+      prompt: 'LONG-OPS-B1: Return one relay_actions append_file action for support/escalation-log.md with content "escalation logged".',
+      expectsApproval: true,
+      approve: true,
+      expectedStatusPattern: /completed/i,
+    });
+
+    const fileCheck = await window.evaluate(async ({ opsRoot, supportRoot }) => {
+      const bridge = window.relay;
+      if (!bridge?.existsInFolder) {
+        throw new Error('Desktop bridge is unavailable for long realistic verification.');
+      }
+
+      const checks = {
+        opsPlan: await bridge.existsInFolder(opsRoot, 'ops/day1-plan.md'),
+        opsStandup: await bridge.existsInFolder(opsRoot, 'ops/day1-standup.md'),
+        opsRisky: await bridge.existsInFolder(opsRoot, 'ops/risky-change.md'),
+        opsCloseout: await bridge.existsInFolder(opsRoot, 'reports/day1-closeout.md'),
+        supportEscalation: await bridge.existsInFolder(supportRoot, 'support/escalation-log.md'),
+      };
+
+      return {
+        opsPlan: checks.opsPlan.exists,
+        opsStandup: checks.opsStandup.exists,
+        opsRisky: checks.opsRisky.exists,
+        opsCloseout: checks.opsCloseout.exists,
+        supportEscalation: checks.supportEscalation.exists,
+      };
+    }, roots);
+
+    expect(fileCheck.opsPlan).toBeTruthy();
+    expect(fileCheck.opsStandup).toBeTruthy();
+    expect(fileCheck.opsRisky).toBeFalsy();
+    expect(fileCheck.opsCloseout).toBeTruthy();
+    expect(fileCheck.supportEscalation).toBeTruthy();
+
+    await window.reload();
+    await window.waitForLoadState('domcontentloaded');
+
+    await window.locator('button[data-slot="sidebar-menu-button"]', { hasText: 'Ops Week Project' }).click();
+    await expect(window.getByTestId('project-tasks-card')).toContainText('LONG-OPS-A1');
+    await expect(window.getByTestId('project-tasks-card')).toContainText('LONG-OPS-A3');
+
+    await window.locator('button[data-slot="sidebar-menu-button"]', { hasText: 'Support Week Project' }).click();
+    await expect(window.getByTestId('project-tasks-card')).toContainText('LONG-OPS-B1');
+  });
+
   test('projects can be renamed and deleted from sidebar with persistence', async () => {
     const workspaceRoot = await window.evaluate(async () => {
       const bridge = window.relay;
