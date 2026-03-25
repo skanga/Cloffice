@@ -615,6 +615,9 @@ export function CoworkPage({
                           {item.type} • {item.status}
                         </p>
                         <p className="truncate font-sans text-[10px] text-muted-foreground">{item.path}</p>
+                        {item.status === 'error' && item.errorCode ? (
+                          <p className="font-mono text-[10px] text-destructive">{item.errorCode}</p>
+                        ) : null}
                       </div>
                     ))}
                   </div>

@@ -224,7 +224,7 @@ test.describe('Cowork approval flow', () => {
         return read.content;
       });
 
-      expect(fileContent).toContain('line from mock gateway');
+      expect(fileContent).toContain('line from run 3');
     });
 
     test('mock gateway: disabled file-modify policy blocks append without approval card', async () => {

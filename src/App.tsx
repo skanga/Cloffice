@@ -2300,6 +2300,63 @@ export default function App() {
     setStatus(`Project created: ${normalizedName}`);
   };
 
+  const handleRenameCoworkProject = (projectId: string, name: string, description?: string) => {
+    const normalizedProjectId = projectId.trim();
+    const normalizedName = name.trim();
+    const normalizedDescription = description?.trim() ?? '';
+    if (!normalizedProjectId || !normalizedName) {
+      setStatus('Project name is required.');
+      return;
+    }
+
+    let renamedProjectName = '';
+    setCoworkProjects((current) =>
+      current.map((project) => {
+        if (project.id !== normalizedProjectId) {
+          return project;
+        }
+
+        renamedProjectName = normalizedName;
+        return {
+          ...project,
+          name: normalizedName,
+          description: normalizedDescription || undefined,
+          updatedAt: Date.now(),
+        };
+      }),
+    );
+
+    if (renamedProjectName) {
+      setStatus(`Project updated: ${renamedProjectName}`);
+    }
+  };
+
+  const handleDeleteCoworkProject = (projectId: string) => {
+    const normalizedProjectId = projectId.trim();
+    if (!normalizedProjectId) {
+      return;
+    }
+
+    let deletedProjectName = '';
+    setCoworkProjects((current) => {
+      const target = current.find((project) => project.id === normalizedProjectId);
+      if (target) {
+        deletedProjectName = target.name;
+      }
+      return current.filter((project) => project.id !== normalizedProjectId);
+    });
+
+    if (activeCoworkProjectId === normalizedProjectId) {
+      setActiveCoworkProjectId('');
+    }
+
+    setStatus(
+      deletedProjectName
+        ? `Project deleted: ${deletedProjectName}`
+        : 'Project deleted.',
+    );
+  };
+
   const handleCreateFileInWorkingFolder = async () => {
     if (!bridge?.createFileInFolder) {
       setStatus('Creating local files is available in the Electron desktop app only.');
@@ -2969,6 +3026,8 @@ export default function App() {
             onDeleteRecentItem={handleDeleteRecentItem}
             onSelectCoworkProject={handleSelectCoworkProject}
             onCreateCoworkProject={handleCreateCoworkProject}
+            onRenameCoworkProject={handleRenameCoworkProject}
+            onDeleteCoworkProject={handleDeleteCoworkProject}
             onPickWorkingFolder={handlePickWorkingFolderForProject}
             onStartNewChat={handleStartNewChat}
             onStartNewTask={handleStartNewTask}

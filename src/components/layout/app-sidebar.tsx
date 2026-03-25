@@ -95,6 +95,8 @@ type AppSidebarProps = {
   onDeleteRecentItem: (item: RecentSidebarItem) => void;
   onSelectCoworkProject: (projectId: string) => void;
   onCreateCoworkProject: (name: string, workspaceFolder: string, description?: string) => void;
+  onRenameCoworkProject: (projectId: string, name: string, description?: string) => void;
+  onDeleteCoworkProject: (projectId: string) => void;
   onPickWorkingFolder: () => Promise<string | undefined>;
   onStartNewChat: () => void;
   onStartNewTask: () => void;
@@ -166,6 +168,8 @@ export function AppSidebar({
   onDeleteRecentItem,
   onSelectCoworkProject,
   onCreateCoworkProject,
+  onRenameCoworkProject,
+  onDeleteCoworkProject,
   onPickWorkingFolder,
   onStartNewChat,
   onStartNewTask,
@@ -192,6 +196,12 @@ export function AppSidebar({
   const [projectFolderDraft, setProjectFolderDraft] = useState('');
   const [projectDescriptionDraft, setProjectDescriptionDraft] = useState('');
   const [projectFolderBrowsing, setProjectFolderBrowsing] = useState(false);
+  const [renameProjectOpen, setRenameProjectOpen] = useState(false);
+  const [renameProjectId, setRenameProjectId] = useState('');
+  const [renameProjectTitleDraft, setRenameProjectTitleDraft] = useState('');
+  const [renameProjectDescriptionDraft, setRenameProjectDescriptionDraft] = useState('');
+  const [deleteProjectOpen, setDeleteProjectOpen] = useState(false);
+  const [deleteProjectId, setDeleteProjectId] = useState('');
   const languageMenuCloseTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const profilePopupPositionClass = compact
@@ -218,6 +228,8 @@ export function AppSidebar({
   ];
 
   const safeCoworkProjects = coworkProjects ?? [];
+  const renameProjectTarget = safeCoworkProjects.find((project) => project.id === renameProjectId) ?? null;
+  const deleteProjectTarget = safeCoworkProjects.find((project) => project.id === deleteProjectId) ?? null;
 
   useEffect(() => {
     if (!profileMenuOpen) {
@@ -299,6 +311,44 @@ export function AppSidebar({
     } finally {
       setProjectFolderBrowsing(false);
     }
+  };
+
+  const handleOpenRenameProject = (project: CoworkProject) => {
+    setRenameProjectId(project.id);
+    setRenameProjectTitleDraft(project.name);
+    setRenameProjectDescriptionDraft(project.description ?? '');
+    setRenameProjectOpen(true);
+  };
+
+  const handleConfirmRenameProject = () => {
+    const trimmedId = renameProjectId.trim();
+    const trimmedTitle = renameProjectTitleDraft.trim();
+    if (!trimmedId || !trimmedTitle) {
+      return;
+    }
+
+    const trimmedDescription = renameProjectDescriptionDraft.trim();
+    onRenameCoworkProject(trimmedId, trimmedTitle, trimmedDescription || undefined);
+    setRenameProjectOpen(false);
+    setRenameProjectId('');
+    setRenameProjectTitleDraft('');
+    setRenameProjectDescriptionDraft('');
+  };
+
+  const handleOpenDeleteProject = (project: CoworkProject) => {
+    setDeleteProjectId(project.id);
+    setDeleteProjectOpen(true);
+  };
+
+  const handleConfirmDeleteProject = () => {
+    const trimmedId = deleteProjectId.trim();
+    if (!trimmedId) {
+      return;
+    }
+
+    onDeleteCoworkProject(trimmedId);
+    setDeleteProjectOpen(false);
+    setDeleteProjectId('');
   };
 
   return (
@@ -522,16 +572,49 @@ export function AppSidebar({
                       ) : (
                         safeCoworkProjects.map((project) => (
                           <SidebarMenuItem key={project.id}>
-                            <SidebarMenuButton
-                              type="button"
-                              active={project.id === activeCoworkProjectId}
-                              aria-current={project.id === activeCoworkProjectId ? 'page' : undefined}
-                              className="min-w-0 w-full gap-2 font-sans text-[12px]"
-                              title={`${project.name}${project.description ? ` - ${project.description}` : ''} (${project.workspaceFolder})`}
-                              onClick={() => onSelectCoworkProject(project.id)}
-                            >
-                              <span className="block min-w-0 flex-1 truncate">{project.name}</span>
-                            </SidebarMenuButton>
+                            <div className="group flex items-center gap-1">
+                              <SidebarMenuButton
+                                type="button"
+                                active={project.id === activeCoworkProjectId}
+                                aria-current={project.id === activeCoworkProjectId ? 'page' : undefined}
+                                data-testid={`project-select-${project.id}`}
+                                className="min-w-0 w-full gap-2 font-sans text-[12px]"
+                                title={`${project.name}${project.description ? ` - ${project.description}` : ''} (${project.workspaceFolder})`}
+                                onClick={() => onSelectCoworkProject(project.id)}
+                              >
+                                <span className="block min-w-0 flex-1 truncate">{project.name}</span>
+                              </SidebarMenuButton>
+                              <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="size-6"
+                                  data-testid={`project-rename-${project.id}`}
+                                  title={`Rename project ${project.name}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleOpenRenameProject(project);
+                                  }}
+                                >
+                                  <Pencil className="size-3.5" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="size-6 text-destructive hover:text-destructive"
+                                  data-testid={`project-delete-${project.id}`}
+                                  title={`Delete project ${project.name}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleOpenDeleteProject(project);
+                                  }}
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              </div>
+                            </div>
                           </SidebarMenuItem>
                         ))
                       )}
@@ -604,6 +687,90 @@ export function AppSidebar({
                 disabled={!projectTitleDraft.trim() || !projectFolderDraft.trim()}
               >
                 Create project
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={renameProjectOpen}
+          onOpenChange={(nextOpen) => {
+            setRenameProjectOpen(nextOpen);
+            if (!nextOpen) {
+              setRenameProjectId('');
+              setRenameProjectTitleDraft('');
+              setRenameProjectDescriptionDraft('');
+            }
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Rename project</DialogTitle>
+              <DialogDescription>
+                Update the project title and optional description. The folder mapping stays unchanged.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-2">
+              <Input
+                value={renameProjectTitleDraft}
+                onChange={(event) => setRenameProjectTitleDraft(event.target.value)}
+                placeholder="Project title"
+                autoFocus
+              />
+              <Input
+                value={renameProjectDescriptionDraft}
+                onChange={(event) => setRenameProjectDescriptionDraft(event.target.value)}
+                placeholder="Description (optional)"
+              />
+              {renameProjectTarget && (
+                <p className="font-sans text-[11px] text-muted-foreground">
+                  Folder: {renameProjectTarget.workspaceFolder}
+                </p>
+              )}
+            </div>
+            <DialogFooter>
+              <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+              <Button
+                type="button"
+                onClick={handleConfirmRenameProject}
+                disabled={!renameProjectTitleDraft.trim()}
+                data-testid="rename-project-confirm"
+              >
+                Save changes
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={deleteProjectOpen}
+          onOpenChange={(nextOpen) => {
+            setDeleteProjectOpen(nextOpen);
+            if (!nextOpen) {
+              setDeleteProjectId('');
+            }
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete project</DialogTitle>
+              <DialogDescription>
+                Remove this project from Relay. This does not delete any local files in the folder.
+              </DialogDescription>
+            </DialogHeader>
+            <p className="font-sans text-[13px] text-foreground/90">
+              {deleteProjectTarget ? `Project: ${deleteProjectTarget.name}` : 'Select a project to delete.'}
+            </p>
+            <DialogFooter>
+              <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleConfirmDeleteProject}
+                disabled={!deleteProjectTarget}
+                data-testid="delete-project-confirm"
+              >
+                Delete project
               </Button>
             </DialogFooter>
           </DialogContent>

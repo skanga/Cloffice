@@ -9,7 +9,30 @@ function sendFrame(socket, frame) {
   socket.send(JSON.stringify(frame));
 }
 
-function relayActionPayloadForRun(runId) {
+function parsePromptRelayAction(promptText) {
+  const fallback = {
+    path: 'relay-e2e/mock-approval.txt',
+    content: 'line from mock gateway',
+  };
+
+  if (!promptText) {
+    return fallback;
+  }
+
+  const pathMatch = promptText.match(/action\s+for\s+([^\s]+)\s+with\s+content/i);
+  const contentMatch = promptText.match(/with\s+content\s+"([\s\S]*?)"/i);
+
+  const parsedPath = pathMatch?.[1]?.trim();
+  const parsedContent = contentMatch?.[1]?.trim();
+
+  return {
+    path: parsedPath || fallback.path,
+    content: parsedContent || fallback.content,
+  };
+}
+
+function relayActionPayloadForRun(runId, promptText) {
+  const parsed = parsePromptRelayAction(promptText);
   return {
     runId,
     state: 'final',
@@ -24,8 +47,8 @@ function relayActionPayloadForRun(runId) {
               {
                 id: 'mock-action-1',
                 type: 'append_file',
-                path: 'relay-e2e/mock-approval.txt',
-                content: 'line from mock gateway',
+                path: parsed.path,
+                content: parsed.content,
               },
             ],
           },
@@ -134,7 +157,7 @@ wss.on('connection', (socket) => {
       const promptText = typeof params.message === 'string' ? params.message : '';
       runCounter += 1;
       const runId = `mock-run-${runCounter}`;
-      const payload = relayActionPayloadForRun(runId);
+      const payload = relayActionPayloadForRun(runId, promptText);
       const finalDelayMs = promptText.includes('DELAY_LONG') ? 1200 : 120;
 
       setTimeout(() => {
