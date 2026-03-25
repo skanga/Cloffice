@@ -4,7 +4,16 @@ import type { FormEvent, KeyboardEvent } from 'react';
 import { ArrowUp, ChevronRight, Clock3, FileText, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { ChatActivityItem, ChatMessage, ChatModelOption, CoworkRunPhase, LocalActionReceipt, LocalFilePlanAction, TaskState } from '@/app-types';
+import type {
+  ChatActivityItem,
+  ChatMessage,
+  ChatModelOption,
+  CoworkRunPhase,
+  LocalActionReceipt,
+  LocalFilePlanAction,
+  PendingApprovalAction,
+  TaskState,
+} from '@/app-types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -42,6 +51,7 @@ type CoworkPageProps = {
   localApplyLoading: boolean;
   fileCreateLoading: boolean;
   localActionReceipts: LocalActionReceipt[];
+  pendingApprovals: PendingApprovalAction[];
   localActionSmokeRunning: boolean;
   fileDraftPath: string;
   fileDraftContent: string;
@@ -57,12 +67,27 @@ type CoworkPageProps = {
   onApplyLocalPlan: () => void | Promise<void>;
   onCreateFileInWorkingFolder: () => void | Promise<void>;
   onRunLocalActionSmokeTest: () => void | Promise<void>;
+  onApprovePendingAction: (approvalId: string) => void;
+  onRejectPendingAction: (approvalId: string, reason: string) => void;
 };
 
 const connectors = ['Web search', 'Desktop files', 'Gateway tools'];
 const COWORK_CHAT_COLUMN_MAX_WIDTH = 860;
 const COWORK_COMPOSER_COLUMN_MAX_WIDTH = 920;
 const COWORK_DEFAULT_MODEL_LABEL = 'Default model';
+
+function approvalRiskClasses(riskLevel: PendingApprovalAction['riskLevel']): string {
+  if (riskLevel === 'critical') {
+    return 'border-destructive/35 bg-destructive/10 text-destructive';
+  }
+  if (riskLevel === 'high') {
+    return 'border-orange-500/35 bg-orange-500/12 text-orange-700 dark:text-orange-300';
+  }
+  if (riskLevel === 'medium') {
+    return 'border-amber-500/40 bg-amber-500/12 text-amber-800 dark:text-amber-300';
+  }
+  return 'border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
+}
 
 function runPhaseClasses(phase: CoworkRunPhase): string {
   if (phase === 'completed') {
@@ -126,6 +151,7 @@ export function CoworkPage({
   localApplyLoading,
   fileCreateLoading,
   localActionReceipts,
+  pendingApprovals,
   localActionSmokeRunning,
   fileDraftPath,
   fileDraftContent,
@@ -141,10 +167,13 @@ export function CoworkPage({
   onApplyLocalPlan,
   onCreateFileInWorkingFolder,
   onRunLocalActionSmokeTest,
+  onApprovePendingAction,
+  onRejectPendingAction,
 }: CoworkPageProps) {
   const formRef = useRef<HTMLFormElement | null>(null);
   const [expandedSystemMessageId, setExpandedSystemMessageId] = useState<string | null>(null);
   const [expandedInlineActivityId, setExpandedInlineActivityId] = useState<string | null>(null);
+  const [approvalRejectReasons, setApprovalRejectReasons] = useState<Record<string, string>>({});
   const canSend = taskPrompt.trim().length > 0 && !sending;
   const visibleMessages = useMemo(() => messages.filter((message) => !isSystemLikeMessage(message)), [messages]);
   const systemMessages = useMemo(
@@ -349,6 +378,76 @@ export function CoworkPage({
         }`}
       >
         <div className="grid min-h-0 w-full gap-3">
+          {pendingApprovals.length > 0 ? (
+            <Card
+              className="rounded-2xl border-amber-300/70 bg-amber-50/60 dark:border-amber-700/40 dark:bg-amber-950/20"
+              data-testid="pending-approvals-card"
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Pending approvals ({pendingApprovals.length})</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-2 pt-0">
+                {pendingApprovals.map((approval) => {
+                  const rejectReason = approvalRejectReasons[approval.id] || '';
+                  return (
+                    <div key={approval.id} className="rounded-xl border border-border bg-card p-2" data-testid={`pending-approval-${approval.id}`}>
+                      <div className="mb-1.5 flex items-center gap-2">
+                        <Badge variant="outline" className={`rounded-full font-sans text-[10px] uppercase ${approvalRiskClasses(approval.riskLevel)}`}>
+                          {approval.riskLevel}
+                        </Badge>
+                        <p className="truncate font-sans text-[12px] text-foreground">{approval.summary}</p>
+                      </div>
+                      <p className="truncate font-sans text-[11px] text-muted-foreground">Scope: {approval.scopeName}</p>
+                      {approval.projectTitle ? (
+                        <p className="truncate font-sans text-[11px] text-muted-foreground">Project: {approval.projectTitle}</p>
+                      ) : null}
+                      <p className="truncate font-sans text-[11px] text-muted-foreground">Path: {approval.path}</p>
+                      {approval.preview ? (
+                        <div className="mt-1.5 rounded border border-border bg-background p-1.5">
+                          <p className="line-clamp-4 whitespace-pre-wrap font-mono text-[10px] text-muted-foreground">{approval.preview}</p>
+                        </div>
+                      ) : null}
+                      <Input
+                        data-testid={`pending-approval-reason-${approval.id}`}
+                        value={rejectReason}
+                        onChange={(event) =>
+                          setApprovalRejectReasons((current) => ({
+                            ...current,
+                            [approval.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="Rejection reason (required to reject)"
+                        className="mt-2 h-8 font-sans text-xs"
+                      />
+                      <div className="mt-2 flex items-center gap-1.5">
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-7 border-0 bg-primary text-primary-foreground hover:bg-primary/90"
+                          onClick={() => onApprovePendingAction(approval.id)}
+                          data-testid={`pending-approval-approve-${approval.id}`}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-7"
+                          onClick={() => onRejectPendingAction(approval.id, rejectReason)}
+                          disabled={!rejectReason.trim()}
+                          data-testid={`pending-approval-reject-${approval.id}`}
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          ) : null}
+
           <Card className="rounded-2xl border-border bg-card/90">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Run status</CardTitle>

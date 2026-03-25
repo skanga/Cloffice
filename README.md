@@ -170,6 +170,20 @@ Typical endpoint patterns:
 
 <br/>
 
+## Cowork Projects
+
+Relay Cowork projects give you a stable execution context.
+
+- A project = title + folder (+ optional description)
+- Selecting a project sets the active Cowork working folder
+- Local actions and approvals then run against that folder context
+
+Create projects from the left sidebar in Cowork (`Projects` section, `+` button).
+
+See the full usage guide: [Cowork Projects](docs/RELAY-COWORK-PROJECTS.md)
+
+<br/>
+
 ## Development
 
 ```bash
@@ -187,6 +201,8 @@ npm run test:local-actions # Smoke test local actions
 - [Product strategy](docs/product-strategy.md)
 - [MVP definition](docs/RELAY-MVP-DEFINITION.md)
 - [MVP v1 features](docs/RELAY-MVP-V1-FEATURES.md)
+- [Cowork projects](docs/RELAY-COWORK-PROJECTS.md)
+- [Cowork projects checklist](docs/RELAY-COWORK-PROJECTS-TEST-CHECKLIST.md)
 - [Workspace RPC spec](docs/WORKSPACE-RPC-SPEC.md)
 
 <br/>

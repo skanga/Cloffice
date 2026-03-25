@@ -155,6 +155,43 @@ export type TaskState = 'idle' | 'planned';
 
 export type CoworkRunPhase = 'idle' | 'sending' | 'streaming' | 'completed' | 'error';
 
+export type SafetyRiskLevel = 'low' | 'medium' | 'high' | 'critical';
+
+export type SafetyPermissionScope = {
+  id: string;
+  name: string;
+  description: string;
+  riskLevel: SafetyRiskLevel;
+  enabled: boolean;
+  requiresApproval: boolean;
+};
+
+export type PendingApprovalAction = {
+  id: string;
+  runId: string;
+  actionId: string;
+  actionType: LocalActionType;
+  projectId?: string;
+  projectTitle?: string;
+  projectRootFolder?: string;
+  path: string;
+  scopeId: string;
+  scopeName: string;
+  riskLevel: SafetyRiskLevel;
+  summary: string;
+  preview?: string;
+  createdAt: number;
+};
+
+export type CoworkProject = {
+  id: string;
+  name: string;
+  description?: string;
+  workspaceFolder: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type MemoryEntry = {
   id: string;
   category: 'about-me' | 'rules' | 'knowledge' | 'reflection';

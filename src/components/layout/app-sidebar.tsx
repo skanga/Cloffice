@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { MessageUsage } from '@/app-types';
+import type { CoworkProject, MessageUsage } from '@/app-types';
 import { formatCostUsd, formatTokenCount } from '@/lib/token-usage';
 import {
   Brain,
@@ -30,6 +30,16 @@ import {
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -74,12 +84,18 @@ type AppSidebarProps = {
   language: AppLanguage;
   settingsSection: SettingsSection;
   recentItems: RecentSidebarItem[];
+  coworkProjects: CoworkProject[];
+  activeCoworkProjectId: string;
+  workingFolder: string;
   scheduledItems: ScheduledSidebarItem[];
   scheduledLoading: boolean;
   sessionUsage?: MessageUsage;
   onSelectRecentItem: (item: RecentSidebarItem) => void;
   onRenameRecentItem: (item: RecentSidebarItem) => void;
   onDeleteRecentItem: (item: RecentSidebarItem) => void;
+  onSelectCoworkProject: (projectId: string) => void;
+  onCreateCoworkProject: (name: string, workspaceFolder: string, description?: string) => void;
+  onPickWorkingFolder: () => Promise<string | undefined>;
   onStartNewChat: () => void;
   onStartNewTask: () => void;
   onSelectMenuItem: (item: string) => void;
@@ -139,12 +155,18 @@ export function AppSidebar({
   language,
   settingsSection,
   recentItems,
+  coworkProjects,
+  activeCoworkProjectId,
+  workingFolder,
   scheduledItems,
   scheduledLoading,
   sessionUsage,
   onSelectRecentItem,
   onRenameRecentItem,
   onDeleteRecentItem,
+  onSelectCoworkProject,
+  onCreateCoworkProject,
+  onPickWorkingFolder,
   onStartNewChat,
   onStartNewTask,
   onSelectMenuItem,
@@ -165,6 +187,11 @@ export function AppSidebar({
   const safeScheduledItems = scheduledItems ?? [];
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [projectTitleDraft, setProjectTitleDraft] = useState('');
+  const [projectFolderDraft, setProjectFolderDraft] = useState('');
+  const [projectDescriptionDraft, setProjectDescriptionDraft] = useState('');
+  const [projectFolderBrowsing, setProjectFolderBrowsing] = useState(false);
   const languageMenuCloseTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const profilePopupPositionClass = compact
@@ -189,6 +216,8 @@ export function AppSidebar({
     { value: 'en', label: 'English (United States)' },
     { value: 'de', label: 'Deutsch (Deutschland)' },
   ];
+
+  const safeCoworkProjects = coworkProjects ?? [];
 
   useEffect(() => {
     if (!profileMenuOpen) {
@@ -238,6 +267,38 @@ export function AppSidebar({
       setLanguageMenuOpen(false);
       languageMenuCloseTimerRef.current = null;
     }, 130);
+  };
+
+  const handleOpenCreateProject = () => {
+    setProjectTitleDraft('');
+    setProjectFolderDraft(workingFolder || '');
+    setCreateProjectOpen(true);
+  };
+
+  const handleConfirmCreateProject = () => {
+    const trimmedTitle = projectTitleDraft.trim();
+    const trimmedFolder = projectFolderDraft.trim();
+    if (!trimmedTitle || !trimmedFolder) {
+      return;
+    }
+    const trimmedDescription = projectDescriptionDraft.trim();
+    onCreateCoworkProject(trimmedTitle, trimmedFolder, trimmedDescription || undefined);
+    setCreateProjectOpen(false);
+    setProjectTitleDraft('');
+    setProjectFolderDraft('');
+    setProjectDescriptionDraft('');
+  };
+
+  const handleBrowseProjectFolder = async () => {
+    setProjectFolderBrowsing(true);
+    try {
+      const selected = await onPickWorkingFolder();
+      if (selected?.trim()) {
+        setProjectFolderDraft(selected.trim());
+      }
+    } finally {
+      setProjectFolderBrowsing(false);
+    }
   };
 
   return (
@@ -440,8 +501,113 @@ export function AppSidebar({
                 </SidebarGroupContent>
               </SidebarGroup>
             )}
+
+            {!isChatView && !compact && (
+              <SidebarGroup className="mt-1 grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+                <div className="flex items-center justify-between px-2 pb-1">
+                  <SidebarGroupLabel className="px-0">Projects</SidebarGroupLabel>
+                  <Button type="button" size="icon" variant="ghost" className="size-7" onClick={handleOpenCreateProject} title="Add project">
+                    <Plus className="size-4" />
+                  </Button>
+                </div>
+                <SidebarGroupContent className="min-h-0">
+                  <ScrollArea className="h-full min-h-0">
+                    <SidebarMenu className="pr-0.5">
+                      {safeCoworkProjects.length === 0 ? (
+                        <SidebarMenuItem>
+                          <SidebarMenuButton type="button" className="w-full justify-start truncate font-sans text-[12px] text-muted-foreground" disabled>
+                            No projects yet
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      ) : (
+                        safeCoworkProjects.map((project) => (
+                          <SidebarMenuItem key={project.id}>
+                            <SidebarMenuButton
+                              type="button"
+                              active={project.id === activeCoworkProjectId}
+                              aria-current={project.id === activeCoworkProjectId ? 'page' : undefined}
+                              className="min-w-0 w-full gap-2 font-sans text-[12px]"
+                              title={`${project.name}${project.description ? ` - ${project.description}` : ''} (${project.workspaceFolder})`}
+                              onClick={() => onSelectCoworkProject(project.id)}
+                            >
+                              <span className="block min-w-0 flex-1 truncate">{project.name}</span>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        ))
+                      )}
+                    </SidebarMenu>
+                  </ScrollArea>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            )}
           </>
         )}
+
+        <Dialog
+          open={createProjectOpen}
+          onOpenChange={(nextOpen) => {
+            setCreateProjectOpen(nextOpen);
+            if (!nextOpen) {
+              setProjectTitleDraft('');
+              setProjectFolderDraft('');
+              setProjectDescriptionDraft('');
+            }
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Create project</DialogTitle>
+              <DialogDescription>
+                Define a clear operator project: title = workstream, folder = local root path, description = optional intent/context.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-2">
+              <Input
+                value={projectTitleDraft}
+                onChange={(event) => setProjectTitleDraft(event.target.value)}
+                placeholder="Project title (example: Client Alpha Website)"
+                autoFocus
+              />
+              <Input
+                value={projectDescriptionDraft}
+                onChange={(event) => setProjectDescriptionDraft(event.target.value)}
+                placeholder="Description (optional: goals, owner, constraints)"
+              />
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+                <Input
+                  value={projectFolderDraft}
+                  onChange={(event) => setProjectFolderDraft(event.target.value)}
+                  placeholder="Workspace folder path (example: C:/Projects/client-alpha)"
+                />
+                <Button type="button" size="sm" variant="outline" onClick={() => setProjectFolderDraft(workingFolder || '')}>
+                  Use current
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleBrowseProjectFolder()}
+                  disabled={projectFolderBrowsing}
+                >
+                  {projectFolderBrowsing ? 'Browsing...' : 'Browse'}
+                </Button>
+              </div>
+              <p className="font-sans text-[11px] text-muted-foreground">
+                Tip: One project should map to one root folder so approvals, file actions, and context stay consistent.
+              </p>
+            </div>
+            <DialogFooter>
+              <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+              <Button
+                type="button"
+                onClick={handleConfirmCreateProject}
+                disabled={!projectTitleDraft.trim() || !projectFolderDraft.trim()}
+              >
+                Create project
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </SidebarContent>
 
       <SidebarFooter>

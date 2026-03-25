@@ -22,27 +22,18 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import type { SafetyPermissionScope, SafetyRiskLevel } from '@/app-types';
+import { loadSafetyScopes, saveSafetyScopes } from '@/lib/safety-policy';
 
 type SafetyPageProps = {
   gatewayConnected: boolean;
-};
-
-type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
-
-type PermissionScope = {
-  id: string;
-  name: string;
-  description: string;
-  riskLevel: RiskLevel;
-  enabled: boolean;
-  requiresApproval: boolean;
 };
 
 type PendingAction = {
   id: string;
   type: string;
   description: string;
-  riskLevel: RiskLevel;
+  riskLevel: SafetyRiskLevel;
   agent: string;
   timestamp: number;
   preview?: string;
@@ -56,37 +47,6 @@ const RISK_CONFIG = {
   critical: { color: 'text-red-600', bg: 'bg-red-50 dark:bg-red-950/30', border: 'border-red-200 dark:border-red-800/50', label: 'Critical', badgeVariant: 'outline' as const },
 } as const;
 
-const SAFETY_STORAGE_KEY = 'relay.safety.scopes';
-
-const DEFAULT_SCOPES: PermissionScope[] = [
-  { id: 'file-read', name: 'Read files', description: 'Agent can read files in the working folder', riskLevel: 'low', enabled: true, requiresApproval: false },
-  { id: 'file-list', name: 'List directories', description: 'Agent can list directory contents', riskLevel: 'low', enabled: true, requiresApproval: false },
-  { id: 'file-create', name: 'Create files', description: 'Agent can create new files in the working folder', riskLevel: 'medium', enabled: true, requiresApproval: true },
-  { id: 'file-modify', name: 'Modify files', description: 'Agent can modify existing files', riskLevel: 'medium', enabled: true, requiresApproval: true },
-  { id: 'file-delete', name: 'Delete files', description: 'Agent can remove files permanently', riskLevel: 'high', enabled: false, requiresApproval: true },
-  { id: 'file-move', name: 'Move files', description: 'Agent can move files to other folders', riskLevel: 'medium', enabled: true, requiresApproval: true },
-  { id: 'network-request', name: 'Network requests', description: 'Agent can send HTTP requests to external APIs', riskLevel: 'high', enabled: false, requiresApproval: true },
-  { id: 'shell-execute', name: 'Shell commands', description: 'Agent can execute terminal commands', riskLevel: 'critical', enabled: false, requiresApproval: true },
-  { id: 'email-send', name: 'Send emails', description: 'Agent can send emails via configured connectors', riskLevel: 'high', enabled: false, requiresApproval: true },
-  { id: 'calendar-modify', name: 'Modify calendar', description: 'Agent can create or edit calendar entries', riskLevel: 'medium', enabled: false, requiresApproval: true },
-  { id: 'data-export', name: 'Export data', description: 'Agent can export data from the app', riskLevel: 'medium', enabled: true, requiresApproval: false },
-  { id: 'memory-write', name: 'Write memory', description: 'Agent can persist information permanently', riskLevel: 'low', enabled: true, requiresApproval: false },
-];
-
-function loadScopes(): PermissionScope[] {
-  try {
-    const raw = localStorage.getItem(SAFETY_STORAGE_KEY);
-    if (!raw) return DEFAULT_SCOPES;
-    return JSON.parse(raw) as PermissionScope[];
-  } catch {
-    return DEFAULT_SCOPES;
-  }
-}
-
-function saveScopes(scopes: PermissionScope[]) {
-  localStorage.setItem(SAFETY_STORAGE_KEY, JSON.stringify(scopes));
-}
-
 function timeAgo(timestamp: number): string {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
   if (seconds < 60) return 'Just now';
@@ -97,15 +57,15 @@ function timeAgo(timestamp: number): string {
 }
 
 export function SafetyPage({ gatewayConnected }: SafetyPageProps) {
-  const [scopes, setScopes] = useState<PermissionScope[]>(loadScopes);
+  const [scopes, setScopes] = useState<SafetyPermissionScope[]>(loadSafetyScopes);
   const [pendingActions, setPendingActions] = useState<PendingAction[]>([]);
   const [filterQuery, setFilterQuery] = useState('');
-  const [riskFilter, setRiskFilter] = useState<RiskLevel | 'all'>('all');
+  const [riskFilter, setRiskFilter] = useState<SafetyRiskLevel | 'all'>('all');
   const [expandedScopes, setExpandedScopes] = useState<Set<string>>(new Set());
 
-  const persistScopes = useCallback((updated: PermissionScope[]) => {
+  const persistScopes = useCallback((updated: SafetyPermissionScope[]) => {
     setScopes(updated);
-    saveScopes(updated);
+    saveSafetyScopes(updated);
   }, []);
 
   const toggleScope = useCallback(
@@ -152,7 +112,7 @@ export function SafetyPage({ gatewayConnected }: SafetyPageProps) {
   }, [scopes, riskFilter, filterQuery]);
 
   const groupedScopes = useMemo(() => {
-    const groups: Record<RiskLevel, PermissionScope[]> = { low: [], medium: [], high: [], critical: [] };
+    const groups: Record<SafetyRiskLevel, SafetyPermissionScope[]> = { low: [], medium: [], high: [], critical: [] };
     for (const scope of filteredScopes) {
       groups[scope.riskLevel].push(scope);
     }

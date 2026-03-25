@@ -210,6 +210,51 @@ async function ensurePathAllowed(rootPath: string): Promise<string> {
   return resolved;
 }
 
+async function assertRealPathInsideRoot(rootRealPath: string, candidatePath: string, message: string): Promise<void> {
+  const candidateRealPath = await fs.realpath(candidatePath);
+  if (!isPathInside(rootRealPath, candidateRealPath)) {
+    throw new Error(message);
+  }
+}
+
+async function resolveNearestExistingAncestorPath(startPath: string): Promise<string> {
+  let current = path.resolve(startPath);
+
+  while (true) {
+    try {
+      await fs.access(current);
+      return current;
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) {
+        return current;
+      }
+      current = parent;
+    }
+  }
+}
+
+async function assertTargetPathAllowed(rootPath: string, targetPath: string, message: string): Promise<void> {
+  const rootRealPath = await fs.realpath(rootPath);
+  const parentDir = path.dirname(targetPath);
+  const nearestExistingParent = await resolveNearestExistingAncestorPath(parentDir);
+  await assertRealPathInsideRoot(rootRealPath, nearestExistingParent, message);
+
+  try {
+    const stat = await fs.lstat(targetPath);
+    if (stat.isSymbolicLink()) {
+      throw new Error('Symbolic links are blocked for local file actions.');
+    }
+    await assertRealPathInsideRoot(rootRealPath, targetPath, message);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (code === 'ENOENT') {
+      return;
+    }
+    throw error;
+  }
+}
+
 async function planFolderOrganization(rootPath: string): Promise<LocalFilePlanResult> {
   const root = await ensurePathAllowed(rootPath);
   const entries = await fs.readdir(root, { withFileTypes: true });
@@ -330,6 +375,8 @@ async function writeFileInFolder(
     throw new Error('Target file must remain inside the working folder.');
   }
 
+  await assertTargetPathAllowed(root, resolvedTargetPath, 'Target file must remain inside the working folder.');
+
   await fs.mkdir(path.dirname(resolvedTargetPath), { recursive: true });
 
   const overwrite = Boolean(options?.overwrite);
@@ -367,6 +414,8 @@ async function readFileInFolder(rootPath: string, relativePath: string): Promise
   if (!isPathInside(root, resolvedTargetPath)) {
     throw new Error('Target file must remain inside the working folder.');
   }
+
+  await assertTargetPathAllowed(root, resolvedTargetPath, 'Target file must remain inside the working folder.');
 
   if (isHiddenOrBlockedPath(normalizedRelative)) {
     throw new Error('Target path is blocked by local safety rules.');
@@ -409,6 +458,8 @@ async function appendFileInFolder(rootPath: string, relativePath: string, conten
     throw new Error('Target file must remain inside the working folder.');
   }
 
+  await assertTargetPathAllowed(root, resolvedTargetPath, 'Target file must remain inside the working folder.');
+
   await fs.mkdir(path.dirname(resolvedTargetPath), { recursive: true });
   await fs.appendFile(resolvedTargetPath, content, 'utf8');
   return {
@@ -420,6 +471,7 @@ async function appendFileInFolder(rootPath: string, relativePath: string, conten
 
 async function listDirInFolder(rootPath: string, relativePath?: string): Promise<LocalFileListResult> {
   const root = await ensurePathAllowed(rootPath);
+  const rootRealPath = await fs.realpath(root);
   const normalizedRelative = normalizeRelativePath(relativePath ?? '');
   if (normalizedRelative && path.isAbsolute(normalizedRelative)) {
     throw new Error('Use a path relative to the working folder.');
@@ -433,6 +485,8 @@ async function listDirInFolder(rootPath: string, relativePath?: string): Promise
   if (!isPathInside(root, targetPath)) {
     throw new Error('Target directory must remain inside the working folder.');
   }
+
+  await assertRealPathInsideRoot(rootRealPath, targetPath, 'Target directory must remain inside the working folder.');
 
   const stat = await fs.stat(targetPath);
   if (!stat.isDirectory()) {
@@ -481,6 +535,7 @@ async function listDirInFolder(rootPath: string, relativePath?: string): Promise
 
 async function existsInFolder(rootPath: string, relativePath: string): Promise<LocalFileExistsResult> {
   const root = await ensurePathAllowed(rootPath);
+  const rootRealPath = await fs.realpath(root);
   const normalizedRelative = normalizeRelativePath(relativePath);
   if (!normalizedRelative) {
     throw new Error('A file path is required.');
@@ -499,8 +554,11 @@ async function existsInFolder(rootPath: string, relativePath: string): Promise<L
     throw new Error('Target path must remain inside the working folder.');
   }
 
+  await assertTargetPathAllowed(root, resolvedTargetPath, 'Target path must remain inside the working folder.');
+
   try {
     const stat = await fs.stat(resolvedTargetPath);
+    await assertRealPathInsideRoot(rootRealPath, resolvedTargetPath, 'Target path must remain inside the working folder.');
     return {
       path: resolvedTargetPath,
       exists: true,
@@ -517,6 +575,7 @@ async function existsInFolder(rootPath: string, relativePath: string): Promise<L
 
 async function renameInFolder(rootPath: string, oldRelative: string, newRelative: string): Promise<LocalFileRenameResult> {
   const root = await ensurePathAllowed(rootPath);
+  const rootRealPath = await fs.realpath(root);
   const normalizedOld = normalizeRelativePath(oldRelative);
   const normalizedNew = normalizeRelativePath(newRelative);
   if (!normalizedOld || !normalizedNew) throw new Error('Both old and new paths are required.');
@@ -525,6 +584,8 @@ async function renameInFolder(rootPath: string, oldRelative: string, newRelative
   const resolvedOld = path.resolve(root, normalizedOld);
   const resolvedNew = path.resolve(root, normalizedNew);
   if (!isPathInside(root, resolvedOld) || !isPathInside(root, resolvedNew)) throw new Error('Paths must remain inside working folder.');
+  await assertTargetPathAllowed(root, resolvedOld, 'Paths must remain inside working folder.');
+  await assertRealPathInsideRoot(rootRealPath, path.dirname(resolvedNew), 'Paths must remain inside working folder.');
   await fs.access(resolvedOld);
   await fs.mkdir(path.dirname(resolvedNew), { recursive: true });
   await fs.rename(resolvedOld, resolvedNew);
@@ -539,6 +600,7 @@ async function deleteInFolder(rootPath: string, relativePath: string): Promise<L
   if (isHiddenOrBlockedPath(normalized)) throw new Error('Path blocked by safety rules.');
   const resolved = path.resolve(root, normalized);
   if (!isPathInside(root, resolved)) throw new Error('Path must remain inside working folder.');
+  await assertTargetPathAllowed(root, resolved, 'Path must remain inside working folder.');
   if (resolved === root) throw new Error('Cannot delete the root folder.');
   const stat = await fs.stat(resolved);
   if (stat.isDirectory()) {
@@ -557,6 +619,7 @@ async function statInFolder(rootPath: string, relativePath: string): Promise<Loc
   if (isHiddenOrBlockedPath(normalized)) throw new Error('Path blocked by safety rules.');
   const resolved = path.resolve(root, normalized);
   if (!isPathInside(root, resolved)) throw new Error('Path must remain inside working folder.');
+  await assertTargetPathAllowed(root, resolved, 'Path must remain inside working folder.');
   const stat = await fs.stat(resolved);
   return {
     path: resolved,

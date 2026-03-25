@@ -6,10 +6,12 @@ import type {
   ChatActivityItem,
   ChatMessage,
   ChatModelOption,
+  CoworkProject,
   CoworkRunPhase,
   HealthCheckResult,
   LocalActionReceipt,
   LocalFilePlanAction,
+  PendingApprovalAction,
   ScheduledJob,
   TaskState,
 } from './app-types';
@@ -41,6 +43,7 @@ import { OpenClawGatewayClient } from './lib/openclaw-gateway-client';
 import { createFileService, LocalFileService } from './lib/file-service';
 import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
 import { accumulateTodayUsage, addUsage, loadTodayUsage, parseUsageFromPayload } from './lib/token-usage';
+import { loadSafetyScopes, resolveLocalActionPolicy } from './lib/safety-policy';
 
 import { OnboardingPage } from './features/auth/onboarding-page';
 import { useAuth } from './hooks/use-auth';
@@ -86,6 +89,8 @@ const ScheduledPage = lazy(() => import('./features/workspace/scheduled-page').t
 const DEFAULT_GATEWAY_URL = 'ws://127.0.0.1:18789';
 
 const LOCAL_CONFIG_KEY = 'relay.config';
+const COWORK_PROJECTS_STORAGE_KEY = 'relay.cowork.projects.v1';
+const COWORK_ACTIVE_PROJECT_STORAGE_KEY = 'relay.cowork.projects.active.v1';
 
 const defaultConfig: AppConfig = {
   gatewayUrl: DEFAULT_GATEWAY_URL,
@@ -97,6 +102,106 @@ type SettingsSection = 'Profile' | 'Appearance' | 'System Prompt' | 'Gateway' | 
 
 const COWORK_SEND_SPINNER_MS = 300;
 const MAX_LOCAL_ACTIONS_PER_RUN = 20;
+const APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
+
+type ApprovalResolverEntry = {
+  resolve: (value: { approved: boolean; reason?: string; expired?: boolean }) => void;
+  timeoutId: ReturnType<typeof setTimeout>;
+};
+
+type RelayE2EPendingApprovalInput = Partial<PendingApprovalAction> & {
+  actionType?: PendingApprovalAction['actionType'];
+};
+
+type RelayE2EBridge = {
+  enqueuePendingApproval: (input?: RelayE2EPendingApprovalInput) => string;
+  clearPendingApprovals: () => void;
+  getPendingApprovals: () => PendingApprovalAction[];
+};
+
+type CoworkRunProjectContext = {
+  projectId: string;
+  projectTitle: string;
+  rootFolder: string;
+  startedAt: number;
+};
+
+function validateProjectRelativePath(inputPath: string, options?: { allowEmpty?: boolean }): { ok: true } | { ok: false; reason: string } {
+  const raw = (inputPath ?? '').trim();
+  if (!raw) {
+    return options?.allowEmpty ? { ok: true } : { ok: false, reason: 'Path is required.' };
+  }
+
+  const normalized = raw.replace(/\\/g, '/');
+  if (normalized.startsWith('/') || normalized.startsWith('~/') || /^[a-zA-Z]:\//.test(normalized)) {
+    return { ok: false, reason: 'Absolute paths are not allowed for project-bound actions.' };
+  }
+
+  const segments = normalized.split('/').filter((segment) => segment.length > 0);
+  if (segments.some((segment) => segment === '..')) {
+    return { ok: false, reason: 'Parent directory traversal is not allowed.' };
+  }
+
+  return { ok: true };
+}
+
+function loadCoworkProjects(): CoworkProject[] {
+  try {
+    const raw = localStorage.getItem(COWORK_PROJECTS_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((entry): CoworkProject | null => {
+        if (!entry || typeof entry !== 'object') {
+          return null;
+        }
+        const record = entry as Record<string, unknown>;
+        const id = typeof record.id === 'string' ? record.id.trim() : '';
+        const name = typeof record.name === 'string' ? record.name.trim() : '';
+        const description = typeof record.description === 'string' ? record.description.trim() : '';
+        const workspaceFolder = typeof record.workspaceFolder === 'string' ? record.workspaceFolder.trim() : '';
+        const createdAt = typeof record.createdAt === 'number' ? record.createdAt : Date.now();
+        const updatedAt = typeof record.updatedAt === 'number' ? record.updatedAt : createdAt;
+        if (!id || !name || !workspaceFolder) {
+          return null;
+        }
+        return {
+          id,
+          name,
+          description: description || undefined,
+          workspaceFolder,
+          createdAt,
+          updatedAt,
+        };
+      })
+      .filter((project): project is CoworkProject => project !== null)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  } catch {
+    return [];
+  }
+}
+
+function loadActiveCoworkProjectId(): string {
+  try {
+    const raw = localStorage.getItem(COWORK_ACTIVE_PROJECT_STORAGE_KEY);
+    return typeof raw === 'string' ? raw.trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+declare global {
+  interface Window {
+    relayE2E?: RelayE2EBridge;
+  }
+}
 
 
 
@@ -118,6 +223,9 @@ export default function App() {
   const threadMessageCache = useRef<Map<string, ChatMessage[]>>(new Map());
   const coworkMessageCache = useRef<Map<string, ChatMessage[]>>(new Map());
   const executedCoworkActionRunsRef = useRef<Set<string>>(new Set());
+  const approvalResolversRef = useRef<Map<string, ApprovalResolverEntry>>(new Map());
+  const pendingCoworkRunContextsRef = useRef<Map<string, CoworkRunProjectContext[]>>(new Map());
+  const resolvedCoworkRunContextsRef = useRef<Map<string, CoworkRunProjectContext>>(new Map());
 
   const [config, setConfig] = useState<AppConfig>(defaultConfig);
   const [configReady, setConfigReady] = useState(false);
@@ -157,6 +265,8 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [taskPrompt, setTaskPrompt] = useState('');
   const [workingFolder, setWorkingFolder] = useState('/Downloads');
+  const [coworkProjects, setCoworkProjects] = useState<CoworkProject[]>(() => loadCoworkProjects());
+  const [activeCoworkProjectId, setActiveCoworkProjectId] = useState(() => loadActiveCoworkProjectId());
   const [taskState, setTaskState] = useState<TaskState>('idle');
   const [localPlanActions, setLocalPlanActions] = useState<LocalFilePlanAction[]>([]);
   const [localPlanLoading, setLocalPlanLoading] = useState(false);
@@ -191,6 +301,7 @@ export default function App() {
   const [coworkRunPhase, setCoworkRunPhase] = useState<CoworkRunPhase>('idle');
   const [coworkRunStatus, setCoworkRunStatus] = useState('Ready for a new task.');
   const [localActionReceipts, setLocalActionReceipts] = useState<LocalActionReceipt[]>([]);
+  const [pendingApprovals, setPendingApprovals] = useState<PendingApprovalAction[]>([]);
   const [localActionSmokeRunning, setLocalActionSmokeRunning] = useState(false);
   const [gatewayConnected, setGatewayConnected] = useState(false);
   const [sessionUsage, setSessionUsage] = useState(() => loadTodayUsage());
@@ -210,6 +321,49 @@ export default function App() {
   const recentChatItems = toRecentSidebarItems(chatThreads, 'chat');
   const recentCoworkItems = toRecentSidebarItems(coworkThreads, 'cowork');
   const recentItems = activePage === 'cowork' ? recentCoworkItems : recentChatItems;
+  const activeCoworkProject = useMemo(
+    () => coworkProjects.find((project) => project.id === activeCoworkProjectId) ?? null,
+    [coworkProjects, activeCoworkProjectId],
+  );
+
+  const enqueueCoworkRunContext = (sessionKey: string, context: CoworkRunProjectContext) => {
+    const normalizedSessionKey = normalizeSessionKey(sessionKey);
+    if (!normalizedSessionKey) {
+      return;
+    }
+
+    const currentQueue = pendingCoworkRunContextsRef.current.get(normalizedSessionKey) ?? [];
+    pendingCoworkRunContextsRef.current.set(normalizedSessionKey, [...currentQueue, context]);
+  };
+
+  const resolveCoworkRunContext = (sessionKey: string, runId: string): CoworkRunProjectContext => {
+    const normalizedSessionKey = normalizeSessionKey(sessionKey);
+    const runKey = `${normalizedSessionKey || 'unknown'}:${runId}`;
+    const cached = resolvedCoworkRunContextsRef.current.get(runKey);
+    if (cached) {
+      return cached;
+    }
+
+    const currentQueue = normalizedSessionKey ? pendingCoworkRunContextsRef.current.get(normalizedSessionKey) ?? [] : [];
+    const nextFromQueue = currentQueue.shift();
+    if (normalizedSessionKey) {
+      if (currentQueue.length > 0) {
+        pendingCoworkRunContextsRef.current.set(normalizedSessionKey, currentQueue);
+      } else {
+        pendingCoworkRunContextsRef.current.delete(normalizedSessionKey);
+      }
+    }
+
+    const fallback: CoworkRunProjectContext = {
+      projectId: activeCoworkProject?.id ?? '',
+      projectTitle: activeCoworkProject?.name ?? '',
+      rootFolder: workingFolderRef.current,
+      startedAt: Date.now(),
+    };
+    const resolved = nextFromQueue ?? fallback;
+    resolvedCoworkRunContextsRef.current.set(runKey, resolved);
+    return resolved;
+  };
 
   const commitActiveSessionKey = (nextSessionKey: string) => {
     const normalized = normalizeSessionKey(nextSessionKey);
@@ -346,6 +500,97 @@ export default function App() {
     setLocalActionReceipts((current) => [...entries, ...current].slice(0, 30));
   };
 
+  const resolvePendingApproval = (
+    approvalId: string,
+    decision: { approved: boolean; reason?: string; expired?: boolean },
+  ) => {
+    setPendingApprovals((current) => current.filter((item) => item.id !== approvalId));
+
+    const resolver = approvalResolversRef.current.get(approvalId);
+    if (!resolver) {
+      return;
+    }
+
+    clearTimeout(resolver.timeoutId);
+    approvalResolversRef.current.delete(approvalId);
+    resolver.resolve(decision);
+  };
+
+  const requestActionApproval = (request: PendingApprovalAction) => {
+    setPendingApprovals((current) => [...current, request]);
+
+    return new Promise<{ approved: boolean; reason?: string; expired?: boolean }>((resolve) => {
+      const timeoutId = setTimeout(() => {
+        resolvePendingApproval(request.id, {
+          approved: false,
+          reason: 'Approval request timed out.',
+          expired: true,
+        });
+      }, APPROVAL_TIMEOUT_MS);
+
+      approvalResolversRef.current.set(request.id, {
+        resolve,
+        timeoutId,
+      });
+    });
+  };
+
+  const handleApprovePendingAction = (approvalId: string) => {
+    resolvePendingApproval(approvalId, { approved: true });
+  };
+
+  const handleRejectPendingAction = (approvalId: string, reason: string) => {
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      setStatus('Provide a reason before rejecting an action.');
+      return;
+    }
+
+    resolvePendingApproval(approvalId, {
+      approved: false,
+      reason: trimmedReason,
+    });
+  };
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) {
+      return;
+    }
+
+    const relayE2E: RelayE2EBridge = {
+      enqueuePendingApproval: (input) => {
+        const now = Date.now();
+        const id = input?.id?.trim() || `e2e-approval-${now}`;
+        const entry: PendingApprovalAction = {
+          id,
+          runId: input?.runId?.trim() || 'e2e-run',
+          actionId: input?.actionId?.trim() || `e2e-action-${now}`,
+          actionType: input?.actionType ?? 'create_file',
+          path: input?.path?.trim() || 'notes/e2e.md',
+          scopeId: input?.scopeId?.trim() || 'workspace.write',
+          scopeName: input?.scopeName?.trim() || 'Workspace write',
+          riskLevel: input?.riskLevel ?? 'high',
+          summary: input?.summary?.trim() || 'Create notes/e2e.md',
+          preview: input?.preview,
+          createdAt: input?.createdAt ?? now,
+        };
+
+        setPendingApprovals((current) => [...current, entry]);
+        return id;
+      },
+      clearPendingApprovals: () => {
+        setPendingApprovals([]);
+      },
+      getPendingApprovals: () => pendingApprovals,
+    };
+
+    window.relayE2E = relayE2E;
+
+    return () => {
+      delete window.relayE2E;
+    };
+  }, [pendingApprovals]);
+
   const rekeyChatThread = (fromSessionKey: string, toSessionKey: string) => {
     const from = normalizeSessionKey(fromSessionKey);
     const to = normalizeSessionKey(toSessionKey);
@@ -459,6 +704,53 @@ export default function App() {
       // ignore localStorage quota/privacy failures
     }
   }, [chatThreads, coworkThreads]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COWORK_PROJECTS_STORAGE_KEY, JSON.stringify(coworkProjects));
+    } catch {
+      // ignore persistence failures
+    }
+  }, [coworkProjects]);
+
+  useEffect(() => {
+    try {
+      if (activeCoworkProjectId) {
+        localStorage.setItem(COWORK_ACTIVE_PROJECT_STORAGE_KEY, activeCoworkProjectId);
+      } else {
+        localStorage.removeItem(COWORK_ACTIVE_PROJECT_STORAGE_KEY);
+      }
+    } catch {
+      // ignore persistence failures
+    }
+  }, [activeCoworkProjectId]);
+
+  useEffect(() => {
+    if (!activeCoworkProjectId) {
+      return;
+    }
+
+    const exists = coworkProjects.some((project) => project.id === activeCoworkProjectId);
+    if (exists) {
+      return;
+    }
+
+    setActiveCoworkProjectId(coworkProjects[0]?.id ?? '');
+  }, [activeCoworkProjectId, coworkProjects]);
+
+  useEffect(() => {
+    if (!activeCoworkProject) {
+      return;
+    }
+
+    const nextFolder = activeCoworkProject.workspaceFolder.trim();
+    if (!nextFolder || nextFolder === workingFolder.trim()) {
+      return;
+    }
+
+    setWorkingFolder(nextFolder);
+    workingFolderRef.current = nextFolder;
+  }, [activeCoworkProject, workingFolder]);
 
   const loadChatSession = async (sessionKeyInput: string, statusMessage?: string) => {
     const client = gatewayClientRef.current;
@@ -1026,6 +1318,7 @@ export default function App() {
             }
 
             const actionRunKey = `${eventSessionKey || 'unknown'}:${runId}`;
+            const runContext = resolveCoworkRunContext(eventSessionKey || coworkSessionKeyRef.current, runId);
             if (
               relayActions.length > 0 &&
               !executedCoworkActionRunsRef.current.has(actionRunKey)
@@ -1105,9 +1398,9 @@ export default function App() {
                   return;
                 }
 
-                const rootPath = workingFolderRef.current;
+                const rootPath = runContext.rootFolder.trim();
                 if (!rootPath) {
-                  const noFolderMessage = 'AI requested local file actions, but no working folder is selected.';
+                  const noFolderMessage = 'AI requested local file actions, but this run has no project root folder context.';
                   postActionReceipt(noFolderMessage, [], [], [noFolderMessage]);
                   return;
                 }
@@ -1115,6 +1408,7 @@ export default function App() {
                 setCoworkRunStatus('Applying AI file actions...');
 
                 const boundedActions = relayActions.slice(0, MAX_LOCAL_ACTIONS_PER_RUN);
+                const safetyScopes = loadSafetyScopes();
                 const actionReceipts: LocalActionReceipt[] = [];
                 const previews: string[] = [];
                 const errors: string[] = [];
@@ -1137,10 +1431,116 @@ export default function App() {
                   return `${trimmed.slice(0, maxChars)}\n... (truncated)`;
                 };
 
+                const summarizeActionPreview = (action: (typeof boundedActions)[number]) => {
+                  if (action.type === 'create_file') {
+                    return `Create ${action.path}${action.overwrite ? ' (overwrite)' : ''}`;
+                  }
+                  if (action.type === 'append_file') {
+                    return `Append ${action.path}`;
+                  }
+                  if (action.type === 'read_file') {
+                    return `Read ${action.path}`;
+                  }
+                  if (action.type === 'list_dir') {
+                    return `List directory ${action.path || '.'}`;
+                  }
+                  return `Check exists ${action.path}`;
+                };
+
                 for (let index = 0; index < boundedActions.length; index += 1) {
                   const action = boundedActions[index];
                   const actionId = action.id || `action-${index + 1}`;
                   const actionPath = action.path ?? '.';
+                  const policy = resolveLocalActionPolicy(action.type, safetyScopes);
+
+                  const pathValidation = validateProjectRelativePath(actionPath, {
+                    allowEmpty: action.type === 'list_dir',
+                  });
+                  if (!pathValidation.ok) {
+                    const message = `Blocked by project boundary: ${pathValidation.reason}`;
+                    errors.push(`${actionPath || '.'}: ${message}`);
+                    actionReceipts.push({
+                      id: actionId,
+                      type: action.type,
+                      path: actionPath || '.',
+                      status: 'error',
+                      errorCode: 'PROJECT_BOUNDARY_BLOCK',
+                      message,
+                    });
+                    continue;
+                  }
+
+                  if ((action.type === 'create_file' || action.type === 'append_file') && !runContext.projectId) {
+                    const message = 'Blocked: write actions require an active project context.';
+                    errors.push(`${actionPath}: ${message}`);
+                    actionReceipts.push({
+                      id: actionId,
+                      type: action.type,
+                      path: actionPath,
+                      status: 'error',
+                      errorCode: 'PROJECT_REQUIRED',
+                      message,
+                    });
+                    continue;
+                  }
+
+                  if (!policy.enabled) {
+                    const message = `Blocked by safety policy: ${policy.scopeName} is disabled.`;
+                    errors.push(`${actionPath}: ${message}`);
+                    actionReceipts.push({
+                      id: actionId,
+                      type: action.type,
+                      path: actionPath,
+                      status: 'error',
+                      errorCode: 'BLOCKED_BY_POLICY',
+                      message,
+                    });
+                    continue;
+                  }
+
+                  if (policy.requiresApproval) {
+                    const approvalId = `${runId}-${actionId}-${index + 1}`;
+                    const previewBody =
+                      action.type === 'create_file' || action.type === 'append_file'
+                        ? formatPreviewContent(action.content)
+                        : summarizeActionPreview(action);
+
+                    setCoworkRunStatus(`Awaiting approval for ${action.type} (${actionPath})...`);
+                    const decision = await requestActionApproval({
+                      id: approvalId,
+                      runId,
+                      actionId,
+                      actionType: action.type,
+                      projectId: runContext.projectId || undefined,
+                      projectTitle: runContext.projectTitle || undefined,
+                      projectRootFolder: runContext.rootFolder || undefined,
+                      path: actionPath,
+                      scopeId: policy.scopeId,
+                      scopeName: policy.scopeName,
+                      riskLevel: policy.riskLevel,
+                      summary: `${runContext.projectTitle ? `[${runContext.projectTitle}] ` : ''}${summarizeActionPreview(action)}`,
+                      preview: previewBody,
+                      createdAt: Date.now(),
+                    });
+
+                    if (!decision.approved) {
+                      const reason = decision.reason || 'Rejected by operator.';
+                      const code = decision.expired ? 'APPROVAL_TIMEOUT' : 'REJECTED_BY_OPERATOR';
+                      errors.push(`${actionPath}: ${reason}`);
+                      actionReceipts.push({
+                        id: actionId,
+                        type: action.type,
+                        path: actionPath,
+                        status: 'error',
+                        errorCode: code,
+                        message: reason,
+                      });
+                      continue;
+                    }
+
+                    previews.push(`Approved ${action.type} -> ${actionPath}`);
+                  }
+
                   try {
                     if (action.type === 'create_file') {
                       if (!bridge.createFileInFolder) {
@@ -1304,6 +1704,9 @@ export default function App() {
                 if (errorCount > 0) {
                   summaryParts.push(`Failed ${errorCount} action${errorCount === 1 ? '' : 's'}.`);
                 }
+                if (runContext.projectTitle) {
+                  summaryParts.push(`Project: ${runContext.projectTitle}.`);
+                }
                 summaryParts.push(`Folder: ${rootPath}`);
 
                 const summary = summaryParts.join(' ') || 'No file actions were applied.';
@@ -1315,7 +1718,8 @@ export default function App() {
                 role: 'system',
                 text: [
                   'No executable relay_actions were found in the cowork final event.',
-                  `Folder: ${workingFolderRef.current || '(not set)'}`,
+                  runContext.projectTitle ? `Project: ${runContext.projectTitle}` : 'Project: (none)',
+                  `Folder: ${runContext.rootFolder || '(not set)'}`,
                 ].join('\n'),
                 meta: {
                   kind: 'activity',
@@ -1323,7 +1727,10 @@ export default function App() {
                     {
                       id: `activity-no-actions-${runId}`,
                       label: 'No executable relay_actions were found.',
-                      details: `Folder: ${workingFolderRef.current || '(not set)'}`,
+                      details: [
+                        runContext.projectTitle ? `Project: ${runContext.projectTitle}` : 'Project: (none)',
+                        `Folder: ${runContext.rootFolder || '(not set)'}`,
+                      ].join('\n'),
                       tone: 'neutral',
                     },
                   ],
@@ -1419,6 +1826,10 @@ export default function App() {
 
     gatewayClientRef.current = client;
     return () => {
+      for (const entry of approvalResolversRef.current.values()) {
+        clearTimeout(entry.timeoutId);
+      }
+      approvalResolversRef.current.clear();
       gatewayClientRef.current?.disconnect();
       gatewayClientRef.current = null;
     };
@@ -1621,6 +2032,7 @@ export default function App() {
   const handlePlanTask = async (event: FormEvent) => {
     event.preventDefault();
     workingFolderRef.current = workingFolder.trim();
+    setPendingApprovals([]);
     setCoworkSending(true);
     setCoworkAwaitingStream(false);
     setCoworkStreamingText('');
@@ -1671,6 +2083,12 @@ export default function App() {
       }
 
       const folderContext = workingFolderRef.current;
+      enqueueCoworkRunContext(sessionKey, {
+        projectId: activeCoworkProject?.id ?? '',
+        projectTitle: activeCoworkProject?.name ?? '',
+        rootFolder: folderContext,
+        startedAt: Date.now(),
+      });
       const relayFileInstruction = [
         'If local file actions are required, include ONE JSON code block in your response with this schema only:',
         '```json',
@@ -1683,6 +2101,7 @@ export default function App() {
         : preferences.systemPrompt.trim();
       const outboundMessage = [
         coworkMemoryContext,
+        activeCoworkProject ? `Project context: ${activeCoworkProject.name}` : '',
         folderContext ? `Working folder context: ${folderContext}` : '',
         relayFileInstruction,
         '',
@@ -1735,28 +2154,30 @@ export default function App() {
     }
   };
 
-  const handlePickWorkingFolder = async () => {
+  const handlePickWorkingFolder = async (): Promise<string | undefined> => {
     if (!bridge?.selectFolder) {
       const input = document.createElement('input');
       input.type = 'file';
       input.setAttribute('webkitdirectory', '');
       input.setAttribute('directory', '');
 
-      input.onchange = () => {
-        const selected = input.files?.[0]?.webkitRelativePath?.split('/')[0] ?? '';
-        if (!selected) {
-          setStatus('No folder selected.');
-          return;
-        }
+      const selected = await new Promise<string>((resolve) => {
+        input.onchange = () => {
+          resolve(input.files?.[0]?.webkitRelativePath?.split('/')[0] ?? '');
+        };
+        input.click();
+      });
 
-        setWorkingFolder(selected);
-        setStatus(
-          `Folder selected in browser sandbox: ${selected}. To apply local file changes, run the Electron desktop app (npm run dev).`,
-        );
-      };
+      if (!selected) {
+        setStatus('No folder selected.');
+        return undefined;
+      }
 
-      input.click();
-      return;
+      setWorkingFolder(selected);
+      setStatus(
+        `Folder selected in browser sandbox: ${selected}. To apply local file changes, run the Electron desktop app (npm run dev).`,
+      );
+      return selected;
     }
 
     try {
@@ -1764,11 +2185,19 @@ export default function App() {
       if (selected && selected.trim()) {
         setWorkingFolder(selected);
         setStatus(`Working folder selected: ${selected}`);
+        return selected;
       }
+      return undefined;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to open folder picker.';
       setStatus(message);
+      return undefined;
     }
+  };
+
+  const handlePickWorkingFolderForProject = async (): Promise<string | undefined> => {
+    const selected = await handlePickWorkingFolder();
+    return selected?.trim() ? selected.trim() : undefined;
   };
 
   const handleApplyLocalPlan = async () => {
@@ -1801,7 +2230,74 @@ export default function App() {
 
   const handleWorkingFolderChange = (value: string) => {
     setWorkingFolder(value);
-    workingFolderRef.current = value.trim();
+    const normalized = value.trim();
+    workingFolderRef.current = normalized;
+
+    if (!activeCoworkProjectId || !normalized) {
+      return;
+    }
+
+    setCoworkProjects((current) =>
+      current.map((project) =>
+        project.id === activeCoworkProjectId
+          ? {
+              ...project,
+              workspaceFolder: normalized,
+              updatedAt: Date.now(),
+            }
+          : project,
+      ),
+    );
+  };
+
+  const handleSelectCoworkProject = (projectId: string) => {
+    const normalizedProjectId = projectId.trim();
+    setActiveCoworkProjectId(normalizedProjectId);
+
+    if (!normalizedProjectId) {
+      return;
+    }
+
+    const selected = coworkProjects.find((project) => project.id === normalizedProjectId);
+    if (!selected) {
+      return;
+    }
+
+    if (selected.workspaceFolder.trim()) {
+      setWorkingFolder(selected.workspaceFolder);
+      workingFolderRef.current = selected.workspaceFolder.trim();
+    }
+    setStatus(`Project selected: ${selected.name}`);
+  };
+
+  const handleCreateCoworkProject = (name: string, workspaceFolder: string, description?: string) => {
+    const normalizedName = name.trim();
+    const normalizedFolder = workspaceFolder.trim();
+    const normalizedDescription = description?.trim() ?? '';
+    if (!normalizedName || !normalizedFolder) {
+      setStatus('Project name and workspace folder are required.');
+      return;
+    }
+
+    const projectId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `project-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const now = Date.now();
+    const nextProject: CoworkProject = {
+      id: projectId,
+      name: normalizedName,
+      description: normalizedDescription || undefined,
+      workspaceFolder: normalizedFolder,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    setCoworkProjects((current) => [nextProject, ...current]);
+    setActiveCoworkProjectId(projectId);
+    setWorkingFolder(normalizedFolder);
+    workingFolderRef.current = normalizedFolder;
+    setStatus(`Project created: ${normalizedName}`);
   };
 
   const handleCreateFileInWorkingFolder = async () => {
@@ -2356,6 +2852,7 @@ export default function App() {
     setCoworkRunStatus('Ready for a new task.');
     setLocalPlanActions([]);
     setLocalPlanRootPath('');
+    setPendingApprovals([]);
     setStatus('Ready for a new task.');
     setCoworkResetKey((current) => current + 1);
   };
@@ -2455,6 +2952,9 @@ export default function App() {
             language={preferences.language}
             settingsSection={settingsSection}
             recentItems={recentItems}
+            coworkProjects={coworkProjects}
+            activeCoworkProjectId={activeCoworkProjectId}
+            workingFolder={workingFolder}
             scheduledItems={scheduledJobs}
             scheduledLoading={scheduledLoading}
             sessionUsage={sessionUsage}
@@ -2467,6 +2967,9 @@ export default function App() {
             }}
             onRenameRecentItem={handleRenameRecentItem}
             onDeleteRecentItem={handleDeleteRecentItem}
+            onSelectCoworkProject={handleSelectCoworkProject}
+            onCreateCoworkProject={handleCreateCoworkProject}
+            onPickWorkingFolder={handlePickWorkingFolderForProject}
             onStartNewChat={handleStartNewChat}
             onStartNewTask={handleStartNewTask}
             onSelectMenuItem={setActiveMenuItem}
@@ -2615,6 +3118,7 @@ export default function App() {
                   localApplyLoading={localApplyLoading}
                   fileCreateLoading={localFileCreateLoading}
                   localActionReceipts={localActionReceipts}
+                  pendingApprovals={pendingApprovals}
                   localActionSmokeRunning={localActionSmokeRunning}
                   fileDraftPath={localFileDraftPath}
                   fileDraftContent={localFileDraftContent}
@@ -2630,6 +3134,8 @@ export default function App() {
                   onApplyLocalPlan={handleApplyLocalPlan}
                   onCreateFileInWorkingFolder={handleCreateFileInWorkingFolder}
                   onRunLocalActionSmokeTest={handleRunLocalActionSmokeTest}
+                  onApprovePendingAction={handleApprovePendingAction}
+                  onRejectPendingAction={handleRejectPendingAction}
                 />
               ) : activePage === 'files' ? (
                 <FilesPage

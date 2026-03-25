@@ -11,6 +11,17 @@
 			],
 			"isBackground": true,
 			"group": "build"
+		},
+		{
+			"label": "Relay Dev (manual feature test)",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"dev"
+			],
+			"isBackground": true,
+			"group": "build"
 		}
 	]
 }
