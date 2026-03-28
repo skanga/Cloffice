@@ -422,7 +422,7 @@ export function CoworkPage({
           </span>
         ) : !engineConnected ? (
           <span className="font-sans text-[11px] text-muted-foreground">
-            Connect the gateway to run cowork tasks.
+            Connect the runtime to run cowork tasks.
           </span>
         ) : null}
       </div>
@@ -621,7 +621,7 @@ export function CoworkPage({
                 <p className="mb-3 text-[clamp(1.6rem,2.4vw,2.2rem)] tracking-tight text-foreground">Let's knock something off your list</p>
                 <div className="rounded-2xl border border-border bg-card p-4">
                   <p className="font-sans text-sm text-muted-foreground">
-                    Cowork runs against your configured gateway and supports file-aware task context.
+                    Cowork runs against your configured runtime and supports file-aware task context.
                   </p>
                   <ul className="mt-3 grid gap-1.5 font-sans text-xs text-muted-foreground">
                     <li>Ask for planning, implementation, or review tasks.</li>

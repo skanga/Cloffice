@@ -16,7 +16,7 @@
  */
 
 import type { EngineClientInstance } from './engine-client';
-import type { EngineToolEntry } from './openclaw-gateway-client';
+import type { OpenClawCompatibilityToolEntry as EngineToolEntry } from './openclaw-compat-engine';
 import type { LocalFileListItem } from '@/app-types';
 
 /* ═══════════════════════════════════════════ Types ═══════════════════════════════════════════ */

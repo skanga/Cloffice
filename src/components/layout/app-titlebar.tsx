@@ -362,7 +362,7 @@ export function AppTitlebar({
                 ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300'
                 : 'border-destructive/35 bg-destructive/10 text-destructive hover:bg-destructive/15'
             }`}
-            title={`${engineConnected ? 'Gateway connected' : 'Gateway disconnected'} - Open Gateway settings`}
+            title={`${engineConnected ? 'Runtime connected' : 'Runtime disconnected'} - Open Engine settings`}
             onClick={onOpenEngineSettings}
             data-testid="titlebar-gateway-badge"
           >

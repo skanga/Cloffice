@@ -1,4 +1,4 @@
-﻿import { appConfigFromEngineDraft, engineDraftFromAppConfig } from './lib/engine-config';
+import { appConfigFromEngineDraft, buildEngineDraftConfig, engineConnectOptionsFromDraft, engineDraftFromAppConfig } from './lib/engine-config';
 import { parseStoredEngineConnectionProfile, serializeEngineConnectionProfile } from './lib/engine-connection-profiles';
 import { getDesktopBridge } from './lib/desktop-bridge';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -435,7 +435,7 @@ declare global {
 
 
 export default function App() {
-  /* ── Initialize connectors once ──────────────────────────────────────── */
+  /* -- Initialize connectors once ---------------------------------------- */
   useMemo(() => {
     registerConnector(createFilesystemConnector());
     registerConnector(createShellConnector());
@@ -464,7 +464,7 @@ export default function App() {
   const [draftEngineUrl, setDraftEngineUrl] = useState(DEFAULT_GATEWAY_URL);
   const [draftEngineToken, setDraftEngineToken] = useState('');
   const [draftEngineProviderId, setDraftEngineProviderId] = useState<EngineProviderId>('openclaw-compat');
-  const [engineConnections, setGatewayConnections] = useState<EngineConnectionProfile[]>(() => loadEngineConnectionProfiles());
+  const [engineConnections, setEngineConnections] = useState<EngineConnectionProfile[]>(() => loadEngineConnectionProfiles());
   const [health, setHealth] = useState<HealthCheckResult | null>(null);
   const [status, setStatus] = useState('Loading configuration...');
   const { preferences, updatePreferences } = usePreferences();
@@ -1187,7 +1187,7 @@ export default function App() {
       return mergeChatThreads(validCurrent, incomingPreservingCustomTitles);
     });
 
-    // Keep cowork recents consistent with live gateway sessions too.
+    // Keep cowork recents consistent with live runtime sessions too.
     setCoworkThreads((current) =>
       current.filter((thread) => existingSessionKeys.has(normalizeSessionKey(thread.sessionKey).toLowerCase())),
     );
@@ -1401,10 +1401,7 @@ export default function App() {
     chatLoadRequestRef.current = requestId;
 
     try {
-      await client.connect({
-        gatewayUrl: draftEngineUrl,
-        token: draftEngineToken,
-      });
+      await client.connect(engineConnectOptionsFromDraft(getCurrentEngineDraft()));
 
       let resolvedSessionKey = requestedSessionKey;
       let history: ChatMessage[];
@@ -1506,10 +1503,7 @@ export default function App() {
     coworkLoadRequestRef.current = requestId;
 
     try {
-      await client.connect({
-        gatewayUrl: draftEngineUrl,
-        token: draftEngineToken,
-      });
+      await client.connect(engineConnectOptionsFromDraft(getCurrentEngineDraft()));
 
       const history = await client.getHistory(requestedSessionKey, 50);
       const normalizedHistory = history.map(normalizeCoworkMessage);
@@ -1544,10 +1538,7 @@ export default function App() {
   };
 
   const ensureConnectedClient = async (client: EngineClientInstance) => {
-    await client.connect({
-      gatewayUrl: draftEngineUrl,
-      token: draftEngineToken,
-    });
+    await client.connect(engineConnectOptionsFromDraft(getCurrentEngineDraft()));
   };
 
   const getOrResolveSession = async (client: EngineClientInstance) => {
@@ -1655,21 +1646,31 @@ export default function App() {
   };
 
   const updateEngineConnections = useCallback((updater: (prev: EngineConnectionProfile[]) => EngineConnectionProfile[]) => {
-    setGatewayConnections((prev) => {
+    setEngineConnections((prev) => {
       const next = updater(prev);
       persistEngineConnectionProfiles(next);
       return next;
     });
   }, []);
 
+  const getCurrentEngineDraft = useCallback(
+    () =>
+      buildEngineDraftConfig({
+        providerId: draftEngineProviderId,
+        endpointUrl: draftEngineUrl.trim() || DEFAULT_GATEWAY_URL,
+        accessToken: draftEngineToken,
+      }),
+    [draftEngineProviderId, draftEngineToken, draftEngineUrl],
+  );
+
   const markEngineConnectionLastUsed = useCallback((connectedConfig: AppConfig) => {
-    const gatewayUrl = connectedConfig.gatewayUrl.trim() || DEFAULT_GATEWAY_URL;
-    const gatewayToken = connectedConfig.gatewayToken ?? '';
+    const runtimeEndpointUrl = connectedConfig.gatewayUrl.trim() || DEFAULT_GATEWAY_URL;
+    const runtimeAccessToken = connectedConfig.gatewayToken ?? '';
     const now = Date.now();
 
     updateEngineConnections((prev) =>
       prev.map((profile) =>
-        profile.endpointUrl === gatewayUrl && profile.accessToken === gatewayToken
+        profile.endpointUrl === runtimeEndpointUrl && profile.accessToken === runtimeAccessToken
           ? { ...profile, lastUsedAt: now, updatedAt: now }
           : profile,
       ),
@@ -1682,8 +1683,14 @@ export default function App() {
       return;
     }
 
-    setDraftEngineUrl(profile.endpointUrl);
-    setDraftEngineToken(profile.accessToken);
+    const selectedEngineDraft = buildEngineDraftConfig({
+      providerId: profile.providerId,
+      endpointUrl: profile.endpointUrl,
+      accessToken: profile.accessToken,
+    });
+    setDraftEngineUrl(selectedEngineDraft.endpointUrl);
+    setDraftEngineToken(selectedEngineDraft.accessToken);
+    setDraftEngineProviderId(selectedEngineDraft.providerId);
     setStatus(`Loaded connection "${profile.name}". Click Save and connect to apply it.`);
   }, [engineConnections]);
 
@@ -1772,7 +1779,7 @@ export default function App() {
       const mod = event.ctrlKey || event.metaKey;
       if (!mod) return;
 
-      // Ctrl+N — new chat / new task
+      // Ctrl+N ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â new chat / new task
       if (event.key === 'n') {
         event.preventDefault();
         if (activePage === 'cowork') {
@@ -1791,7 +1798,7 @@ export default function App() {
         return;
       }
 
-      // Ctrl+K — open search
+      // Ctrl+K ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â open search
       if (event.key === 'k') {
         event.preventDefault();
         setSearchOpen((prev) => !prev);
@@ -1802,14 +1809,14 @@ export default function App() {
         return;
       }
 
-      // Ctrl+Shift+S — settings
+      // Ctrl+Shift+S ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â settings
       if (event.key === 'S' && event.shiftKey) {
         event.preventDefault();
         setActivePage('settings');
         return;
       }
 
-      // Ctrl+, — settings (common IDE shortcut)
+      // Ctrl+, settings (common IDE shortcut)
       if (event.key === ',') {
         event.preventDefault();
         setActivePage('settings');
@@ -1826,9 +1833,11 @@ export default function App() {
     if (!bridge) {
       const localConfig = loadLocalConfig();
       if (localConfig) {
+        const localEngineDraft = engineDraftFromAppConfig(localConfig);
         setConfig(localConfig);
-        setDraftEngineUrl(localConfig.gatewayUrl);
-        setDraftEngineToken(localConfig.gatewayToken);
+        setDraftEngineUrl(localEngineDraft.endpointUrl);
+        setDraftEngineToken(localEngineDraft.accessToken);
+        setDraftEngineProviderId(localEngineDraft.providerId);
         setStatus('Loaded local configuration (bridge unavailable).');
       } else {
         setStatus('Electron bridge unavailable. Configuration will be saved locally for this browser profile.');
@@ -1846,9 +1855,11 @@ export default function App() {
           return;
         }
 
+        const storedEngineDraft = engineDraftFromAppConfig(storedConfig);
         setConfig(storedConfig);
-        setDraftEngineUrl(storedConfig.gatewayUrl);
-        setDraftEngineToken(storedConfig.gatewayToken);
+        setDraftEngineUrl(storedEngineDraft.endpointUrl);
+        setDraftEngineToken(storedEngineDraft.accessToken);
+        setDraftEngineProviderId(storedEngineDraft.providerId);
         setStatus('Configuration loaded.');
         setConfigReady(true);
       })
@@ -1859,9 +1870,11 @@ export default function App() {
 
         const localConfig = loadLocalConfig();
         if (localConfig) {
+          const localEngineDraft = engineDraftFromAppConfig(localConfig);
           setConfig(localConfig);
-          setDraftEngineUrl(localConfig.gatewayUrl);
-          setDraftEngineToken(localConfig.gatewayToken);
+          setDraftEngineUrl(localEngineDraft.endpointUrl);
+          setDraftEngineToken(localEngineDraft.accessToken);
+          setDraftEngineProviderId(localEngineDraft.providerId);
           setStatus('Loaded local fallback configuration.');
         } else {
           setStatus('Unable to load config. Using defaults.');
@@ -2833,7 +2846,7 @@ export default function App() {
 
                 // Fire desktop notification when cowork task completes
                 if (bridge?.notify) {
-                  const title = errorCount > 0 ? 'Relay — Task completed with errors' : 'Relay — Task completed';
+                  const title = errorCount > 0 ? 'Relay ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Task completed with errors' : 'Relay ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Task completed';
                   const body = runContext.projectTitle
                     ? `${runContext.projectTitle}: ${okCount} action${okCount === 1 ? '' : 's'} executed`
                     : `${okCount} action${okCount === 1 ? '' : 's'} executed`;
@@ -2854,7 +2867,7 @@ export default function App() {
                 finalizeCoworkTaskRun(eventSessionKey || coworkSessionKeyRef.current, taskEntry.taskId);
 
                 if (bridge?.notify) {
-                  bridge.notify('Relay — Task completed', runContext.projectTitle || 'Cowork run finished.').catch(() => {});
+                  bridge.notify('Relay ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Task completed', runContext.projectTitle || 'Cowork run finished.').catch(() => {});
                 }
               }
 
@@ -2991,17 +3004,17 @@ export default function App() {
     }
 
     const engineConfig = engineDraftFromAppConfig(config);
-    const gatewayUrl = engineConfig.endpointUrl?.trim() || DEFAULT_GATEWAY_URL;
-    const gatewayToken = engineConfig.accessToken ?? '';
+    const runtimeEndpointUrl = engineConfig.endpointUrl?.trim() || DEFAULT_GATEWAY_URL;
+    const runtimeAccessToken = engineConfig.accessToken ?? '';
 
     void client
       .connect({
-        gatewayUrl,
-        token: gatewayToken,
+        gatewayUrl: runtimeEndpointUrl,
+        token: runtimeAccessToken,
       })
       .then(async () => {
-        setHealth({ ok: true, message: `Connected to runtime at ${gatewayUrl}` });
-        markEngineConnectionLastUsed({ gatewayUrl, gatewayToken });
+        setHealth({ ok: true, message: `Connected to runtime at ${runtimeEndpointUrl}` });
+        markEngineConnectionLastUsed({ gatewayUrl: runtimeEndpointUrl, gatewayToken: runtimeAccessToken });
         if (!onboardingComplete) {
           completeOnboarding();
         }
@@ -3048,13 +3061,12 @@ export default function App() {
   const handleSave = async (event: FormEvent) => {
     event.preventDefault();
 
-    const nextConfig = appConfigFromEngineDraft({
-      runtimeKind: 'openclaw-compat',
-      providerId: 'openclaw-compat',
-      transport: 'websocket-gateway',
+    const nextEngineDraft = buildEngineDraftConfig({
+      providerId: draftEngineProviderId,
       endpointUrl: draftEngineUrl.trim() || DEFAULT_GATEWAY_URL,
       accessToken: draftEngineToken,
     });
+    const nextConfig = appConfigFromEngineDraft(nextEngineDraft);
 
     setSaving(true);
     setStatus('Saving and connecting...');
@@ -3064,9 +3076,11 @@ export default function App() {
     if (bridge) {
       try {
         const savedConfig = await bridge.saveConfig(nextConfig);
+        const savedEngineDraft = engineDraftFromAppConfig(savedConfig);
         setConfig(savedConfig);
-        setDraftEngineUrl(savedConfig.gatewayUrl);
-        setDraftEngineToken(savedConfig.gatewayToken);
+        setDraftEngineUrl(savedEngineDraft.endpointUrl);
+        setDraftEngineToken(savedEngineDraft.accessToken);
+        setDraftEngineProviderId(savedEngineDraft.providerId);
         persistLocalConfig(savedConfig);
       } catch {
         setStatus('Failed to save configuration.');
@@ -3085,10 +3099,7 @@ export default function App() {
         throw new Error('Runtime client not initialized.');
       }
 
-      await client.connect({
-        gatewayUrl: nextConfig.gatewayUrl,
-        token: nextConfig.gatewayToken,
-      });
+      await client.connect(engineConnectOptionsFromDraft(nextEngineDraft));
 
       await loadRecentChatsFromBackend(client);
 
@@ -3100,7 +3111,7 @@ export default function App() {
         setSelectedModel('');
       }
 
-      setHealth({ ok: true, message: `Connected to runtime at ${nextConfig.gatewayUrl}` });
+      setHealth({ ok: true, message: `Connected to runtime at ${nextEngineDraft.endpointUrl}` });
       setStatus('Configuration saved. Connected to runtime.');
       markEngineConnectionLastUsed(nextConfig);
     } catch (error) {
@@ -3147,17 +3158,14 @@ export default function App() {
         // Fallback for stale runtime instances that predate resetDeviceIdentity().
         localStorage.removeItem('openclaw-device-identity-v1');
       }
-      await client.connect({
-        gatewayUrl: draftEngineUrl,
-        token: draftEngineToken,
-      });
+      await client.connect(engineConnectOptionsFromDraft(getCurrentEngineDraft()));
 
       const sessionKey = normalizeSessionKey(activeSessionKeyRef.current);
       if (sessionKey) {
         commitActiveSessionKey(sessionKey);
       }
-      setHealth({ ok: true, message: `Re-paired and connected to ${draftEngineUrl}` });
-      setStatus('Re-pair complete. If operator.admin is still missing, approve the new request with admin scope on the gateway host.');
+      setHealth({ ok: true, message: `Re-paired and connected to ${getCurrentEngineDraft().endpointUrl}` });
+      setStatus('Re-pair complete. If operator.admin is still missing, approve the new request with admin scope on the runtime host.');
     } catch (error) {
       console.error('[Cloffice] reset pairing error:', error);
       const info = readEngineError(error);
@@ -3561,7 +3569,7 @@ export default function App() {
     }
 
     setActivePage('scheduled');
-    setStatus('Opened Schedule. Create a cron job for this task prompt from your gateway scheduler.');
+    setStatus('Opened Schedule. Create a cron job for this task prompt from your runtime scheduler.');
   };
 
   const handlePickWorkingFolderForProject = async (): Promise<string | undefined> => {
@@ -4268,10 +4276,7 @@ export default function App() {
 
     setScheduledLoading(true);
     try {
-      await client.connect({
-        gatewayUrl: draftEngineUrl,
-        token: draftEngineToken,
-      });
+      await client.connect(engineConnectOptionsFromDraft(getCurrentEngineDraft()));
       const rows = await client.listCronJobs();
       setScheduledJobs(rows);
     } catch (error) {
@@ -4281,7 +4286,7 @@ export default function App() {
     } finally {
       setScheduledLoading(false);
     }
-  }, [draftEngineToken, draftEngineUrl]);
+  }, [getCurrentEngineDraft]);
 
   useEffect(() => {
     if (activePage !== 'cowork' && activePage !== 'scheduled') {
@@ -4421,7 +4426,7 @@ export default function App() {
       const speaker = m.role === 'user' ? 'You' : m.role === 'system' ? 'System' : 'Assistant';
       return `## ${speaker}\n\n${m.text}`;
     });
-    const markdown = `# Chat Export — ${new Date().toLocaleDateString()}\n\n${lines.join('\n\n---\n\n')}\n`;
+    const markdown = `# Chat Export ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â ${new Date().toLocaleDateString()}\n\n${lines.join('\n\n---\n\n')}\n`;
     const blob = new Blob([markdown], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -4463,11 +4468,13 @@ export default function App() {
 
       {needsOnboarding ? (
         <OnboardingPage
+          draftEngineProviderId={draftEngineProviderId}
           draftEngineUrl={draftEngineUrl}
           draftEngineToken={draftEngineToken}
           health={health}
           saving={saving}
           pairingRequestId={pairingRequestId}
+          onDraftEngineProviderIdChange={setDraftEngineProviderId}
           onDraftEngineUrlChange={setDraftEngineUrl}
           onDraftEngineTokenChange={setDraftEngineToken}
           onSave={handleSave}
@@ -4837,6 +4844,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 

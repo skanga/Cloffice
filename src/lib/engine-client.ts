@@ -1,5 +1,5 @@
 ﻿import type { EngineRuntimeKind, EngineTransport } from '@/app-types';
-import { OpenClawGatewayClient } from './openclaw-gateway-client';
+import { OpenClawCompatibilityEngineClient } from './openclaw-compat-engine';
 
 /**
  * Minimal seam for the future provider-neutral Cloffice engine.
@@ -14,14 +14,11 @@ export interface EngineClient {
 }
 
 /**
- * Transitional adapter that currently delegates to the existing OpenClaw gateway
- * client. TODO(engine-migration): replace this with the internal engine IPC
+ * Transitional adapter that currently delegates to the OpenClaw compatibility
+ * module. TODO(engine-migration): replace this with the internal engine IPC
  * client once the provider-neutral runtime is available.
  */
-export class OpenClawRuntimeAdapter extends OpenClawGatewayClient implements EngineClient {
-  readonly runtimeKind = 'openclaw-compat' as const;
-  readonly transport = 'websocket-gateway' as const;
-}
+export class OpenClawRuntimeAdapter extends OpenClawCompatibilityEngineClient implements EngineClient {}
 
 export type EngineClientInstance = OpenClawRuntimeAdapter;
 

@@ -3,7 +3,7 @@
  * No React imports — safe to use anywhere.
  */
 import type { ChatActivityItem, ChatMessage } from '@/app-types';
-import { EngineRequestError } from './openclaw-gateway-client';
+import { OpenClawCompatibilityRequestError as EngineRequestError } from './openclaw-compat-engine';
 
 /* ── Exported types ──────────────────────────────────────────────────────── */
 

@@ -3,7 +3,7 @@ import { getEngineDiscoveryEndpoint } from '@/lib/engine-discovery';
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import type { FormEvent } from 'react';
 
-import type { EngineDiscoveryResult, HealthCheckResult } from '@/app-types';
+import type { EngineDiscoveryResult, EngineProviderId, HealthCheckResult } from '@/app-types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -16,11 +16,13 @@ type DiscoveryState =
   | { status: 'done'; result: EngineDiscoveryResult };
 
 type OnboardingPageProps = {
+  draftEngineProviderId: EngineProviderId;
   draftEngineUrl: string;
   draftEngineToken: string;
   health: HealthCheckResult | null;
   saving: boolean;
   pairingRequestId: string | null;
+  onDraftEngineProviderIdChange: (value: EngineProviderId) => void;
   onDraftEngineUrlChange: (value: string) => void;
   onDraftEngineTokenChange: (value: string) => void;
   onSave: (event: FormEvent) => void;
@@ -112,11 +114,13 @@ function PrimaryButton({
 }
 
 export function OnboardingPage({
+  draftEngineProviderId,
   draftEngineUrl,
   draftEngineToken,
   health,
   saving,
   pairingRequestId,
+  onDraftEngineProviderIdChange,
   onDraftEngineUrlChange,
   onDraftEngineTokenChange,
   onSave,
@@ -128,7 +132,7 @@ export function OnboardingPage({
   const [discovery, setDiscovery] = useState<DiscoveryState>({ status: 'idle' });
   const [showToken, setShowToken] = useState(false);
 
-  // Auto-discover gateway on mount
+  // Auto-discover a local runtime on mount.
   useEffect(() => {
     const bridge = getDesktopBridge();
     if (!bridge?.discoverEngine && !bridge?.discoverGateway) return;
@@ -213,7 +217,7 @@ export function OnboardingPage({
             <p className="mb-2 max-w-[340px] font-sans text-[15px] leading-relaxed text-muted-foreground">
               Local-first AI coworking with governed approvals.
               <br />
-              Connect a runtime endpoint to get started. This phase uses the OpenClaw compatibility provider while the internal engine is being prepared.
+              Connect a runtime endpoint to get started. This phase currently runs through the OpenClaw compatibility provider while the internal engine is being prepared.
             </p>
 
             {/* Discovery states */}
@@ -366,11 +370,43 @@ export function OnboardingPage({
                 Connect to a runtime
               </h2>
               <p className="mt-1 font-sans text-[13px] leading-relaxed text-muted-foreground">
-                Enter your runtime URL and optional access token.
+                Choose the runtime model Cloffice should prepare for, then enter your runtime URL and optional access token.
               </p>
             </div>
 
             <form className="grid gap-4" onSubmit={handleConnect}>
+              <div className="grid gap-2">
+                <label className="font-sans text-[12px] font-medium text-foreground">
+                  Engine provider
+                </label>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    className={`rounded-xl border px-3 py-3 text-left transition ${
+                      draftEngineProviderId === 'openclaw-compat'
+                        ? 'border-primary/45 bg-primary/10'
+                        : 'border-border bg-card hover:border-primary/30'
+                    }`}
+                    onClick={() => onDraftEngineProviderIdChange('openclaw-compat')}
+                  >
+                    <p className="text-sm font-medium text-foreground">OpenClaw compatibility</p>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      Current runtime path. Use this for today&apos;s connection flow.
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    className="rounded-xl border border-border bg-muted/40 px-3 py-3 text-left opacity-70"
+                  >
+                    <p className="text-sm font-medium text-foreground">Internal engine</p>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      Planned next phase. Visible here so onboarding already matches the future engine model.
+                    </p>
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label className="mb-1.5 flex items-center gap-1.5 font-sans text-[12px] font-medium text-foreground">
                   Runtime URL
@@ -400,7 +436,7 @@ export function OnboardingPage({
                       ?
                     </span>
                     <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-64 -translate-x-1/2 rounded-lg border border-border bg-popover px-3 py-2.5 font-normal text-[12px] leading-relaxed text-popover-foreground shadow-md opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-                      Found in your <code className="rounded bg-muted px-1 font-mono text-[11px]">openclaw.json</code> file under <code className="rounded bg-muted px-1 font-mono text-[11px]">gateway → auth → token</code>. Leave blank if your gateway has no token auth enabled.
+                      For the current OpenClaw compatibility path, this is in <code className="rounded bg-muted px-1 font-mono text-[11px]">openclaw.json</code> under <code className="rounded bg-muted px-1 font-mono text-[11px]">gateway → auth → token</code>. Leave blank if token auth is disabled.
                     </span>
                   </span>
                 </label>
@@ -576,7 +612,9 @@ export function OnboardingPage({
               You're all set
             </h2>
             <p className="mb-2 font-sans text-[15px] leading-relaxed text-muted-foreground">
-              Cloffice is connected to the current runtime endpoint.
+              {draftEngineProviderId === 'internal'
+                ? 'Cloffice is prepared to use the internal engine once it becomes available.'
+                : 'Cloffice is connected to the current runtime endpoint through the OpenClaw compatibility path.'}
             </p>
 
             {health?.message && (

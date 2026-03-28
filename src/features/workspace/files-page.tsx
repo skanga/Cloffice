@@ -379,11 +379,11 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
   const isRemote = fileService.mode === 'remote';
 
   // Check on mount whether the workspace plugin is already installed.
-  // Only meaningful for local gateways — for remote connections the plugin
-  // lives on the server, so we skip the local binary check and rely on
+  // Only meaningful for local runtimes — for remote connections the plugin
+  // lives on the host, so we skip the local binary check and rely on
   // the RPC call itself to tell us if the plugin is missing (remoteUnsupported).
   useEffect(() => {
-    if (isRemote) return; // skip local binary check for remote gateways
+    if (isRemote) return; // skip local binary check for remote runtimes
     const bridge = getDesktopBridge();
     if (!bridge?.checkWorkspacePlugin) return;
     bridge.checkWorkspacePlugin()
@@ -816,8 +816,8 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
   }
 
   /* ── Render: workspace plugin not installed or RPCs unsupported ── */
-  // For local gateways: show install UI if local binary check says plugin is missing.
-  // For remote gateways: only show install UI if the RPC call actually fails (remoteUnsupported).
+  // For local runtimes: show install UI if local binary check says the plugin is missing.
+  // For remote runtimes: only show install UI if the RPC call actually fails (remoteUnsupported).
   const showPluginInstallUi = rootProp !== 'working-folder' &&
     ((!isRemote && pluginInstalled === false) || (remoteUnsupported && activeRoot === 'workspace'));
   if (showPluginInstallUi) {
