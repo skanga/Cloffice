@@ -1,4 +1,5 @@
-﻿import type { EngineRuntimeKind, EngineTransport } from '@/app-types';
+import type { EngineProviderId, EngineRuntimeKind, EngineTransport } from '@/app-types';
+import { InternalEnginePlaceholderClient } from './internal-engine-placeholder';
 import { OpenClawCompatibilityEngineClient } from './openclaw-compat-engine';
 
 /**
@@ -20,10 +21,20 @@ export interface EngineClient {
  */
 export class OpenClawRuntimeAdapter extends OpenClawCompatibilityEngineClient implements EngineClient {}
 
-export type EngineClientInstance = OpenClawRuntimeAdapter;
+export type EngineClientInstance = OpenClawRuntimeAdapter | InternalEnginePlaceholderClient;
 
-export function createEngineClient(): EngineClientInstance {
-  return new OpenClawRuntimeAdapter();
+/**
+ * Maps the configured provider model to the runtime path that is actually
+ * available in this build. The internal engine remains modeled in state, but it
+ * still falls back to the OpenClaw compatibility runtime until that path ships.
+ */
+export function resolveAvailableEngineProviderId(providerId: EngineProviderId): EngineProviderId {
+  return providerId === 'internal' ? 'openclaw-compat' : providerId;
 }
 
-
+export function createEngineClient(providerId: EngineProviderId = 'openclaw-compat'): EngineClientInstance {
+  const resolvedProviderId = resolveAvailableEngineProviderId(providerId);
+  return resolvedProviderId === 'internal'
+    ? new InternalEnginePlaceholderClient()
+    : new OpenClawRuntimeAdapter();
+}

@@ -1,7 +1,14 @@
-﻿import type { EngineConnectionProfile, EngineProviderId, GatewayConnectionProfile } from '@/app-types';
+import type { AppConfig, EngineConnectionProfile, EngineProviderId } from '@/app-types';
 
-type StoredEngineConnectionProfile = GatewayConnectionProfile & {
+export type StoredEngineConnectionProfile = {
+  id: string;
+  name: string;
+  gatewayUrl: string;
+  gatewayToken: string;
   providerId?: EngineProviderId;
+  createdAt: number;
+  updatedAt: number;
+  lastUsedAt?: number;
 };
 
 export function parseStoredEngineConnectionProfile(entry: unknown): EngineConnectionProfile | null {
@@ -46,4 +53,8 @@ export function serializeEngineConnectionProfile(profile: EngineConnectionProfil
     updatedAt: profile.updatedAt,
     lastUsedAt: profile.lastUsedAt,
   };
+}
+
+export function engineConnectionMatchesAppConfig(profile: EngineConnectionProfile, config: AppConfig): boolean {
+  return profile.endpointUrl === config.gatewayUrl.trim() && profile.accessToken === (config.gatewayToken ?? '');
 }

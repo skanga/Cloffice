@@ -1,8 +1,8 @@
-﻿import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
 import type {
   AppConfig,
   HealthCheckResult,
-  EngineDiscoveryResult,
+  GatewayDiscoveryResult,
   LocalFileApplyResult,
   LocalFileAppendResult,
   LocalFileCreateResult,
@@ -15,6 +15,7 @@ import type {
   LocalFilePlanAction,
   LocalFilePlanResult,
 } from '../src/app-types.js';
+import { normalizeEngineDiscoveryResult } from '../src/lib/engine-discovery.js';
 
 const desktopBridgeApi = {
   getConfig: () => ipcRenderer.invoke('config:get') as Promise<AppConfig>,
@@ -24,9 +25,9 @@ const desktopBridgeApi = {
   checkRuntimeHealth: (baseUrl: string) =>
     ipcRenderer.invoke('backend:health-check', baseUrl) as Promise<HealthCheckResult>,
   discoverGateway: () =>
-    ipcRenderer.invoke('gateway:discover') as Promise<EngineDiscoveryResult>,
-  discoverEngine: () =>
-    ipcRenderer.invoke('gateway:discover') as Promise<EngineDiscoveryResult>,
+    ipcRenderer.invoke('gateway:discover') as Promise<GatewayDiscoveryResult>,
+  discoverEngine: async () =>
+    normalizeEngineDiscoveryResult(await ipcRenderer.invoke('gateway:discover') as GatewayDiscoveryResult),
   checkWorkspacePlugin: () =>
     ipcRenderer.invoke('plugin:check-workspace') as Promise<{ installed: boolean; error?: string }>,
   installWorkspacePlugin: () =>
@@ -110,6 +111,3 @@ const desktopBridgeApi = {
 
 contextBridge.exposeInMainWorld('cloffice', desktopBridgeApi);
 contextBridge.exposeInMainWorld('relay', desktopBridgeApi);
-
-
-

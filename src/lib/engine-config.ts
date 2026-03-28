@@ -23,6 +23,18 @@ export function buildEngineDraftConfig(params: {
   };
 }
 
+export function parseStoredAppConfig(entry: unknown, fallbackEndpointUrl: string): AppConfig | null {
+  if (!entry || typeof entry !== 'object') {
+    return null;
+  }
+
+  const record = entry as Record<string, unknown>;
+  return {
+    gatewayUrl: typeof record.gatewayUrl === 'string' && record.gatewayUrl.trim() ? record.gatewayUrl.trim() : fallbackEndpointUrl,
+    gatewayToken: typeof record.gatewayToken === 'string' ? record.gatewayToken : '',
+  };
+}
+
 export function engineDraftFromAppConfig(config: AppConfig): EngineDraftConfig {
   return buildEngineDraftConfig({
     providerId: 'openclaw-compat',

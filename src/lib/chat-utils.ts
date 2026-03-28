@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Pure utility functions and shared types for chat, cowork, and thread management.
  * No React imports — safe to use anywhere.
  */
@@ -355,7 +355,9 @@ function extractUuidFromMessage(msg?: string): string | undefined {
   return match?.[0];
 }
 
-export function readGatewayError(error: unknown): { message: string; code?: string; requestId?: string } {
+export type EngineErrorInfo = { message: string; code?: string; requestId?: string };
+
+export function readEngineError(error: unknown): EngineErrorInfo {
   if (!(error instanceof Error)) {
     return { message: 'Runtime connection failed.' };
   }
@@ -756,6 +758,6 @@ export function normalizeCoworkMessage(message: ChatMessage): ChatMessage {
   };
 }
 
-export const readEngineError = readGatewayError;
+export const readGatewayError = readEngineError;
 
 

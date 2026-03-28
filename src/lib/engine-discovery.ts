@@ -1,11 +1,29 @@
-﻿import type { EngineDiscoveryResult } from '@/app-types';
+import type { EngineProviderId, EngineRuntimeKind, EngineTransport, GatewayDiscoveryResult } from '../app-types.js';
 
-/**
- * App-boundary helpers for the current runtime discovery result.
- *
- * The underlying compatibility discovery shape still uses `gatewayUrl`.
- * Keep that detail confined here until the runtime discovery contract is migrated.
- */
-export function getEngineDiscoveryEndpoint(result: EngineDiscoveryResult): string | null {
-  return result.gatewayUrl;
+export type EngineDiscoveryResult = {
+  found: boolean;
+  endpointUrl: string | null;
+  binaryFound: boolean;
+  binaryPath: string | null;
+  message: string;
+  providerId: EngineProviderId;
+  runtimeKind: EngineRuntimeKind;
+  transport: EngineTransport;
+};
+
+export function normalizeEngineDiscoveryResult(result: GatewayDiscoveryResult): EngineDiscoveryResult {
+  return {
+    found: result.found,
+    endpointUrl: result.gatewayUrl,
+    binaryFound: result.binaryFound,
+    binaryPath: result.binaryPath,
+    message: result.message,
+    providerId: 'openclaw-compat',
+    runtimeKind: 'openclaw-compat',
+    transport: 'websocket-gateway',
+  };
+}
+
+export function getEngineDiscoveryEndpoint(result: Pick<EngineDiscoveryResult, 'endpointUrl'>): string | null {
+  return result.endpointUrl;
 }

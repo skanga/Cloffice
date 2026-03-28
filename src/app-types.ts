@@ -1,20 +1,10 @@
-﻿/**
+/**
  * Transitional runtime config. Gateway keys are intentionally retained until
  * Cloffice ships its internal engine config migration.
  */
 export type AppConfig = {
   gatewayUrl: string;
   gatewayToken: string;
-};
-
-export type GatewayConnectionProfile = {
-  id: string;
-  name: string;
-  gatewayUrl: string;
-  gatewayToken: string;
-  createdAt: number;
-  updatedAt: number;
-  lastUsedAt?: number;
 };
 
 export type EngineConnectionProfile = {
@@ -165,8 +155,6 @@ export type GatewayDiscoveryResult = {
   /** Human-readable summary of what was detected. */
   message: string;
 };
-
-export type EngineDiscoveryResult = GatewayDiscoveryResult;
 
 export type EngineRuntimeKind = 'openclaw-compat' | 'internal';
 export type EngineTransport = 'websocket-gateway' | 'internal-ipc';

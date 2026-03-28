@@ -1,6 +1,6 @@
-﻿import type {
+import type {
   AppConfig,
-  EngineDiscoveryResult,
+  GatewayDiscoveryResult,
   HealthCheckResult,
   LocalFileApplyResult,
   LocalFileAppendResult,
@@ -14,13 +14,14 @@
   LocalFilePlanAction,
   LocalFilePlanResult,
 } from './app-types';
+import type { EngineDiscoveryResult } from './lib/engine-discovery';
 
 type DesktopBridgeApi = {
   getConfig: () => Promise<AppConfig>;
   saveConfig: (config: AppConfig) => Promise<AppConfig>;
   healthCheck: (baseUrl: string) => Promise<HealthCheckResult>;
   checkRuntimeHealth: (baseUrl: string) => Promise<HealthCheckResult>;
-  discoverGateway: () => Promise<EngineDiscoveryResult>;
+  discoverGateway: () => Promise<GatewayDiscoveryResult>;
   discoverEngine: () => Promise<EngineDiscoveryResult>;
   checkWorkspacePlugin: () => Promise<{ installed: boolean; error?: string }>;
   installWorkspacePlugin: () => Promise<{ ok: boolean; output?: string; error?: string }>;

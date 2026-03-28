@@ -1,9 +1,10 @@
-﻿import { getDesktopBridge } from '@/lib/desktop-bridge';
+import { getDesktopBridge } from '@/lib/desktop-bridge';
 import { getEngineDiscoveryEndpoint } from '@/lib/engine-discovery';
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import type { FormEvent } from 'react';
 
-import type { EngineDiscoveryResult, EngineProviderId, HealthCheckResult } from '@/app-types';
+import type { EngineProviderId, HealthCheckResult } from '@/app-types';
+import type { EngineDiscoveryResult } from '@/lib/engine-discovery';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
