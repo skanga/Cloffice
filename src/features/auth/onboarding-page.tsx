@@ -1,7 +1,8 @@
+﻿import { getDesktopBridge } from '@/lib/desktop-bridge';
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import type { FormEvent } from 'react';
 
-import type { GatewayDiscoveryResult, HealthCheckResult } from '@/app-types';
+import type { EngineDiscoveryResult, HealthCheckResult } from '@/app-types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -11,7 +12,7 @@ type OnboardingStep = 'welcome' | 'connect' | 'pairing' | 'ready';
 type DiscoveryState =
   | { status: 'idle' }
   | { status: 'scanning' }
-  | { status: 'done'; result: GatewayDiscoveryResult };
+  | { status: 'done'; result: EngineDiscoveryResult };
 
 type OnboardingPageProps = {
   draftGatewayUrl: string;
@@ -128,13 +129,13 @@ export function OnboardingPage({
 
   // Auto-discover gateway on mount
   useEffect(() => {
-    const bridge = window.relay;
-    if (!bridge?.discoverGateway) return;
+    const bridge = getDesktopBridge();
+    if (!bridge?.discoverEngine && !bridge?.discoverGateway) return;
 
     let cancelled = false;
     setDiscovery({ status: 'scanning' });
 
-    bridge.discoverGateway().then((result) => {
+    (bridge.discoverEngine?.() ?? bridge.discoverGateway?.())?.then((result) => {
       if (cancelled) return;
       setDiscovery({ status: 'done', result });
 
@@ -596,4 +597,7 @@ export function OnboardingPage({
     </main>
   );
 }
+
+
+
 

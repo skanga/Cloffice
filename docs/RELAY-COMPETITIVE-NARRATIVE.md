@@ -1,4 +1,4 @@
-# Relay Competitive Narrative
+﻿# Relay Competitive Narrative
 
 Date: 2026-03-23
 Status: Draft v1
@@ -92,3 +92,4 @@ Response:
 
 ## 8. Positioning Statement
 For operations teams who need AI to do real work, Relay is the governed execution interface that turns AI reasoning into controlled outcomes across systems. Unlike generic cowork assistants, Relay is built for policy-aware multi-user workflows on top of OpenClaw, with explicit approvals and complete traceability.
+

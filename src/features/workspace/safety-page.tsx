@@ -9,7 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { loadSafetyScopes, saveSafetyScopes } from '@/lib/safety-policy';
 
 type SafetyPageProps = {
-  gatewayConnected: boolean;
+  engineConnected: boolean;
   projectId?: string;
   projectTitle?: string;
 };
@@ -39,7 +39,7 @@ const RISK_META: Record<SafetyRiskLevel, { label: string; badge: string; section
 
 const RISK_ORDER: SafetyRiskLevel[] = ['critical', 'high', 'medium', 'low'];
 
-export function SafetyPage({ gatewayConnected, projectId, projectTitle }: SafetyPageProps) {
+export function SafetyPage({ engineConnected, projectId, projectTitle }: SafetyPageProps) {
   const [scopes, setScopes] = useState<SafetyPermissionScope[]>(() => loadSafetyScopes(projectId));
   const [filterQuery, setFilterQuery] = useState('');
   const [riskFilter, setRiskFilter] = useState<SafetyRiskLevel | 'all'>('all');
@@ -116,12 +116,12 @@ export function SafetyPage({ gatewayConnected, projectId, projectTitle }: Safety
           <Badge
             variant="outline"
             className={`rounded-full text-[10px] ${
-              gatewayConnected
+              engineConnected
                 ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
                 : 'border-amber-500/40 bg-amber-500/12 text-amber-800 dark:text-amber-300'
             }`}
           >
-            {gatewayConnected ? 'Runtime connected' : 'Runtime offline'}
+            {engineConnected ? 'Runtime connected' : 'Runtime offline'}
           </Badge>
         </div>
         <p className="mt-1 font-sans text-sm text-muted-foreground">
@@ -291,4 +291,5 @@ export function SafetyPage({ gatewayConnected, projectId, projectTitle }: Safety
     </section>
   );
 }
+
 

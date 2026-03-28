@@ -3,7 +3,7 @@
  * No React imports — safe to use anywhere.
  */
 import type { ChatActivityItem, ChatMessage } from '@/app-types';
-import { GatewayRequestError } from './openclaw-gateway-client';
+import { EngineRequestError } from './openclaw-gateway-client';
 
 /* ── Exported types ──────────────────────────────────────────────────────── */
 
@@ -360,8 +360,8 @@ export function readGatewayError(error: unknown): { message: string; code?: stri
     return { message: 'Runtime connection failed.' };
   }
 
-  if (error instanceof GatewayRequestError) {
-    console.log('[Cloffice] GatewayRequestError details:', JSON.stringify(error.details));
+  if (error instanceof EngineRequestError) {
+    console.log('[Cloffice] EngineRequestError details:', JSON.stringify(error.details));
     const d = error.details as Record<string, unknown> | undefined;
     const requestId =
       (typeof d?.requestId === 'string' && d.requestId) ||
@@ -755,4 +755,7 @@ export function normalizeCoworkMessage(message: ChatMessage): ChatMessage {
     },
   };
 }
+
+export const readEngineError = readGatewayError;
+
 

@@ -1,4 +1,4 @@
-# Relay Claude Cowork Research Summary
+﻿# Relay Claude Cowork Research Summary
 
 Date: 2026-03-23
 Purpose: Preserve market and product evidence used to define Relay MVP.
@@ -129,3 +129,4 @@ Additional execution strategy stack:
 - RELAY-EXECUTION-HANDBOOK.md
 - RELAY-NOTION-TEMPLATES.md
 - RELAY-MVP-V1-FEATURES.md
+

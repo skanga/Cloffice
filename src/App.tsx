@@ -1,4 +1,5 @@
-﻿import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import { getDesktopBridge } from './lib/desktop-bridge';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
 import type {
@@ -13,7 +14,7 @@ import type {
   CoworkProjectTaskStatus,
   CoworkProject,
   CoworkRunPhase,
-  GatewayConnectionProfile,
+  EngineConnectionProfile,
   HealthCheckResult,
   LocalActionReceipt,
   LocalFilePlanAction,
@@ -81,7 +82,7 @@ import {
   buildOutboundChatPrompt,
   extractChatText,
   extractChatRole,
-  readGatewayError,
+  readEngineError,
   parseRelayFileActions,
   stripRelayActionPayloadFromText,
   parseRelayActivityItems,
@@ -270,7 +271,7 @@ function loadCoworkProjects(): CoworkProject[] {
   }
 }
 
-function loadGatewayConnectionProfiles(): GatewayConnectionProfile[] {
+function loadEngineConnectionProfiles(): EngineConnectionProfile[] {
   try {
     const raw = localStorage.getItem(GATEWAY_CONNECTIONS_STORAGE_KEY);
     if (!raw) {
@@ -283,7 +284,7 @@ function loadGatewayConnectionProfiles(): GatewayConnectionProfile[] {
     }
 
     return parsed
-      .map((entry): GatewayConnectionProfile | null => {
+      .map((entry): EngineConnectionProfile | null => {
         if (!entry || typeof entry !== 'object') {
           return null;
         }
@@ -311,14 +312,14 @@ function loadGatewayConnectionProfiles(): GatewayConnectionProfile[] {
           lastUsedAt,
         };
       })
-      .filter((profile): profile is GatewayConnectionProfile => profile !== null)
+      .filter((profile): profile is EngineConnectionProfile => profile !== null)
       .sort((a, b) => b.updatedAt - a.updatedAt);
   } catch {
     return [];
   }
 }
 
-function persistGatewayConnectionProfiles(profiles: GatewayConnectionProfile[]) {
+function persistEngineConnectionProfiles(profiles: EngineConnectionProfile[]) {
   localStorage.setItem(GATEWAY_CONNECTIONS_STORAGE_KEY, JSON.stringify(profiles));
 }
 
@@ -463,8 +464,8 @@ export default function App() {
     hydrateConnectors();
   }, []);
 
-  const bridge = window.relay;
-  const gatewayClientRef = useRef<EngineClientInstance | null>(null);
+  const bridge = getDesktopBridge();
+  const engineClientRef = useRef<EngineClientInstance | null>(null);
   const activeSessionKeyRef = useRef('');
   const coworkSessionKeyRef = useRef('');
   const workingFolderRef = useRef('');
@@ -483,7 +484,7 @@ export default function App() {
   const [configReady, setConfigReady] = useState(false);
   const [draftGatewayUrl, setDraftGatewayUrl] = useState(DEFAULT_GATEWAY_URL);
   const [draftGatewayToken, setDraftGatewayToken] = useState('');
-  const [gatewayConnections, setGatewayConnections] = useState<GatewayConnectionProfile[]>(() => loadGatewayConnectionProfiles());
+  const [engineConnections, setGatewayConnections] = useState<EngineConnectionProfile[]>(() => loadEngineConnectionProfiles());
   const [health, setHealth] = useState<HealthCheckResult | null>(null);
   const [status, setStatus] = useState('Loading configuration...');
   const { preferences, updatePreferences } = usePreferences();
@@ -569,7 +570,7 @@ export default function App() {
   const [coworkProgressSteps, setCoworkProgressSteps] = useState<CoworkProgressStep[]>(() => createInitialCoworkProgressSteps());
   const [coworkArtifacts, setCoworkArtifacts] = useState<CoworkArtifact[]>([]);
   const [localActionSmokeRunning, setLocalActionSmokeRunning] = useState(false);
-  const [gatewayConnected, setGatewayConnected] = useState(false);
+  const [engineConnected, setEngineConnected] = useState(false);
   const [sessionUsage, setSessionUsage] = useState(() => loadTodayUsage());
 
   const handleChatPromptChange = useCallback((value: string) => {
@@ -581,10 +582,10 @@ export default function App() {
   }, []);
 
   const fileService = useMemo(
-    () => createFileService(gatewayClientRef.current, draftGatewayUrl, Boolean(bridge)),
+    () => createFileService(engineClientRef.current, draftGatewayUrl, Boolean(bridge)),
     // Re-create when connection state or URL changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [draftGatewayUrl, gatewayConnected, bridge],
+    [draftGatewayUrl, engineConnected, bridge],
   );
 
   const localFileService = useMemo(
@@ -636,11 +637,11 @@ export default function App() {
     }
     return coworkArtifacts.filter((artifact) => !artifact.runId || runIds.has(artifact.runId)).slice(0, 40);
   }, [coworkArtifacts, visibleCoworkTasks]);
-  const selectedGatewayConnectionId = useMemo(() => {
+  const selectedEngineConnectionId = useMemo(() => {
     const normalizedUrl = draftGatewayUrl.trim() || DEFAULT_GATEWAY_URL;
     const normalizedToken = draftGatewayToken ?? '';
-    return gatewayConnections.find((profile) => profile.gatewayUrl === normalizedUrl && profile.gatewayToken === normalizedToken)?.id ?? null;
-  }, [draftGatewayToken, draftGatewayUrl, gatewayConnections]);
+    return engineConnections.find((profile) => profile.gatewayUrl === normalizedUrl && profile.gatewayToken === normalizedToken)?.id ?? null;
+  }, [draftGatewayToken, draftGatewayUrl, engineConnections]);
 
   const contextFolders = useMemo(() => {
     const folders = [activeCoworkProject?.workspaceFolder?.trim() || '', workingFolder.trim()].filter(Boolean);
@@ -1405,7 +1406,7 @@ export default function App() {
   }, [activeCoworkProject?.id, activeCoworkProject?.workspaceFolder, bridge]);
 
   const loadChatSession = async (sessionKeyInput: string, statusMessage?: string) => {
-    const client = gatewayClientRef.current;
+    const client = engineClientRef.current;
     if (!client) {
       return;
     }
@@ -1509,7 +1510,7 @@ export default function App() {
   };
 
   const loadCoworkSession = async (sessionKeyInput: string, statusMessage?: string) => {
-    const client = gatewayClientRef.current;
+    const client = engineClientRef.current;
     if (!client) {
       return;
     }
@@ -1673,30 +1674,30 @@ export default function App() {
     localStorage.setItem(LOCAL_CONFIG_KEY, JSON.stringify(nextConfig));
   };
 
-  const updateGatewayConnections = useCallback((updater: (prev: GatewayConnectionProfile[]) => GatewayConnectionProfile[]) => {
+  const updateEngineConnections = useCallback((updater: (prev: EngineConnectionProfile[]) => EngineConnectionProfile[]) => {
     setGatewayConnections((prev) => {
       const next = updater(prev);
-      persistGatewayConnectionProfiles(next);
+      persistEngineConnectionProfiles(next);
       return next;
     });
   }, []);
 
-  const markGatewayConnectionLastUsed = useCallback((connectedConfig: AppConfig) => {
+  const markEngineConnectionLastUsed = useCallback((connectedConfig: AppConfig) => {
     const gatewayUrl = connectedConfig.gatewayUrl.trim() || DEFAULT_GATEWAY_URL;
     const gatewayToken = connectedConfig.gatewayToken ?? '';
     const now = Date.now();
 
-    updateGatewayConnections((prev) =>
+    updateEngineConnections((prev) =>
       prev.map((profile) =>
         profile.gatewayUrl === gatewayUrl && profile.gatewayToken === gatewayToken
           ? { ...profile, lastUsedAt: now, updatedAt: now }
           : profile,
       ),
     );
-  }, [updateGatewayConnections]);
+  }, [updateEngineConnections]);
 
-  const handleSelectGatewayConnection = useCallback((connectionId: string) => {
-    const profile = gatewayConnections.find((entry) => entry.id === connectionId);
+  const handleSelectEngineConnection = useCallback((connectionId: string) => {
+    const profile = engineConnections.find((entry) => entry.id === connectionId);
     if (!profile) {
       return;
     }
@@ -1704,9 +1705,9 @@ export default function App() {
     setDraftGatewayUrl(profile.gatewayUrl);
     setDraftGatewayToken(profile.gatewayToken);
     setStatus(`Loaded connection "${profile.name}". Click Save and connect to apply it.`);
-  }, [gatewayConnections]);
+  }, [engineConnections]);
 
-  const handleSaveGatewayConnection = useCallback((name: string) => {
+  const handleSaveEngineConnection = useCallback((name: string) => {
     const trimmedName = name.trim();
     if (!trimmedName) {
       setStatus('Connection name is required.');
@@ -1716,7 +1717,7 @@ export default function App() {
     const normalizedUrl = draftGatewayUrl.trim() || DEFAULT_GATEWAY_URL;
     const now = Date.now();
 
-    updateGatewayConnections((prev) => {
+    updateEngineConnections((prev) => {
       const duplicateByName = prev.find((entry) => entry.name.toLowerCase() === trimmedName.toLowerCase());
       if (duplicateByName) {
         return prev
@@ -1753,13 +1754,13 @@ export default function App() {
     });
 
     setStatus(`Saved connection "${trimmedName}".`);
-  }, [draftGatewayToken, draftGatewayUrl, updateGatewayConnections]);
+  }, [draftGatewayToken, draftGatewayUrl, updateEngineConnections]);
 
-  const handleOverwriteGatewayConnection = useCallback((connectionId: string) => {
+  const handleOverwriteEngineConnection = useCallback((connectionId: string) => {
     const normalizedUrl = draftGatewayUrl.trim() || DEFAULT_GATEWAY_URL;
     const now = Date.now();
 
-    updateGatewayConnections((prev) =>
+    updateEngineConnections((prev) =>
       prev
         .map((entry) =>
           entry.id === connectionId
@@ -1775,12 +1776,12 @@ export default function App() {
     );
 
     setStatus('Updated saved connection with current URL/token.');
-  }, [draftGatewayToken, draftGatewayUrl, updateGatewayConnections]);
+  }, [draftGatewayToken, draftGatewayUrl, updateEngineConnections]);
 
-  const handleDeleteGatewayConnection = useCallback((connectionId: string) => {
-    updateGatewayConnections((prev) => prev.filter((entry) => entry.id !== connectionId));
+  const handleDeleteEngineConnection = useCallback((connectionId: string) => {
+    updateEngineConnections((prev) => prev.filter((entry) => entry.id !== connectionId));
     setStatus('Deleted saved connection.');
-  }, [updateGatewayConnections]);
+  }, [updateEngineConnections]);
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -1941,7 +1942,7 @@ export default function App() {
     const client = createEngineClient();
     client.setConnectionHandler((connected, message) => {
       setStatus(message);
-      setGatewayConnected(connected);
+      setEngineConnected(connected);
     });
     client.setEventHandler((event) => {
       if (event.type === 'event' && event.event === 'chat') {
@@ -2985,14 +2986,14 @@ export default function App() {
       }
     });
 
-    gatewayClientRef.current = client;
+    engineClientRef.current = client;
     return () => {
       for (const entry of approvalResolversRef.current.values()) {
         clearTimeout(entry.timeoutId);
       }
       approvalResolversRef.current.clear();
-      gatewayClientRef.current?.disconnect();
-      gatewayClientRef.current = null;
+      engineClientRef.current?.disconnect();
+      engineClientRef.current = null;
     };
   }, []);
 
@@ -3001,7 +3002,7 @@ export default function App() {
       return;
     }
 
-    const client = gatewayClientRef.current;
+    const client = engineClientRef.current;
     if (!client) {
       return;
     }
@@ -3016,14 +3017,14 @@ export default function App() {
       })
       .then(async () => {
         setHealth({ ok: true, message: `Connected to runtime at ${gatewayUrl}` });
-        markGatewayConnectionLastUsed({ gatewayUrl, gatewayToken });
+        markEngineConnectionLastUsed({ gatewayUrl, gatewayToken });
         if (!onboardingComplete) {
           completeOnboarding();
         }
         await loadRecentChatsFromBackend(client);
       })
       .catch((error: unknown) => {
-        const info = readGatewayError(error);
+        const info = readEngineError(error);
         const isPairing =
           info.code === 'PAIRING_REQUIRED' ||
           /pairing.required/i.test(info.message);
@@ -3040,7 +3041,7 @@ export default function App() {
           setStatus(offlineMessage);
         }
       });
-  }, [config.gatewayToken, config.gatewayUrl, onboardingComplete, configReady, markGatewayConnectionLastUsed]);
+  }, [config.gatewayToken, config.gatewayUrl, onboardingComplete, configReady, markEngineConnectionLastUsed]);
 
   useEffect(() => {
     if (activePage !== 'chat') {
@@ -3092,7 +3093,7 @@ export default function App() {
 
     // Connect
     try {
-      const client = gatewayClientRef.current;
+      const client = engineClientRef.current;
       if (!client) {
         throw new Error('Runtime client not initialized.');
       }
@@ -3114,10 +3115,10 @@ export default function App() {
 
       setHealth({ ok: true, message: `Connected to runtime at ${nextConfig.gatewayUrl}` });
       setStatus('Configuration saved. Connected to runtime.');
-      markGatewayConnectionLastUsed(nextConfig);
+      markEngineConnectionLastUsed(nextConfig);
     } catch (error) {
       console.error('[Cloffice] connect error:', error);
-      const info = readGatewayError(error);
+      const info = readEngineError(error);
       const isPairing =
         info.code === 'PAIRING_REQUIRED' ||
         /pairing.required/i.test(info.message);
@@ -3138,7 +3139,7 @@ export default function App() {
   };
 
   const handleResetPairing = async () => {
-    const client = gatewayClientRef.current;
+    const client = engineClientRef.current;
     if (!client) {
       setStatus('Runtime client not initialized.');
       return;
@@ -3172,7 +3173,7 @@ export default function App() {
       setStatus('Re-pair complete. If operator.admin is still missing, approve the new request with admin scope on the gateway host.');
     } catch (error) {
       console.error('[Cloffice] reset pairing error:', error);
-      const info = readGatewayError(error);
+      const info = readEngineError(error);
       const isPairing =
         info.code === 'PAIRING_REQUIRED' ||
         /pairing.required/i.test(info.message);
@@ -3194,7 +3195,7 @@ export default function App() {
 
   const handlePlanTask = async (event: FormEvent) => {
     event.preventDefault();
-    if (!gatewayConnected) {
+    if (!engineConnected) {
       setStatus('Runtime disconnected. Connect in Settings > Engine to run cowork tasks.');
       setCoworkAwaitingStream(false);
       setCoworkSending(false);
@@ -3220,7 +3221,7 @@ export default function App() {
     // Clear the composer immediately so submit feedback matches user expectation.
     handleChatPromptChange('');
 
-    const client = gatewayClientRef.current;
+    const client = engineClientRef.current;
     if (!client) {
       setStatus('Runtime client not initialized.');
       setCoworkSending(false);
@@ -3939,7 +3940,7 @@ export default function App() {
 
   const handleSendChat = async (event: FormEvent) => {
     event.preventDefault();
-    if (!gatewayConnected) {
+    if (!engineConnected) {
       setStatus('Runtime disconnected. Connect in Settings > Engine to send chat messages.');
       setAwaitingChatStream(false);
       setSendingChat(false);
@@ -3952,7 +3953,7 @@ export default function App() {
       return;
     }
 
-    const client = gatewayClientRef.current;
+    const client = engineClientRef.current;
     if (!client) {
       setStatus('Runtime client not initialized.');
       return;
@@ -4030,7 +4031,7 @@ export default function App() {
     const previousModel = selectedModel;
     setSelectedModel(nextModelValue);
 
-    const client = gatewayClientRef.current;
+    const client = engineClientRef.current;
     if (!client) {
       setStatus('Runtime client not initialized.');
       setSelectedModel(previousModel);
@@ -4059,7 +4060,7 @@ export default function App() {
     const previousModel = coworkModel;
     setCoworkModel(nextModelValue);
 
-    const client = gatewayClientRef.current;
+    const client = engineClientRef.current;
     if (!client) {
       setStatus('Runtime client not initialized.');
       setCoworkModel(previousModel);
@@ -4095,7 +4096,7 @@ export default function App() {
   };
 
   const handleStartNewChat = async () => {
-    const client = gatewayClientRef.current;
+    const client = engineClientRef.current;
     if (!client) {
       setStatus('Runtime client not initialized.');
       return;
@@ -4220,7 +4221,7 @@ export default function App() {
       return;
     }
 
-    const client = gatewayClientRef.current;
+    const client = engineClientRef.current;
     setRecentActionBusy(true);
     try {
       if (client) {
@@ -4250,7 +4251,7 @@ export default function App() {
       return;
     }
 
-    const client = gatewayClientRef.current;
+    const client = engineClientRef.current;
     if (!client) {
       setStatus('Runtime client not initialized.');
       return;
@@ -4272,7 +4273,7 @@ export default function App() {
   };
 
   const loadScheduledJobs = useCallback(async () => {
-    const client = gatewayClientRef.current;
+    const client = engineClientRef.current;
     if (!client) {
       setStatus('Runtime client not initialized.');
       return;
@@ -4301,7 +4302,7 @@ export default function App() {
     }
 
     void loadScheduledJobs();
-    const client = gatewayClientRef.current;
+    const client = engineClientRef.current;
     if (client && activePage === 'cowork') {
       const sessionKey = normalizeSessionKey(coworkSessionKeyRef.current);
       void loadCoworkModels(client, sessionKey || undefined);
@@ -4451,7 +4452,7 @@ export default function App() {
         coworkRightPanelOpen={coworkRightPanelOpen}
         isMaximized={isMaximized}
         usageModeLabel={usageModeLabel}
-        gatewayConnected={gatewayConnected}
+        engineConnected={engineConnected}
         coworkRunPhase={coworkRunPhase}
         coworkRunStatus={coworkRunStatus}
         coworkProgressSteps={coworkProgressSteps}
@@ -4467,7 +4468,7 @@ export default function App() {
         onToggleMaximize={handleToggleMaximize}
         onClose={handleClose}
         onShowSystemMenu={handleShowSystemMenu}
-        onOpenGatewaySettings={() => {
+        onOpenEngineSettings={() => {
           setActivePage('settings');
           setSettingsSection('Gateway');
         }}
@@ -4669,10 +4670,10 @@ export default function App() {
                   pendingApprovals={visiblePendingApprovals}
                   projectTasks={visibleCoworkTasks}
                   sending={coworkSending}
-                  gatewayConnected={gatewayConnected}
+                  engineConnected={engineConnected}
                   webSearchEnabled={coworkWebSearchEnabled}
                   projectPathReferences={coworkProjectPathReferences}
-                  onOpenGatewaySettings={() => {
+                  onOpenEngineSettings={() => {
                     setActivePage('settings');
                     setSettingsSection('Gateway');
                   }}
@@ -4701,7 +4702,7 @@ export default function App() {
                   onSelectPage={(page) => setActivePage(page)}
                 />
               ) : activePage === 'files' ? (
-                gatewayConnected ? (
+                engineConnected ? (
                   <FilesPage
                     workingFolder={workingFolder}
                     desktopBridgeAvailable={Boolean(bridge)}
@@ -4725,7 +4726,7 @@ export default function App() {
                   </section>
                 )
               ) : activePage === 'local-files' ? (
-                gatewayConnected ? (
+                engineConnected ? (
                   <FilesPage
                     workingFolder={workingFolder}
                     desktopBridgeAvailable={Boolean(bridge)}
@@ -4762,7 +4763,7 @@ export default function App() {
                     selectedModel={selectedModel}
                     modelsLoading={modelsLoading}
                     changingModel={changingModel}
-                    gatewayConnected={gatewayConnected}
+                    engineConnected={engineConnected}
                     status={status}
                     onTaskPromptChange={handleChatPromptChange}
                     onModelChange={handleModelChange}
@@ -4771,7 +4772,7 @@ export default function App() {
                     onNewChat={handleStartNewChat}
                     onClearChat={() => setChatMessages([])}
                     onOpenSettings={() => setActivePage('settings')}
-                    onOpenGatewaySettings={() => {
+                    onOpenEngineSettings={() => {
                       setActivePage('settings');
                       setSettingsSection('Gateway');
                     }}
@@ -4786,13 +4787,13 @@ export default function App() {
                         coworkMessages={coworkMessages}
                         activeSessionKey={activeSessionKey}
                         coworkSessionKey={coworkSessionKey}
-                        gatewayConnected={gatewayConnected}
+                        engineConnected={engineConnected}
                       />
                     )}
 
                     {activePage === 'memory' && (
                       <MemoryPage
-                        gatewayConnected={gatewayConnected}
+                        engineConnected={engineConnected}
                       />
                     )}
 
@@ -4807,7 +4808,7 @@ export default function App() {
 
                     {activePage === 'safety' && (
                       <SafetyPage
-                        gatewayConnected={gatewayConnected}
+                        engineConnected={engineConnected}
                         projectId={activeCoworkProject?.id}
                         projectTitle={activeCoworkProject?.name}
                       />
@@ -4823,15 +4824,15 @@ export default function App() {
                         saving={saving}
                         pairingRequestId={pairingRequestId}
                         preferences={preferences}
-                        gatewayConnections={gatewayConnections}
-                        selectedGatewayConnectionId={selectedGatewayConnectionId}
+                        engineConnections={engineConnections}
+                        selectedEngineConnectionId={selectedEngineConnectionId}
                         onDraftGatewayUrlChange={setDraftGatewayUrl}
                         onDraftGatewayTokenChange={setDraftGatewayToken}
                         onSave={handleSave}
-                        onSelectGatewayConnection={handleSelectGatewayConnection}
-                        onSaveGatewayConnection={handleSaveGatewayConnection}
-                        onOverwriteGatewayConnection={handleOverwriteGatewayConnection}
-                        onDeleteGatewayConnection={handleDeleteGatewayConnection}
+                        onSelectEngineConnection={handleSelectEngineConnection}
+                        onSaveEngineConnection={handleSaveEngineConnection}
+                        onOverwriteEngineConnection={handleOverwriteEngineConnection}
+                        onDeleteEngineConnection={handleDeleteEngineConnection}
                         onResetPairing={handleResetPairing}
                         onUpdatePreferences={updatePreferences}
                       />
@@ -4847,5 +4848,8 @@ export default function App() {
     </div>
   );
 }
+
+
+
 
 

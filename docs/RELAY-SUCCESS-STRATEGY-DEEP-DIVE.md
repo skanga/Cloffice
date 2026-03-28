@@ -1,4 +1,4 @@
-# Relay Success Strategy Deep Dive
+﻿# Relay Success Strategy Deep Dive
 
 Date: 2026-03-23
 Status: Working strategy document
@@ -150,3 +150,4 @@ Before expanding Relay, confirm:
 3. We can onboard a new pilot quickly using a standard playbook.
 4. We can pass common security and governance objections.
 5. We have a clear adjacent workflow expansion map.
+

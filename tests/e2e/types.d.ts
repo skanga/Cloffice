@@ -1,14 +1,16 @@
-/**
- * Type augmentation for window.relay inside Playwright evaluate() callbacks.
- * Mirrors the RelayApi interface declared in src/types.d.ts so that e2e tests
- * can reference window.relay without TypeScript errors.
+﻿/**
+ * Type augmentation for the desktop bridge inside Playwright evaluate() callbacks.
+ * Keeps the legacy `window.relay` alias while adding `window.cloffice` for the
+ * engine-facing rebrand layer.
  */
 interface Window {
   relay?: {
     getConfig: () => Promise<any>;
     saveConfig: (config: { gatewayUrl: string; gatewayToken: string }) => Promise<any>;
     healthCheck: (baseUrl: string) => Promise<any>;
+    checkRuntimeHealth: (baseUrl: string) => Promise<any>;
     discoverGateway: () => Promise<any>;
+    discoverEngine: () => Promise<any>;
     checkWorkspacePlugin: () => Promise<{ installed: boolean; error?: string }>;
     installWorkspacePlugin: () => Promise<{ ok: boolean; output?: string; error?: string }>;
     minimizeWindow: () => Promise<void>;
@@ -30,4 +32,5 @@ interface Window {
     statInFolder: (rootPath: string, relativePath: string) => Promise<any>;
     openPath: (targetPath: string) => Promise<{ ok: boolean; error?: string }>;
   };
+  cloffice?: Window['relay'];
 }

@@ -1,7 +1,8 @@
+﻿import { getDesktopBridge } from './desktop-bridge';
 /**
  * Unified file service abstraction.
  *
- * Routes file operations to either the local Electron bridge (`window.relay`)
+ * Routes file operations to either the local Electron desktop bridge (`window.cloffice`, with `window.relay` as a compatibility alias)
  * or the remote OpenClaw compatibility runtime via `workspace.*` RPC methods, depending on
  * the mode selected at construction time.
  *
@@ -14,8 +15,8 @@
  * UI can show what the agent *can* do and guide the user.
  */
 
-import type { OpenClawGatewayClient } from './openclaw-gateway-client';
-import type { GatewayToolEntry } from './openclaw-gateway-client';
+import type { EngineClientInstance } from './engine-client';
+import type { EngineToolEntry } from './openclaw-gateway-client';
 import type { LocalFileListItem } from '@/app-types';
 
 /* ═══════════════════════════════════════════ Types ═══════════════════════════════════════════ */
@@ -49,7 +50,7 @@ export interface FileService {
   deleteFile(rootPathOrEmpty: string, relativePath: string): Promise<void>;
   createFile(rootPathOrEmpty: string, relativePath: string, content: string): Promise<void>;
   /** Returns the agent's available tools from `tools.catalog`, or null if not applicable. */
-  fetchToolsCatalog(): Promise<GatewayToolEntry[] | null>;
+  fetchToolsCatalog(): Promise<EngineToolEntry[] | null>;
   /** Checks if the agent has filesystem tools (group:fs). */
   hasFileTools(): Promise<boolean>;
 }
@@ -57,50 +58,50 @@ export interface FileService {
 /* ═══════════════════════════════════════ Local ═══════════════════════════════════════ */
 
 /**
- * Uses `window.relay` (Electron IPC bridge) for local filesystem operations.
+ * Uses the Electron desktop bridge (`window.cloffice`, with `window.relay` compatibility) for local filesystem operations.
  */
 export class LocalFileService implements FileService {
   readonly mode: FileServiceMode = 'local';
 
   async listDir(rootPath: string, relativePath?: string): Promise<FileListResult> {
-    const bridge = window.relay;
+    const bridge = getDesktopBridge();
     if (!bridge) throw new Error('Desktop bridge not available.');
     const result = await bridge.listDirInFolder(rootPath, relativePath);
     return { items: result.items, truncated: result.truncated };
   }
 
   async readFile(rootPath: string, relativePath: string): Promise<FileReadResult> {
-    const bridge = window.relay;
+    const bridge = getDesktopBridge();
     if (!bridge) throw new Error('Desktop bridge not available.');
     const result = await bridge.readFileInFolder(rootPath, relativePath);
     return { content: result.content };
   }
 
   async stat(rootPath: string, relativePath: string): Promise<FileStatResult> {
-    const bridge = window.relay;
+    const bridge = getDesktopBridge();
     if (!bridge) throw new Error('Desktop bridge not available.');
     return bridge.statInFolder(rootPath, relativePath);
   }
 
   async rename(rootPath: string, oldRelPath: string, newRelPath: string): Promise<void> {
-    const bridge = window.relay;
+    const bridge = getDesktopBridge();
     if (!bridge) throw new Error('Desktop bridge not available.');
     await bridge.renameInFolder(rootPath, oldRelPath, newRelPath);
   }
 
   async deleteFile(rootPath: string, relativePath: string): Promise<void> {
-    const bridge = window.relay;
+    const bridge = getDesktopBridge();
     if (!bridge) throw new Error('Desktop bridge not available.');
     await bridge.deleteInFolder(rootPath, relativePath);
   }
 
   async createFile(rootPath: string, relativePath: string, content: string): Promise<void> {
-    const bridge = window.relay;
+    const bridge = getDesktopBridge();
     if (!bridge) throw new Error('Desktop bridge not available.');
     await bridge.createFileInFolder(rootPath, relativePath, content);
   }
 
-  async fetchToolsCatalog(): Promise<GatewayToolEntry[] | null> {
+  async fetchToolsCatalog(): Promise<EngineToolEntry[] | null> {
     return null; // Local mode — not applicable
   }
 
@@ -149,7 +150,7 @@ async function guardedCall<T>(method: string, fn: () => Promise<T>): Promise<T> 
 export class RemoteFileService implements FileService {
   readonly mode: FileServiceMode = 'remote';
 
-  constructor(private gateway: OpenClawGatewayClient) {}
+  constructor(private gateway: EngineClientInstance) {}
 
   async listDir(_rootPath: string, relativePath?: string): Promise<FileListResult> {
     return guardedCall('workspace.list', () => this.gateway.listWorkspaceFiles(relativePath));
@@ -175,9 +176,9 @@ export class RemoteFileService implements FileService {
     await guardedCall('workspace.write', () => this.gateway.writeWorkspaceFile(relativePath, content));
   }
 
-  private _cachedTools: GatewayToolEntry[] | null = null;
+  private _cachedTools: EngineToolEntry[] | null = null;
 
-  async fetchToolsCatalog(): Promise<GatewayToolEntry[] | null> {
+  async fetchToolsCatalog(): Promise<EngineToolEntry[] | null> {
     if (this._cachedTools) return this._cachedTools;
     try {
       const catalog = await this.gateway.fetchToolsCatalog();
@@ -207,7 +208,7 @@ export class RemoteFileService implements FileService {
  * remote host, we route through the gateway's `workspace.*` RPCs.
  */
 export function createFileService(
-  gateway: OpenClawGatewayClient | null,
+  gateway: EngineClientInstance | null,
   gatewayUrl: string,
   desktopBridgeAvailable: boolean,
 ): FileService {
@@ -245,4 +246,8 @@ function isRemoteUrl(url: string): boolean {
     return false;
   }
 }
+
+
+
+
 

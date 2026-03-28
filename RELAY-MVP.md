@@ -1,4 +1,4 @@
-# Relay MVP Definition
+﻿# Relay MVP Definition
 
 > Last updated: March 24, 2026
 
@@ -613,3 +613,4 @@ This is the central strategic question: **Why would a business pay SeventeenLabs
 - **Marketplace** = the ecosystem where governance templates, connectors, and skills compound
 
 The revenue ladder: **Services → Relay Pro → Core Platform → Marketplace**. Each rung funds the next and builds on the last.
+

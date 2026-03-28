@@ -1,6 +1,6 @@
-# OpenClaw Gateway — `workspace.*` RPC Specification
+﻿# OpenClaw Gateway — `workspace.*` RPC Specification
 
-> Required server-side implementation for Relay's remote file explorer.
+> Transitional compatibility path for Cloffice's remote workspace explorer.
 
 ## Architecture Context (from OpenClaw docs research)
 
@@ -33,7 +33,7 @@ surface includes: `chat.send`, `sessions.*`, `models.list`, `tools.catalog`,
 The OpenClaw Plugin SDK provides `api.registerGatewayMethod(name, handler)` which
 lets plugins add custom Gateway RPC methods. The **`relay-workspace`** plugin
 (located at `plugins/openclaw-relay-workspace/`) uses this API to register all 6
-`workspace.*` methods on the gateway, making Relay's remote file explorer work.
+`workspace.*` methods on the gateway, making Cloffice's remote workspace explorer work during the compatibility phase.
 
 Plugin entry point: `plugins/openclaw-relay-workspace/index.ts`
 
@@ -43,11 +43,11 @@ Plugin entry point: `plugins/openclaw-relay-workspace/index.ts`
    `api.runtime.agent.resolveAgentWorkspaceDir(cfg)`
 2. Registers 6 gateway methods: `workspace.list`, `workspace.read`,
    `workspace.write`, `workspace.stat`, `workspace.rename`, `workspace.delete`
-3. Relay connects and calls these methods through its existing gateway client
+3. Cloffice connects and calls these methods through its current compatibility client
 4. Path security enforced: directory traversal blocked, hidden files filtered,
    file size limits applied
 
-### Relay's approach for remote file access
+### Cloffice compatibility approach for remote file access
 
 | Layer | Strategy |
 |-------|----------|
@@ -407,7 +407,7 @@ handlers['workspace.delete'] = async ({ path: relPath }) => {
 
 ---
 
-## Relay-Side Status
+## Cloffice Compatibility Status
 
 | Component | Status |
 |-----------|--------|
@@ -417,3 +417,4 @@ handlers['workspace.delete'] = async ({ path: relPath }) => {
 | `files-page.tsx` dual-path rendering | ✅ Implemented |
 | Graceful fallback with tool catalog display | ✅ Implemented |
 | **OpenClaw `relay-workspace` plugin** | ✅ **Implemented** (`plugins/openclaw-relay-workspace/`) |
+

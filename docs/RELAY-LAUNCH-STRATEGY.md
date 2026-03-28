@@ -1,4 +1,4 @@
-# Relay Launch Strategy
+﻿# Relay Launch Strategy
 
 > Created: March 24, 2026
 
@@ -186,3 +186,4 @@ Don't monetize on launch day. Follow this sequence:
 3. **The sequence:** Build in public → launch on all channels same day → compound with content
 
 Everything else is execution detail. Get these three right and the rest follows.
+

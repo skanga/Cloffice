@@ -1,8 +1,9 @@
-import { contextBridge, ipcRenderer } from 'electron';
+﻿import { contextBridge, ipcRenderer } from 'electron';
 import type {
   AppConfig,
   HealthCheckResult,
   GatewayDiscoveryResult,
+  EngineDiscoveryResult,
   LocalFileApplyResult,
   LocalFileAppendResult,
   LocalFileCreateResult,
@@ -21,8 +22,12 @@ const api = {
   saveConfig: (config: AppConfig) => ipcRenderer.invoke('config:save', config) as Promise<AppConfig>,
   healthCheck: (baseUrl: string) =>
     ipcRenderer.invoke('backend:health-check', baseUrl) as Promise<HealthCheckResult>,
+  checkRuntimeHealth: (baseUrl: string) =>
+    ipcRenderer.invoke('backend:health-check', baseUrl) as Promise<HealthCheckResult>,
   discoverGateway: () =>
     ipcRenderer.invoke('gateway:discover') as Promise<GatewayDiscoveryResult>,
+  discoverEngine: () =>
+    ipcRenderer.invoke('gateway:discover') as Promise<EngineDiscoveryResult>,
   checkWorkspacePlugin: () =>
     ipcRenderer.invoke('plugin:check-workspace') as Promise<{ installed: boolean; error?: string }>,
   installWorkspacePlugin: () =>
@@ -104,4 +109,8 @@ const api = {
     ipcRenderer.invoke('notify', { title, body }) as Promise<{ ok: boolean; message?: string }>,
 };
 
+contextBridge.exposeInMainWorld('cloffice', api);
 contextBridge.exposeInMainWorld('relay', api);
+
+
+

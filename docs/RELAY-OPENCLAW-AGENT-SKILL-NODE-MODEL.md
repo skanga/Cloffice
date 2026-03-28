@@ -1,4 +1,4 @@
-# Relay + OpenClaw Runtime Model (Agent, Skill, Node)
+﻿# Relay + OpenClaw Runtime Model (Agent, Skill, Node)
 
 Date: 2026-03-26
 Status: Canonical runtime model for product and implementation
@@ -511,3 +511,4 @@ Keep wording consistent:
 
 Relay should never be framed as replacing OpenClaw runtime internals.
 Relay should be framed as making those internals operable and governable for humans.
+

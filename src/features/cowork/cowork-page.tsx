@@ -47,10 +47,10 @@ type CoworkPageProps = {
   pendingApprovals: PendingApprovalAction[];
   projectTasks: CoworkProjectTask[];
   sending: boolean;
-  gatewayConnected: boolean;
+  engineConnected: boolean;
   webSearchEnabled: boolean;
   projectPathReferences: ProjectPathReference[];
-  onOpenGatewaySettings: () => void;
+  onOpenEngineSettings: () => void;
   onTaskPromptChange: (value: string) => void;
   onModelChange: (value: string) => void;
   onWebSearchEnabledChange: (enabled: boolean) => void;
@@ -173,10 +173,10 @@ export function CoworkPage({
   pendingApprovals,
   projectTasks,
   sending,
-  gatewayConnected,
+  engineConnected,
   webSearchEnabled,
   projectPathReferences,
-  onOpenGatewaySettings,
+  onOpenEngineSettings,
   onTaskPromptChange,
   onModelChange,
   onWebSearchEnabledChange,
@@ -197,7 +197,7 @@ export function CoworkPage({
   const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
   const [mentionMenuIndex, setMentionMenuIndex] = useState(0);
   const [composerText, setComposerText] = useState(taskPrompt);
-  const canSend = composerText.trim().length > 0 && !sending && projectSelected && gatewayConnected;
+  const canSend = composerText.trim().length > 0 && !sending && projectSelected && engineConnected;
   const visibleMessages = useMemo(() => messages.filter((message) => !isSystemLikeMessage(message)), [messages]);
   const isInitialWorkspace = visibleMessages.length === 0;
   const dateTimeFormatter = useMemo(
@@ -420,7 +420,7 @@ export function CoworkPage({
           <span className="font-sans text-[11px] text-muted-foreground">
             Select a project in the sidebar before running a task.
           </span>
-        ) : !gatewayConnected ? (
+        ) : !engineConnected ? (
           <span className="font-sans text-[11px] text-muted-foreground">
             Connect the gateway to run cowork tasks.
           </span>
@@ -449,7 +449,7 @@ export function CoworkPage({
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
         <p id={taskPromptHelpId} className="font-sans text-xs text-muted-foreground">
           {projectSelected
-            ? gatewayConnected
+            ? engineConnected
               ? 'Type @ to reference project files/folders. Enter sends, Shift+Enter new line.'
               : 'Runtime disconnected. Connect to enable sending.'
             : 'Choose a project to enable sending'}
@@ -586,7 +586,7 @@ export function CoworkPage({
   };
 
   return (
-    !gatewayConnected ? (
+    !engineConnected ? (
       <section className="grid h-full w-full place-items-center p-6">
         <div className="w-full max-w-xl rounded-2xl border border-border bg-card p-6 text-center">
           <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full border border-border bg-muted">
@@ -596,7 +596,7 @@ export function CoworkPage({
           <p className="mt-2 font-sans text-sm text-muted-foreground">
             Connect the current runtime to run cowork tasks and access project context.
           </p>
-          <Button type="button" className="mt-4" onClick={onOpenGatewaySettings}>
+          <Button type="button" className="mt-4" onClick={onOpenEngineSettings}>
             Open Engine Settings
           </Button>
         </div>
@@ -910,4 +910,5 @@ export function CoworkPage({
     )
   );
 }
+
 

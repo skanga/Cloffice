@@ -1,4 +1,4 @@
-# Relay Positioning Brief
+﻿# Relay Positioning Brief
 
 Date: 2026-03-23
 Status: Draft v1
@@ -99,3 +99,4 @@ Do not say:
 - Fully autonomous black-box AI.
 - Another generic chatbot.
 - Model lab or frontier model company.
+

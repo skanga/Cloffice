@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Transitional runtime config. Gateway keys are intentionally retained until
  * Cloffice ships its internal engine config migration.
  */
@@ -16,6 +16,8 @@ export type GatewayConnectionProfile = {
   updatedAt: number;
   lastUsedAt?: number;
 };
+
+export type EngineConnectionProfile = GatewayConnectionProfile;
 
 export type HealthCheckResult = {
   ok: boolean;
@@ -154,6 +156,8 @@ export type GatewayDiscoveryResult = {
   /** Human-readable summary of what was detected. */
   message: string;
 };
+
+export type EngineDiscoveryResult = GatewayDiscoveryResult;
 
 export type EngineRuntimeKind = 'openclaw-compat' | 'internal';
 
@@ -299,4 +303,5 @@ export type UserPreferences = {
   style: 'claude' | 'relay';
   language: 'en' | 'de';
 };
+
 

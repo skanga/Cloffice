@@ -1,4 +1,4 @@
-# Relay Revenue Strategy — Fastest Path to Money
+﻿# Relay Revenue Strategy — Fastest Path to Money
 **Date:** 2026-03-24  
 **Status:** Active playbook
 
@@ -129,3 +129,4 @@ Never compete on price. Compete on sovereignty.
 ---
 
 *Strategy last updated: 2026-03-24*
+

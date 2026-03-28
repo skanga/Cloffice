@@ -1,4 +1,4 @@
-# Relay Cowork Projects - Implementation and E2E Checklist
+﻿# Relay Cowork Projects - Implementation and E2E Checklist
 
 > Last updated: March 25, 2026
 
@@ -61,3 +61,4 @@ Feature can be marked complete only when:
 - [ ] All runtime integrity items pass.
 - [ ] All safety items pass.
 - [ ] All E2E scenarios pass on Electron desktop mode.
+

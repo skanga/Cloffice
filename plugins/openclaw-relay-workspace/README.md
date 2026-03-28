@@ -1,12 +1,12 @@
-# relay-workspace
+﻿# relay-workspace
 
 Compatibility plugin for the transitional OpenClaw runtime path used by Cloffice.
 
-OpenClaw plugin that exposes `workspace.*` Gateway RPC methods so the Cloffice desktop app can browse and edit the runtime workspace remotely over WebSocket.
+OpenClaw compatibility plugin that exposes the `workspace.*` RPC methods Cloffice currently uses to browse and edit a remote runtime workspace over WebSocket.
 
 ## What it does
 
-The OpenClaw gateway protocol does not include file browsing RPCs by default. This plugin registers 6 custom gateway methods that Cloffice calls when connected to a remote compatibility runtime:
+The OpenClaw gateway protocol does not include file browsing RPCs by default. This plugin registers 6 custom methods that Cloffice calls when connected to a remote compatibility runtime:
 
 | Method | Description |
 |--------|-------------|
@@ -56,3 +56,4 @@ It is not the long-term architecture. The target state is a built-in Cloffice en
 ## License
 
 MIT
+

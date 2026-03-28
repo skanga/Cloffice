@@ -1,4 +1,4 @@
-# Relay Market Research — Full Competitive Landscape
+﻿# Relay Market Research — Full Competitive Landscape
 **Date:** 2026-03-24  
 **Status:** Live reference — update as market evolves  
 **Source:** Direct research of competitor websites + strategic analysis
@@ -336,3 +336,4 @@ Relay's proposed pricing of **€49–99/mo per operator seat** sits comfortably
 
 *Research conducted: 2026-03-24*  
 *Competitors researched: Paperclip (paperclip.ing), Claude Cowork (claude.com/product/cowork), Dust.tt (dust.tt), Lindy.ai (lindy.ai), n8n (n8n.io)*
+

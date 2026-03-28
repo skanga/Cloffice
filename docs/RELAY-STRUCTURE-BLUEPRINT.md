@@ -1,4 +1,4 @@
-# Relay Structure Blueprint
+﻿# Relay Structure Blueprint
 
 Date: 2026-03-23
 Status: Product and system blueprint
@@ -194,3 +194,4 @@ Relay responsibility:
 
 Reference specification:
 [docs/RELAY-OPENCLAW-AGENT-SKILL-NODE-MODEL.md](docs/RELAY-OPENCLAW-AGENT-SKILL-NODE-MODEL.md)
+

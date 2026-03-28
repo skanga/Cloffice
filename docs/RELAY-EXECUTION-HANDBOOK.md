@@ -1,4 +1,4 @@
-# Relay Execution Handbook
+﻿# Relay Execution Handbook
 
 Date: 2026-03-23
 Status: Operating handbook v1
@@ -249,3 +249,4 @@ Relay execution strategy is working when:
 2. Trust metrics are stable and improving.
 3. Implementation becomes repeatable with a standard playbook.
 4. Expansion to adjacent workflows is justified by data, not opinion.
+

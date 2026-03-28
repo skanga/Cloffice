@@ -23,7 +23,7 @@ type ChatPageProps = {
   selectedModel: string;
   modelsLoading: boolean;
   changingModel: boolean;
-  gatewayConnected: boolean;
+  engineConnected: boolean;
   status: string;
   onTaskPromptChange: (value: string) => void;
   onModelChange: (value: string) => void;
@@ -32,7 +32,7 @@ type ChatPageProps = {
   onNewChat?: () => void;
   onClearChat?: () => void;
   onOpenSettings?: () => void;
-  onOpenGatewaySettings?: () => void;
+  onOpenEngineSettings?: () => void;
 };
 
 const MAX_ATTACHMENTS = 5;
@@ -56,7 +56,7 @@ export function ChatPage({
   selectedModel,
   modelsLoading,
   changingModel,
-  gatewayConnected,
+  engineConnected,
   status,
   onTaskPromptChange,
   onModelChange,
@@ -65,7 +65,7 @@ export function ChatPage({
   onNewChat,
   onClearChat,
   onOpenSettings,
-  onOpenGatewaySettings,
+  onOpenEngineSettings,
 }: ChatPageProps) {
   const trimmedStatus = status.trim();
   const isInitial = messages.length === 0;
@@ -86,7 +86,7 @@ export function ChatPage({
   const [greetingNow, setGreetingNow] = useState(() => new Date());
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [composerDockHeight, setComposerDockHeight] = useState(170);
-  const canSend = (taskPrompt.trim().length > 0 || attachedFiles.length > 0) && !sending && gatewayConnected;
+  const canSend = (taskPrompt.trim().length > 0 || attachedFiles.length > 0) && !sending && engineConnected;
   const composerBottomInset = composerDockHeight + COMPOSER_EXTRA_BOTTOM_SPACE;
 
   const scrollMessagesToBottom = (behavior: ScrollBehavior = 'auto') => {
@@ -220,7 +220,7 @@ export function ChatPage({
     onSubmit(event);
   };
 
-  if (!gatewayConnected) {
+  if (!engineConnected) {
     return (
       <section className="grid h-full w-full place-items-center p-6">
         <div className="w-full max-w-xl rounded-2xl border border-border bg-card p-6 text-center">
@@ -231,7 +231,7 @@ export function ChatPage({
           <p className="mt-2 font-sans text-sm text-muted-foreground">
             Connect the current runtime to continue chatting.
           </p>
-          <Button type="button" className="mt-4" onClick={() => (onOpenGatewaySettings ?? onOpenSettings)?.()}>
+          <Button type="button" className="mt-4" onClick={() => (onOpenEngineSettings ?? onOpenSettings)?.()}>
             Open Engine Settings
           </Button>
         </div>
@@ -678,7 +678,7 @@ export function ChatPage({
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
             <p className="font-sans text-[11px] text-muted-foreground">
-              {gatewayConnected ? 'Press Enter to send, Shift+Enter for a new line' : 'Connect the gateway to enable chat'}
+              {engineConnected ? 'Press Enter to send, Shift+Enter for a new line' : 'Connect the runtime to enable chat'}
             </p>
             <div className="ml-auto flex items-center gap-2">
               <select
@@ -708,11 +708,13 @@ export function ChatPage({
         </form>
 
         <p className="mt-2 text-center font-sans text-[11px] text-muted-foreground" aria-live="polite">
-          {trimmedStatus || (gatewayConnected ? 'Claude is an AI and can make mistakes. Please verify cited sources.' : 'Runtime disconnected. Chat is paused.')}
+          {trimmedStatus || (engineConnected ? 'Claude is an AI and can make mistakes. Please verify cited sources.' : 'Runtime disconnected. Chat is paused.')}
         </p>
         </div>
       </div>
     </section>
   );
 }
+
+
 

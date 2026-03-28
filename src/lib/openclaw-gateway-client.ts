@@ -1,4 +1,4 @@
-import { getPublicKeyAsync, signAsync, utils } from '@noble/ed25519';
+﻿import { getPublicKeyAsync, signAsync, utils } from '@noble/ed25519';
 
 export type GatewayConnectOptions = {
   gatewayUrl: string;
@@ -1246,4 +1246,13 @@ export class OpenClawGatewayClient {
     this.pending.clear();
   }
 }
+
+export type EngineConnectOptions = GatewayConnectOptions;
+export type EngineChatMessage = GatewayChatMessage;
+export type EngineModelChoice = GatewayModelChoice;
+export type EngineCronJob = GatewayCronJob;
+export type EngineSessionSummary = GatewaySessionSummary;
+export type EngineToolEntry = GatewayToolEntry;
+export type EngineToolsCatalog = GatewayToolsCatalog;
+export { GatewayRequestError as EngineRequestError };
 

@@ -1,4 +1,4 @@
-# Relay Risk Register
+﻿# Relay Risk Register
 
 Date: 2026-03-23
 Status: Active
@@ -105,3 +105,4 @@ Escalate internally when:
 1. Override rate exceeds threshold for two weeks.
 2. Connector reliability drops below SLA target.
 3. Customer cannot demonstrate measurable value by week 6.
+

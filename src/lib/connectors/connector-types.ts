@@ -1,6 +1,6 @@
-import type { SafetyRiskLevel } from '@/app-types';
+﻿import type { SafetyRiskLevel } from '@/app-types';
 
-/* ── Connector system types ──────────────────────────────────────────────── */
+/* -- Connector system types ------------------------------------------------ */
 
 export type ConnectorStatus = 'active' | 'inactive' | 'error';
 
@@ -30,7 +30,7 @@ export type ConnectorDefinition = {
   description: string;
   icon: string;
   status: ConnectorStatus;
-  /** Runtime configuration — e.g. allowed domains, timeout values */
+  /** Runtime configuration, e.g. allowed domains or timeout values */
   config: ConnectorConfig;
   actions: ConnectorAction[];
   /** Test connectivity / readiness */
@@ -45,7 +45,7 @@ export type ConnectorDefinition = {
 
 export type ConnectorExecutionContext = {
   rootPath: string;
-  bridge: BridgeApi;
+  bridge: DesktopBridgeApi;
 };
 
 export type ConnectorActionResult = {
@@ -55,8 +55,8 @@ export type ConnectorActionResult = {
   errorCode?: string;
 };
 
-/** Minimal bridge API surface connectors need (subset of window.relay) */
-export type BridgeApi = {
+/** Minimal desktop bridge API surface connectors need. */
+export type DesktopBridgeApi = {
   createFileInFolder?: (root: string, rel: string, content: string, overwrite?: boolean) => Promise<unknown>;
   appendFileInFolder?: (root: string, rel: string, content: string) => Promise<unknown>;
   readFileInFolder?: (root: string, rel: string) => Promise<unknown>;
@@ -68,3 +68,5 @@ export type BridgeApi = {
   shellExec?: (root: string, command: string, timeoutMs?: number) => Promise<unknown>;
   webFetch?: (url: string, options?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<unknown>;
 };
+
+export type BridgeApi = DesktopBridgeApi;

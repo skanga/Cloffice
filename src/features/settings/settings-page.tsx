@@ -2,7 +2,7 @@
 import type { FormEvent, ReactNode } from 'react';
 import { Code2, Folder, Globe, KeyRound, Link2, Shield, Terminal, Trash2 } from 'lucide-react';
 
-import type { GatewayConnectionProfile, HealthCheckResult, UserPreferences } from '@/app-types';
+import type { EngineConnectionProfile, HealthCheckResult, UserPreferences } from '@/app-types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,15 +28,15 @@ type SettingsPageProps = {
   saving: boolean;
   pairingRequestId: string | null;
   preferences: UserPreferences;
-  gatewayConnections: GatewayConnectionProfile[];
-  selectedGatewayConnectionId: string | null;
+  engineConnections: EngineConnectionProfile[];
+  selectedEngineConnectionId: string | null;
   onDraftGatewayUrlChange: (value: string) => void;
   onDraftGatewayTokenChange: (value: string) => void;
   onSave: (event: FormEvent) => void;
-  onSelectGatewayConnection: (connectionId: string) => void;
-  onSaveGatewayConnection: (name: string) => void;
-  onOverwriteGatewayConnection: (connectionId: string) => void;
-  onDeleteGatewayConnection: (connectionId: string) => void;
+  onSelectEngineConnection: (connectionId: string) => void;
+  onSaveEngineConnection: (name: string) => void;
+  onOverwriteEngineConnection: (connectionId: string) => void;
+  onDeleteEngineConnection: (connectionId: string) => void;
   onResetPairing: () => void | Promise<void>;
   onUpdatePreferences: (patch: Partial<UserPreferences>) => void;
 };
@@ -238,15 +238,15 @@ export function SettingsPage({
   saving,
   pairingRequestId,
   preferences,
-  gatewayConnections,
-  selectedGatewayConnectionId,
+  engineConnections,
+  selectedEngineConnectionId,
   onDraftGatewayUrlChange,
   onDraftGatewayTokenChange,
   onSave,
-  onSelectGatewayConnection,
-  onSaveGatewayConnection,
-  onOverwriteGatewayConnection,
-  onDeleteGatewayConnection,
+  onSelectEngineConnection,
+  onSaveEngineConnection,
+  onOverwriteEngineConnection,
+  onDeleteEngineConnection,
   onResetPairing,
   onUpdatePreferences,
 }: SettingsPageProps) {
@@ -295,9 +295,9 @@ export function SettingsPage({
   const handleSaveCurrentConnection = useCallback(() => {
     const fallbackName = draftGatewayUrl.trim() || 'Runtime connection';
     const nextName = connectionNameDraft.trim() || fallbackName;
-    onSaveGatewayConnection(nextName);
+    onSaveEngineConnection(nextName);
     setConnectionNameDraft('');
-  }, [connectionNameDraft, draftGatewayUrl, onSaveGatewayConnection]);
+  }, [connectionNameDraft, draftGatewayUrl, onSaveEngineConnection]);
 
   const renderPlaceholder = (icon: ReactNode, hint: string) => (
     <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border/60 py-12 text-center">
@@ -640,15 +640,15 @@ export function SettingsPage({
               </div>
 
               <div className="grid gap-2">
-                {gatewayConnections.length === 0 ? (
+                {engineConnections.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-border px-3 py-2.5">
                     <p className="font-sans text-xs text-muted-foreground">
                       {t('No saved connections yet.', 'Noch keine gespeicherten Verbindungen.')}
                     </p>
                   </div>
                 ) : (
-                  gatewayConnections.map((connection) => {
-                    const isSelected = selectedGatewayConnectionId === connection.id;
+                  engineConnections.map((connection) => {
+                    const isSelected = selectedEngineConnectionId === connection.id;
                     return (
                       <div
                         key={connection.id}
@@ -674,10 +674,10 @@ export function SettingsPage({
                           ) : null}
                         </div>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                          <Button type="button" size="sm" variant="outline" onClick={() => onSelectGatewayConnection(connection.id)}>
+                          <Button type="button" size="sm" variant="outline" onClick={() => onSelectEngineConnection(connection.id)}>
                             {t('Use', 'Verwenden')}
                           </Button>
-                          <Button type="button" size="sm" variant="outline" onClick={() => onOverwriteGatewayConnection(connection.id)}>
+                          <Button type="button" size="sm" variant="outline" onClick={() => onOverwriteEngineConnection(connection.id)}>
                             {t('Update', 'Aktualisieren')}
                           </Button>
                           <Button
@@ -685,7 +685,7 @@ export function SettingsPage({
                             size="sm"
                             variant="outline"
                             className="text-destructive hover:text-destructive"
-                            onClick={() => onDeleteGatewayConnection(connection.id)}
+                            onClick={() => onDeleteEngineConnection(connection.id)}
                           >
                             <Trash2 className="mr-1 h-3.5 w-3.5" />
                             {t('Delete', 'Loeschen')}
@@ -911,5 +911,6 @@ function ConnectorsSection({ language }: { language: 'en' | 'de' }) {
     </div>
   );
 }
+
 
 

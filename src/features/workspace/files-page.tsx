@@ -1,3 +1,4 @@
+﻿import { getDesktopBridge } from '@/lib/desktop-bridge';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -383,8 +384,9 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
   // the RPC call itself to tell us if the plugin is missing (remoteUnsupported).
   useEffect(() => {
     if (isRemote) return; // skip local binary check for remote gateways
-    if (!window.relay?.checkWorkspacePlugin) return;
-    window.relay.checkWorkspacePlugin()
+    const bridge = getDesktopBridge();
+    if (!bridge?.checkWorkspacePlugin) return;
+    bridge.checkWorkspacePlugin()
       .then((r) => setPluginInstalled(r.installed))
       .catch(() => setPluginInstalled(null));
   }, [isRemote]);
@@ -441,10 +443,11 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
 
   /* ── Plugin Install ── */
   const handleInstallPlugin = useCallback(async () => {
-    if (!window.relay?.installWorkspacePlugin) return;
+    const bridge = getDesktopBridge();
+    if (!bridge?.installWorkspacePlugin) return;
     setInstallStatus('installing');
     setInstallError('');
-    const result = await window.relay.installWorkspacePlugin();
+    const result = await bridge.installWorkspacePlugin();
     if (result.ok) {
       setInstallStatus('success');
       setTimeout(() => {
@@ -894,8 +897,8 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
               size="sm"
               onClick={() => {
                 setRemoteUnsupported(false);
-                if (window.relay?.checkWorkspacePlugin) {
-                  window.relay.checkWorkspacePlugin()
+                if (getDesktopBridge()?.checkWorkspacePlugin) {
+                  getDesktopBridge()?.checkWorkspacePlugin()
                     .then((r) => {
                       setPluginInstalled(r.installed);
                       if (r.installed) void loadDirectory('');
@@ -1616,4 +1619,7 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
     </section>
   );
 }
+
+
+
 

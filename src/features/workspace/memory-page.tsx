@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+﻿import { useCallback, useMemo, useState } from 'react';
 import {
   BookOpen,
   Brain,
@@ -28,7 +28,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { MEMORY_STORAGE_KEY } from '@/lib/memory-context';
 
 type MemoryPageProps = {
-  gatewayConnected: boolean;
+  engineConnected: boolean;
 };
 
 const CATEGORY_CONFIG = {
@@ -61,7 +61,7 @@ function timeAgo(timestamp: number): string {
   return `${days} day${days === 1 ? '' : 's'} ago`;
 }
 
-export function MemoryPage({ gatewayConnected }: MemoryPageProps) {
+export function MemoryPage({ engineConnected }: MemoryPageProps) {
   const [entries, setEntries] = useState<MemoryEntry[]>(loadEntriesFromStorage);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<MemoryEntry['category'] | 'all'>('all');
@@ -437,3 +437,4 @@ export function MemoryPage({ gatewayConnected }: MemoryPageProps) {
     </section>
   );
 }
+

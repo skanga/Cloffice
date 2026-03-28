@@ -1,4 +1,4 @@
-# Relay Cowork Projects
+﻿# Relay Cowork Projects
 
 > Last updated: March 25, 2026
 
@@ -203,3 +203,4 @@ If tasks seem to use the wrong folder:
 2. Confirm working folder shown in Cowork right panel.
 3. Re-select the intended project.
 4. If needed, edit working folder (active project's folder will update).
+

@@ -1,7 +1,7 @@
-import type {
+﻿import type {
   AppConfig,
+  EngineDiscoveryResult,
   HealthCheckResult,
-  GatewayDiscoveryResult,
   LocalFileApplyResult,
   LocalFileAppendResult,
   LocalFileCreateResult,
@@ -15,11 +15,13 @@ import type {
   LocalFilePlanResult,
 } from './app-types';
 
-type RelayApi = {
+type DesktopBridgeApi = {
   getConfig: () => Promise<AppConfig>;
   saveConfig: (config: AppConfig) => Promise<AppConfig>;
   healthCheck: (baseUrl: string) => Promise<HealthCheckResult>;
-  discoverGateway: () => Promise<GatewayDiscoveryResult>;
+  checkRuntimeHealth: (baseUrl: string) => Promise<HealthCheckResult>;
+  discoverGateway: () => Promise<EngineDiscoveryResult>;
+  discoverEngine: () => Promise<EngineDiscoveryResult>;
   checkWorkspacePlugin: () => Promise<{ installed: boolean; error?: string }>;
   installWorkspacePlugin: () => Promise<{ ok: boolean; output?: string; error?: string }>;
   minimizeWindow: () => Promise<void>;
@@ -45,9 +47,13 @@ type RelayApi = {
   notify: (title: string, body?: string) => Promise<{ ok: boolean; message?: string }>;
 };
 
+type RelayApi = DesktopBridgeApi;
+type ClofficeDesktopApi = DesktopBridgeApi;
+
 declare global {
   interface Window {
     relay?: RelayApi;
+    cloffice?: ClofficeDesktopApi;
   }
 }
 
