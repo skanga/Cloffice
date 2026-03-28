@@ -1,28 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  AlertTriangle,
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  Eye,
-  FileWarning,
-  Lock,
-  Plus,
-  Search,
-  Shield,
-  ShieldAlert,
-  ShieldCheck,
-  ToggleLeft,
-  ToggleRight,
-  X,
-} from 'lucide-react';
+import { Lock, Search, Shield, ShieldAlert, ShieldCheck, ToggleLeft, ToggleRight } from 'lucide-react';
 
+import type { SafetyPermissionScope, SafetyRiskLevel } from '@/app-types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
-import type { SafetyPermissionScope, SafetyRiskLevel } from '@/app-types';
 import { loadSafetyScopes, saveSafetyScopes } from '@/lib/safety-policy';
 
 type SafetyPageProps = {
@@ -31,164 +14,168 @@ type SafetyPageProps = {
   projectTitle?: string;
 };
 
-type PendingAction = {
-  id: string;
-  type: string;
-  description: string;
-  riskLevel: SafetyRiskLevel;
-  agent: string;
-  timestamp: number;
-  preview?: string;
-  status: 'pending' | 'approved' | 'rejected';
+const RISK_META: Record<SafetyRiskLevel, { label: string; badge: string; section: string }> = {
+  low: {
+    label: 'Low',
+    badge: 'border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+    section: 'text-emerald-700 dark:text-emerald-300',
+  },
+  medium: {
+    label: 'Medium',
+    badge: 'border-amber-500/40 bg-amber-500/12 text-amber-800 dark:text-amber-300',
+    section: 'text-amber-700 dark:text-amber-300',
+  },
+  high: {
+    label: 'High',
+    badge: 'border-orange-500/35 bg-orange-500/12 text-orange-700 dark:text-orange-300',
+    section: 'text-orange-700 dark:text-orange-300',
+  },
+  critical: {
+    label: 'Critical',
+    badge: 'border-destructive/35 bg-destructive/10 text-destructive',
+    section: 'text-destructive',
+  },
 };
 
-const RISK_CONFIG = {
-  low: { color: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-950/30', border: 'border-emerald-200 dark:border-emerald-800/50', label: 'Low', badgeVariant: 'default' as const },
-  medium: { color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-950/30', border: 'border-amber-200 dark:border-amber-800/50', label: 'Medium', badgeVariant: 'outline' as const },
-  high: { color: 'text-orange-600', bg: 'bg-orange-50 dark:bg-orange-950/30', border: 'border-orange-200 dark:border-orange-800/50', label: 'High', badgeVariant: 'outline' as const },
-  critical: { color: 'text-red-600', bg: 'bg-red-50 dark:bg-red-950/30', border: 'border-red-200 dark:border-red-800/50', label: 'Critical', badgeVariant: 'outline' as const },
-} as const;
-
-function timeAgo(timestamp: number): string {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000);
-  if (seconds < 60) return 'Just now';
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} hr ago`;
-  const days = Math.floor(seconds / 86400);
-  return `${days} day${days === 1 ? '' : 's'} ago`;
-}
+const RISK_ORDER: SafetyRiskLevel[] = ['critical', 'high', 'medium', 'low'];
 
 export function SafetyPage({ gatewayConnected, projectId, projectTitle }: SafetyPageProps) {
   const [scopes, setScopes] = useState<SafetyPermissionScope[]>(() => loadSafetyScopes(projectId));
-  const [pendingActions, setPendingActions] = useState<PendingAction[]>([]);
   const [filterQuery, setFilterQuery] = useState('');
   const [riskFilter, setRiskFilter] = useState<SafetyRiskLevel | 'all'>('all');
-  const [expandedScopes, setExpandedScopes] = useState<Set<string>>(new Set());
-
-  const persistScopes = useCallback((updated: SafetyPermissionScope[]) => {
-    setScopes(updated);
-    saveSafetyScopes(updated, projectId);
-  }, [projectId]);
 
   useEffect(() => {
     setScopes(loadSafetyScopes(projectId));
   }, [projectId]);
 
-  const toggleScope = useCallback(
-    (id: string) => {
-      const updated = scopes.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s));
-      persistScopes(updated);
+  const persistScopes = useCallback(
+    (updated: SafetyPermissionScope[]) => {
+      setScopes(updated);
+      saveSafetyScopes(updated, projectId);
     },
-    [scopes, persistScopes],
+    [projectId],
   );
 
-  const toggleApproval = useCallback(
+  const toggleScopeEnabled = useCallback(
     (id: string) => {
-      const updated = scopes.map((s) => (s.id === id ? { ...s, requiresApproval: !s.requiresApproval } : s));
+      const updated = scopes.map((scope) => (scope.id === id ? { ...scope, enabled: !scope.enabled } : scope));
       persistScopes(updated);
     },
-    [scopes, persistScopes],
+    [persistScopes, scopes],
   );
 
-  const handleActionDecision = useCallback(
-    (id: string, decision: 'approved' | 'rejected') => {
-      setPendingActions((prev) => prev.map((a) => (a.id === id ? { ...a, status: decision } : a)));
+  const toggleScopeApproval = useCallback(
+    (id: string) => {
+      const updated = scopes.map((scope) => (scope.id === id ? { ...scope, requiresApproval: !scope.requiresApproval } : scope));
+      persistScopes(updated);
     },
-    [],
+    [persistScopes, scopes],
   );
 
   const stats = useMemo(() => {
-    const enabled = scopes.filter((s) => s.enabled).length;
-    const withApproval = scopes.filter((s) => s.requiresApproval).length;
-    const highRisk = scopes.filter((s) => s.enabled && (s.riskLevel === 'high' || s.riskLevel === 'critical')).length;
-    const pending = pendingActions.filter((a) => a.status === 'pending').length;
-    return { enabled, withApproval, highRisk, pending };
-  }, [scopes, pendingActions]);
+    const enabled = scopes.filter((scope) => scope.enabled).length;
+    const approvals = scopes.filter((scope) => scope.enabled && scope.requiresApproval).length;
+    const highRiskEnabled = scopes.filter((scope) => scope.enabled && (scope.riskLevel === 'high' || scope.riskLevel === 'critical')).length;
+    return { enabled, approvals, highRiskEnabled };
+  }, [scopes]);
 
   const filteredScopes = useMemo(() => {
-    let result = scopes;
-    if (riskFilter !== 'all') {
-      result = result.filter((s) => s.riskLevel === riskFilter);
-    }
-    if (filterQuery.trim()) {
-      const q = filterQuery.toLowerCase();
-      result = result.filter((s) => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q));
-    }
-    return result;
-  }, [scopes, riskFilter, filterQuery]);
+    const query = filterQuery.trim().toLowerCase();
+    return scopes
+      .filter((scope) => (riskFilter === 'all' ? true : scope.riskLevel === riskFilter))
+      .filter((scope) => {
+        if (!query) {
+          return true;
+        }
+        return scope.name.toLowerCase().includes(query) || scope.description.toLowerCase().includes(query);
+      });
+  }, [filterQuery, riskFilter, scopes]);
 
   const groupedScopes = useMemo(() => {
-    const groups: Record<SafetyRiskLevel, SafetyPermissionScope[]> = { low: [], medium: [], high: [], critical: [] };
+    const groups: Record<SafetyRiskLevel, SafetyPermissionScope[]> = {
+      low: [],
+      medium: [],
+      high: [],
+      critical: [],
+    };
     for (const scope of filteredScopes) {
       groups[scope.riskLevel].push(scope);
     }
     return groups;
   }, [filteredScopes]);
 
-  const pendingCount = pendingActions.filter((a) => a.status === 'pending').length;
-
   return (
-    <section className="mx-auto grid h-full w-full max-w-[1060px] min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-3">
-      {/* Header */}
-      <header>
-        <div className="flex items-center gap-2">
+    <section className="mx-auto grid h-full w-full max-w-[1100px] min-h-0 grid-rows-[auto_auto_auto_minmax(0,1fr)] gap-3 p-4">
+      <header className="rounded-2xl border border-border/60 bg-card px-4 py-3.5">
+        <div className="flex flex-wrap items-center gap-2">
           <Shield className="size-5 text-blue-600" />
           <h1 className="text-xl font-semibold tracking-tight">Safety and approvals</h1>
+          <Badge variant="outline" className="rounded-full text-[10px]">
+            {projectId ? projectTitle?.trim() || 'Selected project' : 'Global'}
+          </Badge>
+          <Badge
+            variant="outline"
+            className={`rounded-full text-[10px] ${
+              gatewayConnected
+                ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                : 'border-amber-500/40 bg-amber-500/12 text-amber-800 dark:text-amber-300'
+            }`}
+          >
+            {gatewayConnected ? 'Gateway connected' : 'Gateway offline'}
+          </Badge>
         </div>
         <p className="mt-1 font-sans text-sm text-muted-foreground">
-          Control what your agent is allowed to do. Require approvals for high-risk actions.
+          Define exactly what the agent can do, and whether each action runs automatically or needs human approval.
         </p>
-        {projectId ? (
-          <p className="mt-1 font-sans text-xs text-muted-foreground">
-            Scope: {projectTitle?.trim() || 'Selected project'}
-          </p>
-        ) : null}
       </header>
 
-      {/* Stats bar */}
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/60 bg-card px-4 py-2.5">
-        <div className="flex items-center gap-1.5">
-          <ShieldCheck className="size-3.5 text-emerald-600" />
-          <span className="font-sans text-[12px] text-muted-foreground">{stats.enabled} active</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <Lock className="size-3.5 text-amber-500" />
-          <span className="font-sans text-[12px] text-muted-foreground">{stats.withApproval} requiring approval</span>
-        </div>
-        <Separator orientation="vertical" className="h-4" />
-        {stats.highRisk > 0 && (
-          <div className="flex items-center gap-1.5">
-            <ShieldAlert className="size-3.5 text-red-500" />
-            <span className="font-sans text-[12px] text-red-600">{stats.highRisk} high-risk active</span>
-          </div>
-        )}
-        {pendingCount > 0 && (
-          <>
-            <Separator orientation="vertical" className="h-4" />
-            <div className="flex items-center gap-1.5">
-              <AlertTriangle className="size-3.5 text-amber-500" />
-              <span className="font-sans text-[12px] font-medium text-amber-600">{pendingCount} pending</span>
-            </div>
-          </>
-        )}
+      <div className="rounded-xl border border-border/60 bg-card px-3 py-2.5">
+        <p className="font-sans text-[11px] text-muted-foreground">
+          <span className="font-semibold text-foreground">Rule behavior:</span> Enabled + Automatic = executes immediately. Enabled + Approval required = asks first. Disabled = blocked.
+        </p>
       </div>
 
-      {/* Main content */}
-      <div className="grid min-h-0 grid-cols-1 gap-3" style={{ gridTemplateColumns: pendingCount > 0 ? '1fr 320px' : '1fr' }}>
-        {/* Permissions panel */}
+      <div className="grid grid-cols-1 gap-2 rounded-xl border border-border/60 bg-card p-3 sm:grid-cols-3">
+        <div className="rounded-lg border border-border/50 bg-background px-2.5 py-2">
+          <div className="flex items-center gap-1.5">
+            <ShieldCheck className="size-3.5 text-emerald-600" />
+            <span className="font-sans text-[11px] text-muted-foreground">Enabled rules</span>
+          </div>
+          <p className="mt-1 text-sm font-semibold text-foreground">{stats.enabled}</p>
+        </div>
+        <div className="rounded-lg border border-border/50 bg-background px-2.5 py-2">
+          <div className="flex items-center gap-1.5">
+            <Lock className="size-3.5 text-amber-500" />
+            <span className="font-sans text-[11px] text-muted-foreground">Need approval</span>
+          </div>
+          <p className="mt-1 text-sm font-semibold text-foreground">{stats.approvals}</p>
+        </div>
+        <div className="rounded-lg border border-border/50 bg-background px-2.5 py-2">
+          <div className="flex items-center gap-1.5">
+            <ShieldAlert className="size-3.5 text-destructive" />
+            <span className="font-sans text-[11px] text-muted-foreground">High/critical enabled</span>
+          </div>
+          <p className={`mt-1 text-sm font-semibold ${stats.highRiskEnabled > 0 ? 'text-destructive' : 'text-foreground'}`}>{stats.highRiskEnabled}</p>
+        </div>
+      </div>
+
+      <div className="grid min-h-0 grid-cols-1 gap-3">
         <div className="flex min-h-0 flex-col rounded-xl border border-border/60 bg-card">
-          {/* Filter bar */}
-          <div className="flex items-center gap-2 border-b border-border/40 px-4 py-2">
+          <div className="flex items-center gap-2 border-b border-border/40 px-4 py-2.5">
             <Search className="size-3.5 text-muted-foreground/60" />
             <Input
               type="text"
               value={filterQuery}
-              onChange={(e) => setFilterQuery(e.target.value)}
+              onChange={(event) => setFilterQuery(event.target.value)}
               placeholder="Search permissions..."
               className="h-7 border-0 bg-transparent px-0 text-[12px] shadow-none focus-visible:ring-0"
             />
-            <Separator orientation="vertical" className="h-4" />
-            <div className="flex items-center gap-1">
+            {filterQuery.trim() ? (
+              <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={() => setFilterQuery('')}>
+                Clear
+              </Button>
+            ) : null}
+            <div className="ml-auto flex items-center gap-1">
               {(['all', 'low', 'medium', 'high', 'critical'] as const).map((level) => (
                 <button
                   key={level}
@@ -198,103 +185,100 @@ export function SafetyPage({ gatewayConnected, projectId, projectTitle }: Safety
                   }`}
                   onClick={() => setRiskFilter(level)}
                 >
-                  {level === 'all' ? 'All' : RISK_CONFIG[level].label}
+                  {level === 'all' ? 'All' : RISK_META[level].label}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Scopes list */}
           <ScrollArea className="flex-1">
             <div className="p-3">
-              {(['critical', 'high', 'medium', 'low'] as const).map((riskLevel) => {
-                const scopesInGroup = groupedScopes[riskLevel];
-                if (scopesInGroup.length === 0) return null;
-                const conf = RISK_CONFIG[riskLevel];
+              {filteredScopes.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border/70 bg-background px-3 py-8 text-center">
+                  <p className="font-sans text-sm text-muted-foreground">No permissions match your current filter.</p>
+                </div>
+              ) : null}
 
+              {RISK_ORDER.map((riskLevel) => {
+                const scopesInGroup = groupedScopes[riskLevel];
+                if (scopesInGroup.length === 0) {
+                  return null;
+                }
+                const risk = RISK_META[riskLevel];
                 return (
                   <div key={riskLevel} className="mb-3 last:mb-0">
                     <div className="mb-1.5 flex items-center gap-2 px-1">
-                      <span className={`inline-block size-2 rounded-full ${conf.bg} ${conf.border} border`} />
-                      <span className={`font-sans text-[11px] font-semibold uppercase tracking-wider ${conf.color}`}>
-                        {conf.label} risk
-                      </span>
+                      <span className={`font-sans text-[11px] font-semibold uppercase tracking-wider ${risk.section}`}>{risk.label} risk</span>
                       <span className="font-sans text-[10px] text-muted-foreground">({scopesInGroup.length})</span>
                     </div>
 
-                    <div className="grid gap-1">
-                      {scopesInGroup.map((scope) => {
-                        const isExpanded = expandedScopes.has(scope.id);
-                        return (
-                          <div
-                            key={scope.id}
-                            className={`rounded-lg border px-3 py-2 transition-colors ${
-                              scope.enabled ? `${conf.border} ${conf.bg}` : 'border-border/40 bg-background opacity-60'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                className="flex items-center gap-1"
-                                onClick={() => {
-                                  setExpandedScopes((prev) => {
-                                    const next = new Set(prev);
-                                    if (next.has(scope.id)) next.delete(scope.id);
-                                    else next.add(scope.id);
-                                    return next;
-                                  });
-                                }}
-                              >
-                                {isExpanded ? (
-                                  <ChevronDown className="size-3 text-muted-foreground" />
-                                ) : (
-                                  <ChevronRight className="size-3 text-muted-foreground" />
-                                )}
-                              </button>
-                              <span className="font-sans text-[13px] font-medium">{scope.name}</span>
-                              {scope.requiresApproval && (
-                                <Badge variant="outline" className="font-sans text-[9px] gap-0.5">
-                                  <Lock className="size-2.5" />
-                                  Approval
-                                </Badge>
-                              )}
-                              <div className="ml-auto flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  className="text-muted-foreground hover:text-foreground"
-                                  onClick={() => toggleScope(scope.id)}
-                                  title={scope.enabled ? 'Disable' : 'Enable'}
+                    <div className="grid gap-1.5">
+                      {scopesInGroup.map((scope) => (
+                        <div
+                          key={scope.id}
+                          className={`rounded-lg border px-3 py-2 ${
+                            scope.enabled ? 'border-border/60 bg-background' : 'border-border/40 bg-background opacity-65'
+                          }`}
+                        >
+                          <div className="flex items-start gap-2">
+                            <div className="min-w-0 flex-1">
+                              <p className="font-sans text-[13px] font-medium text-foreground">{scope.name}</p>
+                              <p className="mt-0.5 font-sans text-[11px] text-muted-foreground">{scope.description}</p>
+                            </div>
+                            <div className="flex flex-col items-end gap-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <Badge
+                                  variant="outline"
+                                  className={`font-sans text-[9px] ${
+                                    scope.enabled
+                                      ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                                      : 'border-border bg-muted text-muted-foreground'
+                                  }`}
                                 >
-                                  {scope.enabled ? (
-                                    <ToggleRight className="size-5 text-emerald-600" />
-                                  ) : (
-                                    <ToggleLeft className="size-5 text-muted-foreground/40" />
-                                  )}
-                                </button>
+                                  {scope.enabled ? 'Enabled' : 'Disabled'}
+                                </Badge>
+                                <Badge
+                                  variant="outline"
+                                  className={`font-sans text-[9px] ${
+                                    scope.requiresApproval
+                                      ? 'border-amber-500/40 bg-amber-500/12 text-amber-800 dark:text-amber-300'
+                                      : 'border-blue-500/35 bg-blue-500/10 text-blue-700 dark:text-blue-300'
+                                  }`}
+                                >
+                                  {scope.requiresApproval ? 'Approval required' : 'Automatic'}
+                                </Badge>
+                                <Badge variant="outline" className={`font-sans text-[9px] ${risk.badge}`}>
+                                  {risk.label}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant={scope.enabled ? 'outline' : 'default'}
+                                  className="h-6 px-2 text-[10px]"
+                                  onClick={() => toggleScopeEnabled(scope.id)}
+                                >
+                                  {scope.enabled ? <ToggleRight className="mr-1 size-3.5 text-emerald-600" /> : <ToggleLeft className="mr-1 size-3.5" />}
+                                  {scope.enabled ? 'Disable' : 'Enable'}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-6 px-2 text-[10px]"
+                                  onClick={() => toggleScopeApproval(scope.id)}
+                                  disabled={!scope.enabled}
+                                  title={!scope.enabled ? 'Enable this rule first' : undefined}
+                                >
+                                  <Lock className="mr-1 size-3.5" />
+                                  {scope.requiresApproval ? 'Set automatic' : 'Require approval'}
+                                </Button>
                               </div>
                             </div>
-
-                            {isExpanded && (
-                              <div className="mt-2 pl-5">
-                                <p className="font-sans text-[12px] text-muted-foreground">{scope.description}</p>
-                                <div className="mt-2 flex items-center gap-3">
-                                  <label className="flex cursor-pointer items-center gap-1.5">
-                                    <input
-                                      type="checkbox"
-                                      checked={scope.requiresApproval}
-                                      onChange={() => toggleApproval(scope.id)}
-                                      className="size-3.5 rounded border-border"
-                                    />
-                                    <span className="font-sans text-[11px] text-muted-foreground">
-                                      Approval required (human in the loop)
-                                    </span>
-                                  </label>
-                                </div>
-                              </div>
-                            )}
                           </div>
-                        );
-                      })}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 );
@@ -303,76 +287,6 @@ export function SafetyPage({ gatewayConnected, projectId, projectTitle }: Safety
           </ScrollArea>
         </div>
 
-        {/* Pending actions panel */}
-        {pendingCount > 0 && (
-          <div className="flex min-h-0 flex-col rounded-xl border border-amber-200 bg-amber-50/30 dark:border-amber-800/40 dark:bg-amber-950/20">
-            <div className="border-b border-amber-200/60 px-3 py-2.5 dark:border-amber-800/30">
-              <div className="flex items-center gap-1.5">
-                <AlertTriangle className="size-3.5 text-amber-600" />
-                <span className="font-sans text-[12px] font-semibold text-amber-700 dark:text-amber-400">
-                  Pending actions
-                </span>
-              </div>
-              <p className="mt-0.5 font-sans text-[11px] text-muted-foreground">
-                Your agent is waiting for approval.
-              </p>
-            </div>
-            <ScrollArea className="flex-1">
-              <div className="grid gap-1.5 p-3">
-                {pendingActions
-                  .filter((a) => a.status === 'pending')
-                  .map((action) => {
-                    const conf = RISK_CONFIG[action.riskLevel];
-                    return (
-                      <div key={action.id} className="rounded-lg border border-border/60 bg-white p-2.5 dark:bg-background">
-                        <div className="flex items-center gap-1.5">
-                          <FileWarning className={`size-3.5 ${conf.color}`} />
-                          <span className="font-sans text-[12px] font-medium">{action.type}</span>
-                          <Badge variant={conf.badgeVariant} className="ml-auto font-sans text-[9px]">
-                            {conf.label}
-                          </Badge>
-                        </div>
-                        <p className="mt-1 font-sans text-[11px] text-muted-foreground">{action.description}</p>
-                        {action.preview && (
-                          <div className="mt-1.5 rounded border border-border/40 bg-muted/30 px-2 py-1">
-                            <pre className="font-mono text-[10px] text-foreground/70">{action.preview}</pre>
-                          </div>
-                        )}
-                        <div className="mt-2 flex items-center gap-1.5">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-6 gap-1 text-[11px] text-emerald-600 hover:bg-emerald-50"
-                            onClick={() => handleActionDecision(action.id, 'approved')}
-                          >
-                            <CheckCircle2 className="size-3" />
-                            Approve
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-6 gap-1 text-[11px] text-red-600 hover:bg-red-50"
-                            onClick={() => handleActionDecision(action.id, 'rejected')}
-                          >
-                            <X className="size-3" />
-                            Reject
-                          </Button>
-                          <button type="button" className="ml-auto" title="Preview">
-                            <Eye className="size-3.5 text-muted-foreground hover:text-foreground" />
-                          </button>
-                        </div>
-                        <span className="mt-1 block font-sans text-[10px] text-muted-foreground/60">
-                          {timeAgo(action.timestamp)} · {action.agent}
-                        </span>
-                      </div>
-                    );
-                  })}
-              </div>
-            </ScrollArea>
-          </div>
-        )}
       </div>
     </section>
   );

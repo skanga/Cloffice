@@ -31,6 +31,7 @@ type CoworkPageProps = {
   projectSelected: boolean;
   projectInstructions: string;
   scheduledCount: number;
+  canRerunLastTask: boolean;
   taskPrompt: string;
   messages: ChatMessage[];
   rightPanelOpen: boolean;
@@ -38,6 +39,7 @@ type CoworkPageProps = {
   artifacts: CoworkArtifact[];
   onOpenArtifact: (artifact: CoworkArtifact) => void;
   onScheduleRun: () => void;
+  onRerunLastTask: () => void;
   selectedModel: string;
   models: ChatModelOption[];
   modelsLoading: boolean;
@@ -155,6 +157,7 @@ export function CoworkPage({
   projectSelected,
   projectInstructions,
   scheduledCount,
+  canRerunLastTask,
   taskPrompt,
   messages,
   rightPanelOpen,
@@ -162,6 +165,7 @@ export function CoworkPage({
   artifacts,
   onOpenArtifact,
   onScheduleRun,
+  onRerunLastTask,
   selectedModel,
   models,
   modelsLoading,
@@ -814,9 +818,14 @@ export function CoworkPage({
             </CardHeader>
             <CardContent className="grid gap-2 pt-0">
               <p className="font-sans text-xs text-muted-foreground">Plan recurring cowork runs for this project workflow.</p>
-              <Button type="button" size="sm" variant="outline" onClick={onScheduleRun} className="w-full">
-                Open schedule
-              </Button>
+              <div className="grid grid-cols-2 gap-1.5">
+                <Button type="button" size="sm" variant="outline" onClick={onScheduleRun} className="w-full">
+                  Open schedule
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={onRerunLastTask} className="w-full" disabled={!canRerunLastTask}>
+                  Rerun last
+                </Button>
+              </div>
             </CardContent>
           </Card>
 

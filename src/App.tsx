@@ -108,6 +108,8 @@ const COWORK_ACTIVE_PROJECT_STORAGE_KEY = 'relay.cowork.projects.active.v1';
 const COWORK_TASKS_STORAGE_KEY = 'relay.cowork.tasks.v1';
 const COWORK_PROJECT_KNOWLEDGE_STORAGE_KEY = 'relay.cowork.project.knowledge.v1';
 const COWORK_WEB_SEARCH_MODE_STORAGE_KEY = 'relay.cowork.websearch.v1';
+const CHAT_DRAFT_STORAGE_KEY = 'relay.chat.draft.v1';
+const COWORK_DRAFT_STORAGE_KEY = 'relay.cowork.draft.v1';
 
 const defaultConfig: AppConfig = {
   gatewayUrl: DEFAULT_GATEWAY_URL,
@@ -386,6 +388,15 @@ function loadCoworkTasks(): CoworkProjectTask[] {
   }
 }
 
+function loadDraft(storageKey: string): string {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    return typeof raw === 'string' ? raw : '';
+  } catch {
+    return '';
+  }
+}
+
 function loadProjectKnowledgeItems(): ProjectKnowledgeItem[] {
   try {
     const raw = localStorage.getItem(COWORK_PROJECT_KNOWLEDGE_STORAGE_KEY);
@@ -505,7 +516,8 @@ export default function App() {
   const [activePage, setActivePage] = useState<AppPage>('cowork');
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('Profile');
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [taskPrompt, setTaskPrompt] = useState('');
+  const [chatDraftPrompt, setChatDraftPrompt] = useState(() => loadDraft(CHAT_DRAFT_STORAGE_KEY));
+  const [coworkDraftPrompt, setCoworkDraftPrompt] = useState(() => loadDraft(COWORK_DRAFT_STORAGE_KEY));
   const [workingFolder, setWorkingFolder] = useState('/Downloads');
   const [coworkProjects, setCoworkProjects] = useState<CoworkProject[]>(() => loadCoworkProjects());
   const [activeCoworkProjectId, setActiveCoworkProjectId] = useState(() => loadActiveCoworkProjectId());
@@ -560,6 +572,14 @@ export default function App() {
   const [gatewayConnected, setGatewayConnected] = useState(false);
   const [sessionUsage, setSessionUsage] = useState(() => loadTodayUsage());
 
+  const handleChatPromptChange = useCallback((value: string) => {
+    setChatDraftPrompt(value);
+  }, []);
+
+  const handleCoworkPromptChange = useCallback((value: string) => {
+    setCoworkDraftPrompt(value);
+  }, []);
+
   const fileService = useMemo(
     () => createFileService(gatewayClientRef.current, draftGatewayUrl, Boolean(bridge)),
     // Re-create when connection state or URL changes
@@ -589,6 +609,7 @@ export default function App() {
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, 25);
   }, [activeCoworkProjectId, coworkTasks]);
+  const latestVisibleCoworkTaskPrompt = visibleCoworkTasks[0]?.prompt?.trim() ?? '';
 
   const visiblePendingApprovals = useMemo(() => {
     if (!activeCoworkProjectId) {
@@ -986,7 +1007,7 @@ export default function App() {
       commitActiveSessionKey('');
       setChatMessages([]);
       setAwaitingChatStream(false);
-      setTaskPrompt('');
+      handleChatPromptChange('');
     }
   };
 
@@ -1234,6 +1255,22 @@ export default function App() {
       // ignore persistence failures
     }
   }, [coworkWebSearchEnabled]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CHAT_DRAFT_STORAGE_KEY, chatDraftPrompt);
+    } catch {
+      // ignore persistence failures
+    }
+  }, [chatDraftPrompt]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COWORK_DRAFT_STORAGE_KEY, coworkDraftPrompt);
+    } catch {
+      // ignore persistence failures
+    }
+  }, [coworkDraftPrompt]);
 
   useEffect(() => {
     try {
@@ -1761,7 +1798,7 @@ export default function App() {
           setCoworkRunPhase('idle');
           setCoworkRunStatus('Ready for a new task.');
           setLocalPlanActions([]);
-          setTaskPrompt('');
+          handleCoworkPromptChange('');
           setStatus('Ready for a new task.');
           setCoworkResetKey((c) => c + 1);
         } else {
@@ -3173,7 +3210,7 @@ export default function App() {
     setCoworkRunStatus('Sending cowork task...');
     resetCoworkProgress('Interpreting goal and building a task plan.');
 
-    const text = taskPrompt.trim();
+    const text = chatDraftPrompt.trim();
     if (!text) {
       setStatus('Describe the outcome first so OpenClaw can plan the work.');
       setCoworkSending(false);
@@ -3181,7 +3218,7 @@ export default function App() {
     }
 
     // Clear the composer immediately so submit feedback matches user expectation.
-    setTaskPrompt('');
+    handleChatPromptChange('');
 
     const client = gatewayClientRef.current;
     if (!client) {
@@ -3374,7 +3411,7 @@ export default function App() {
       setStatus(message);
       // Restore the prompt for quick retry when send/setup fails,
       // but do not overwrite a newer prompt the user already started typing.
-      setTaskPrompt((current) => (current.trim() ? current : text));
+      setCoworkDraftPrompt((current) => (current.trim() ? current : text));
     } finally {
       setCoworkSending(false);
     }
@@ -3480,7 +3517,7 @@ export default function App() {
       return;
     }
 
-    const latestUserPrompt = [...coworkMessages].reverse().find((message) => message.role === 'user')?.text?.trim() || taskPrompt.trim();
+    const latestUserPrompt = [...coworkMessages].reverse().find((message) => message.role === 'user')?.text?.trim() || coworkDraftPrompt.trim();
     if (!latestUserPrompt) {
       setStatus('No cowork prompt found to save as a skill.');
       return;
@@ -3529,7 +3566,7 @@ export default function App() {
   };
 
   const handleScheduleCoworkRun = () => {
-    const latestUserPrompt = [...coworkMessages].reverse().find((message) => message.role === 'user')?.text?.trim() || taskPrompt.trim();
+    const latestUserPrompt = [...coworkMessages].reverse().find((message) => message.role === 'user')?.text?.trim() || coworkDraftPrompt.trim();
     if (!latestUserPrompt) {
       setStatus('No cowork prompt available to schedule.');
       return;
@@ -3909,7 +3946,7 @@ export default function App() {
       return;
     }
 
-    const text = taskPrompt.trim();
+    const text = coworkDraftPrompt.trim();
     if (!text) {
       setStatus('Type a message before sending.');
       return;
@@ -3923,7 +3960,7 @@ export default function App() {
 
     setSendingChat(true);
     setAwaitingChatStream(false);
-    setTaskPrompt('');
+    handleCoworkPromptChange('');
 
     try {
       const shouldCreateFreshSession = chatMessages.length === 0;
@@ -4075,7 +4112,7 @@ export default function App() {
 
     setChatMessages([]);
     setAwaitingChatStream(false);
-    setTaskPrompt('');
+    handleChatPromptChange('');
 
     try {
       await ensureConnectedClient(client);
@@ -4113,7 +4150,7 @@ export default function App() {
 
     setActivePage('chat');
     commitActiveSessionKey(normalized);
-    setTaskPrompt('');
+    handleChatPromptChange('');
     setAwaitingChatStream(false);
 
     // Restore from local cache first
@@ -4142,7 +4179,7 @@ export default function App() {
 
     setActivePage('cowork');
     commitCoworkSessionKey(normalized);
-    setTaskPrompt('');
+    handleCoworkPromptChange('');
     setCoworkAwaitingStream(false);
     setCoworkRunPhase('idle');
     setCoworkRunStatus('Opened previous cowork session.');
@@ -4334,7 +4371,7 @@ export default function App() {
 
   const handleStartNewTask = () => {
     setActivePage('cowork');
-    setTaskPrompt('');
+    handleCoworkPromptChange('');
     setTaskState('idle');
     commitCoworkSessionKey('');
     setCoworkMessages([]);
@@ -4347,6 +4384,16 @@ export default function App() {
     setPendingApprovals([]);
     setStatus('Ready for a new task.');
     setCoworkResetKey((current) => current + 1);
+  };
+
+  const handleRerunLastCoworkTask = () => {
+    if (!latestVisibleCoworkTaskPrompt) {
+      setStatus('No previous task prompt available to rerun.');
+      return;
+    }
+    setActivePage('cowork');
+    handleCoworkPromptChange(latestVisibleCoworkTaskPrompt);
+    setStatus('Loaded last task prompt. Review and send to rerun.');
   };
 
   const pageLoadingFallback = (
@@ -4606,13 +4653,15 @@ export default function App() {
                   projectSelected={Boolean(activeCoworkProject)}
                   projectInstructions={activeCoworkProject?.instructions || ''}
                   scheduledCount={scheduledJobs.length}
-                  taskPrompt={taskPrompt}
+                  canRerunLastTask={Boolean(latestVisibleCoworkTaskPrompt)}
+                  taskPrompt={coworkDraftPrompt}
                   messages={coworkMessages}
                   rightPanelOpen={coworkRightPanelOpen}
                   awaitingStream={coworkAwaitingStream}
                   artifacts={coworkArtifacts}
                   onOpenArtifact={handleOpenCoworkArtifact}
                   onScheduleRun={handleScheduleCoworkRun}
+                  onRerunLastTask={handleRerunLastCoworkTask}
                   selectedModel={coworkModel}
                   models={coworkModels}
                   modelsLoading={modelsLoading}
@@ -4627,7 +4676,7 @@ export default function App() {
                     setActivePage('settings');
                     setSettingsSection('Gateway');
                   }}
-                  onTaskPromptChange={setTaskPrompt}
+                  onTaskPromptChange={handleCoworkPromptChange}
                   onModelChange={handleCoworkModelChange}
                   onWebSearchEnabledChange={setCoworkWebSearchEnabled}
                   onSubmit={handlePlanTask}
@@ -4703,7 +4752,7 @@ export default function App() {
                 <>
                 {activePage === 'chat' && (
                   <ChatPage
-                    taskPrompt={taskPrompt}
+                    taskPrompt={chatDraftPrompt}
                     messages={chatMessages}
                     sending={sendingChat}
                     awaitingStream={awaitingChatStream}
@@ -4715,7 +4764,7 @@ export default function App() {
                     changingModel={changingModel}
                     gatewayConnected={gatewayConnected}
                     status={status}
-                    onTaskPromptChange={setTaskPrompt}
+                    onTaskPromptChange={handleChatPromptChange}
                     onModelChange={handleModelChange}
                     onSubmit={handleSendChat}
                     onExport={handleExportChat}

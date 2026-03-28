@@ -25,6 +25,51 @@ export const DEFAULT_SAFETY_SCOPES: SafetyPermissionScope[] = [
   { id: 'memory-write', name: 'Write memory', description: 'Agent can persist information permanently', riskLevel: 'low', enabled: true, requiresApproval: false },
 ];
 
+function normalizeScopes(input: unknown): SafetyPermissionScope[] {
+  if (!Array.isArray(input)) {
+    return DEFAULT_SAFETY_SCOPES;
+  }
+
+  const parsed = input
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return null;
+      }
+      const record = entry as Record<string, unknown>;
+      const id = typeof record.id === 'string' ? record.id : '';
+      if (!id) {
+        return null;
+      }
+      const base = DEFAULT_SAFETY_SCOPES.find((scope) => scope.id === id);
+      const riskLevel = record.riskLevel;
+      const safeRisk =
+        riskLevel === 'low' || riskLevel === 'medium' || riskLevel === 'high' || riskLevel === 'critical'
+          ? riskLevel
+          : base?.riskLevel ?? 'low';
+
+      return {
+        id,
+        name: typeof record.name === 'string' && record.name.trim() ? record.name : base?.name ?? id,
+        description:
+          typeof record.description === 'string' && record.description.trim()
+            ? record.description
+            : base?.description ?? '',
+        riskLevel: safeRisk,
+        enabled: typeof record.enabled === 'boolean' ? record.enabled : base?.enabled ?? true,
+        requiresApproval:
+          typeof record.requiresApproval === 'boolean'
+            ? record.requiresApproval
+            : base?.requiresApproval ?? false,
+      } satisfies SafetyPermissionScope;
+    })
+    .filter((scope): scope is SafetyPermissionScope => scope !== null);
+
+  const byId = new Map(parsed.map((scope) => [scope.id, scope]));
+  const mergedDefaults = DEFAULT_SAFETY_SCOPES.map((scope) => byId.get(scope.id) ?? scope);
+  const customScopes = parsed.filter((scope) => !DEFAULT_SAFETY_SCOPES.some((base) => base.id === scope.id));
+  return [...mergedDefaults, ...customScopes];
+}
+
 export function loadSafetyScopes(projectId?: string): SafetyPermissionScope[] {
   try {
     const scopedKey = getSafetyStorageKey(projectId);
@@ -36,9 +81,9 @@ export function loadSafetyScopes(projectId?: string): SafetyPermissionScope[] {
       if (!legacyRaw) {
         return DEFAULT_SAFETY_SCOPES;
       }
-      return JSON.parse(legacyRaw) as SafetyPermissionScope[];
+      return normalizeScopes(JSON.parse(legacyRaw));
     }
-    return JSON.parse(raw) as SafetyPermissionScope[];
+    return normalizeScopes(JSON.parse(raw));
   } catch {
     return DEFAULT_SAFETY_SCOPES;
   }
