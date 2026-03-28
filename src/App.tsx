@@ -1,4 +1,4 @@
-import { appConfigFromEngineDraft, buildEngineDraftConfig, engineConnectOptionsFromDraft, engineDraftFromAppConfig, parseStoredAppConfig } from './lib/engine-config';
+import { appConfigFromEngineDraft, buildEngineDraftConfig, engineConnectOptionsFromDraft, engineDraftFromAppConfig, parseStoredEngineConfig } from './lib/engine-config';
 import { engineConnectionMatchesAppConfig, parseStoredEngineConnectionProfile, serializeEngineConnectionProfile } from './lib/engine-connection-profiles';
 import { getDesktopBridge } from './lib/desktop-bridge';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -89,7 +89,14 @@ import {
   deriveActivityItemsFromAssistantText,
   normalizeCoworkMessage,
 } from './lib/chat-utils';
-import { parseEngineChatEvent } from './lib/engine-session-events';
+import {
+  deriveEngineSessionArtifacts,
+  getEngineSessionMessageIds,
+  getEngineSessionResult,
+  isEngineSessionError,
+  isEngineSessionStreaming,
+  parseEngineChatEvent,
+} from './lib/engine-session-events';
 
 const ChatPage = lazy(() => import('./features/chat/chat-page').then((module) => ({ default: module.ChatPage })));
 const CoworkPage = lazy(() => import('./features/cowork/cowork-page').then((module) => ({ default: module.CoworkPage })));
@@ -1629,7 +1636,7 @@ export default function App() {
         return null;
       }
 
-      return parseStoredAppConfig(JSON.parse(raw), DEFAULT_GATEWAY_URL);
+      return parseStoredEngineConfig(JSON.parse(raw), DEFAULT_GATEWAY_URL);
     } catch {
       return null;
     }
@@ -1825,11 +1832,10 @@ export default function App() {
     if (!bridge) {
       const localConfig = loadLocalConfig();
       if (localConfig) {
-        const localEngineDraft = engineDraftFromAppConfig(localConfig);
-        setConfig(localConfig);
-        setDraftEngineUrl(localEngineDraft.endpointUrl);
-        setDraftEngineToken(localEngineDraft.accessToken);
-        setDraftEngineProviderId(localEngineDraft.providerId);
+        setConfig(localConfig.appConfig);
+        setDraftEngineUrl(localConfig.engineDraft.endpointUrl);
+        setDraftEngineToken(localConfig.engineDraft.accessToken);
+        setDraftEngineProviderId(localConfig.engineDraft.providerId);
         setStatus('Loaded local configuration (bridge unavailable).');
       } else {
         setStatus('Electron bridge unavailable. Configuration will be saved locally for this browser profile.');
@@ -1862,11 +1868,10 @@ export default function App() {
 
         const localConfig = loadLocalConfig();
         if (localConfig) {
-          const localEngineDraft = engineDraftFromAppConfig(localConfig);
-          setConfig(localConfig);
-          setDraftEngineUrl(localEngineDraft.endpointUrl);
-          setDraftEngineToken(localEngineDraft.accessToken);
-          setDraftEngineProviderId(localEngineDraft.providerId);
+          setConfig(localConfig.appConfig);
+          setDraftEngineUrl(localConfig.engineDraft.endpointUrl);
+          setDraftEngineToken(localConfig.engineDraft.accessToken);
+          setDraftEngineProviderId(localConfig.engineDraft.providerId);
           setStatus('Loaded local fallback configuration.');
         } else {
           setStatus('Unable to load config. Using defaults.');
@@ -1935,14 +1940,15 @@ export default function App() {
     client.setEventHandler((event) => {
       const chatEvent = parseEngineChatEvent(event, `evt-${Date.now()}`);
       if (chatEvent) {
-        const { payload, eventSessionKey, runId, state, text, visibleText, role, errorMessage } = chatEvent;
+        const { payload, sessionKey: eventSessionKey, runId, text, visibleText, role } = chatEvent;
+        const sessionResult = getEngineSessionResult(chatEvent);
         const isCoworkEvent = !!eventSessionKey && eventSessionKey === coworkSessionKeyRef.current;
 
         if (isCoworkEvent) {
-          if (state === 'error') {
+          if (sessionResult?.status === 'failed' && isEngineSessionError(chatEvent)) {
             setCoworkAwaitingStream(false);
             setCoworkRunPhase('error');
-            const resolvedErrorMessage = errorMessage ?? 'Cowork stream failed.';
+            const resolvedErrorMessage = sessionResult.statusMessage || 'Cowork stream failed.';
             setCoworkRunStatus(resolvedErrorMessage);
             setCoworkProgressStage('executing_workstreams', {
               blocked: true,
@@ -1961,7 +1967,7 @@ export default function App() {
             return;
           }
 
-          if (state === 'delta' && text) {
+          if (isEngineSessionStreaming(chatEvent)) {
             setCoworkAwaitingStream(false);
             setCoworkRunPhase('streaming');
             setCoworkRunStatus('Cowork is streaming a response.');
@@ -1976,7 +1982,7 @@ export default function App() {
                 summary: 'Streaming response from cowork.',
               });
             }
-            const streamId = `cowork-stream-${runId}`;
+            const { streamId } = getEngineSessionMessageIds('cowork', runId);
             setCoworkMessages((current) => {
               if (!visibleText) {
                 return current;
@@ -1999,37 +2005,27 @@ export default function App() {
             return;
           }
 
-          if (state === 'final' || state === 'aborted') {
+          if (sessionResult && sessionResult.status !== 'failed') {
             setCoworkAwaitingStream(false);
             setCoworkRunPhase('completed');
-            setCoworkRunStatus(state === 'aborted' ? 'Cowork run ended early.' : 'Cowork run completed.');
+            setCoworkRunStatus(sessionResult.status === 'aborted' ? 'Cowork run ended early.' : 'Cowork run completed.');
             setCoworkProgressStage('synthesizing_outputs', {
               details: 'Synthesizing output from completed workstreams.',
             });
             setCoworkStreamingText(visibleText);
-            const streamId = `cowork-stream-${runId}`;
-            const finalId = `cowork-final-${runId}`;
-            const activeModel = typeof payload.model === 'string' ? payload.model : undefined;
+            const { streamId, finalId, activityId } = getEngineSessionMessageIds('cowork', runId);
+            const activeModel = chatEvent.model;
             const coworkUsage = parseUsageFromPayload(payload, activeModel);
-            const message = payload.message ?? payload;
+            const {
+              relayActions,
+              activityItems,
+              hasStructuredActions,
+              hasStructuredActivity,
+            } = deriveEngineSessionArtifacts(chatEvent);
             if (coworkUsage) {
               accumulateTodayUsage(coworkUsage);
               setSessionUsage((prev) => addUsage(prev, coworkUsage));
             }
-            const relayActions = parseRelayFileActions({
-              text,
-              message,
-              payload,
-            });
-            const structuredActivityItems = parseRelayActivityItems({
-              text,
-              message,
-              payload,
-            });
-            const fallbackActivityItems = deriveActivityItemsFromAssistantText(visibleText, runId);
-            const activityItems = structuredActivityItems.length > 0 ? structuredActivityItems : fallbackActivityItems;
-            const hasStructuredActions = relayActions.length > 0;
-            const hasStructuredActivity = activityItems.length > 0;
             setCoworkMessages((current) => {
               const withoutStream = current.filter((entry) => {
                 if (entry.id === streamId) {
@@ -2055,7 +2051,7 @@ export default function App() {
 
             if (!hasStructuredActions && hasStructuredActivity) {
               const activityMessage: ChatMessage = {
-                id: `cowork-activity-${runId}`,
+                id: activityId,
                 role: 'system',
                 text: activityItems.map((item) => item.label).join('\n'),
                 meta: {
@@ -2088,7 +2084,7 @@ export default function App() {
             if (taskEntry) {
               setCoworkTaskStatus(taskEntry.taskId, 'completed', {
                 runId,
-                summary: state === 'aborted' ? 'Run ended early.' : 'Run completed.',
+                summary: sessionResult.status === 'aborted' ? 'Run ended early.' : 'Run completed.',
               });
             }
             if (
@@ -2907,19 +2903,15 @@ export default function App() {
           commitActiveSessionKey(eventSessionKey);
         }
 
-        if (state === 'error') {
+        if (sessionResult?.status === 'failed' && isEngineSessionError(chatEvent)) {
           setAwaitingChatStream(false);
-          const errorMessage =
-            typeof payload.errorMessage === 'string' && payload.errorMessage.trim()
-              ? payload.errorMessage
-              : 'Chat stream failed.';
-          setStatus(errorMessage);
+          setStatus(sessionResult.statusMessage || 'Chat stream failed.');
           return;
         }
 
-        if (state === 'delta' && text) {
+        if (isEngineSessionStreaming(chatEvent)) {
           setAwaitingChatStream(false);
-          const streamId = `stream-${runId}`;
+          const { streamId } = getEngineSessionMessageIds('chat', runId);
           setChatMessages((current) => {
             const index = current.findIndex((entry) => entry.id === streamId);
             if (index >= 0) {
@@ -2932,11 +2924,10 @@ export default function App() {
           return;
         }
 
-        if ((state === 'final' || state === 'aborted') && text) {
+        if (sessionResult && sessionResult.status !== 'failed' && text) {
           setAwaitingChatStream(false);
-          const streamId = `stream-${runId}`;
-          const finalId = `final-${runId}`;
-          const activeModel = typeof payload.model === 'string' ? payload.model : undefined;
+          const { streamId, finalId } = getEngineSessionMessageIds('chat', runId);
+          const activeModel = chatEvent.model;
           const usage = parseUsageFromPayload(payload, activeModel);
           if (usage) {
             accumulateTodayUsage(usage);

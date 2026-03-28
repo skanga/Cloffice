@@ -18,6 +18,31 @@ export type EngineConnectionProfile = {
   lastUsedAt?: number;
 };
 
+export type EngineChatEventState = 'delta' | 'final' | 'aborted' | 'error';
+
+export type EngineSessionResultStatus = 'completed' | 'aborted' | 'failed';
+
+export type EngineSessionEvent = {
+  sessionKey: string;
+  runId: string;
+  state: EngineChatEventState;
+  role: ChatMessage['role'];
+  text: string;
+  visibleText: string;
+  model?: string;
+  errorMessage: string | null;
+  payload: Record<string, unknown>;
+};
+
+export type EngineSessionResult = {
+  sessionKey: string;
+  runId: string;
+  status: EngineSessionResultStatus;
+  statusMessage: string;
+  model?: string;
+  payload: Record<string, unknown>;
+};
+
 export type HealthCheckResult = {
   ok: boolean;
   status?: number;
