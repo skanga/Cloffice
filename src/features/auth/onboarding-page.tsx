@@ -26,7 +26,7 @@ type OnboardingPageProps = {
 };
 
 /* ── Inline brand mark (track logo from branding system) ── */
-function RelayMark({ size = 48 }: { size?: number }) {
+function ClofficeMark({ size = 48 }: { size?: number }) {
   const primary = 'var(--app-primary)';
   const primaryForeground = 'var(--app-primary-foreground)';
   return (
@@ -201,16 +201,16 @@ export function OnboardingPage({
         {visibleStep === 'welcome' && (
           <div className="flex flex-col items-center text-center">
             <div className="mb-6">
-              <RelayMark size={64} />
+              <ClofficeMark size={64} />
             </div>
 
             <h1 className="mb-2 font-sans text-[28px] font-bold leading-tight tracking-tight text-foreground">
-              Welcome to Relay
+              Welcome to Cloffice
             </h1>
             <p className="mb-2 max-w-[340px] font-sans text-[15px] leading-relaxed text-muted-foreground">
-              AI operations with human control.
+              Local-first AI coworking with governed approvals.
               <br />
-              Connect your OpenClaw gateway to get started.
+              Connect a runtime endpoint to get started.
             </p>
 
             {/* Discovery states */}
@@ -222,7 +222,7 @@ export function OnboardingPage({
                     <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
                   </svg>
                   <span className="font-sans text-[13px] text-muted-foreground">
-                    Looking for OpenClaw on your machine…
+                    Looking for a local compatibility runtime…
                   </span>
                 </div>
               )}
@@ -237,7 +237,7 @@ export function OnboardingPage({
                     </div>
                     <div className="text-left">
                       <p className="font-sans text-[13px] font-semibold text-foreground">
-                        Gateway detected
+                        Runtime detected
                       </p>
                       <p className="font-mono text-[11px] text-muted-foreground">
                         {discovery.result.gatewayUrl}
@@ -257,12 +257,12 @@ export function OnboardingPage({
                     </div>
                     <div className="text-left">
                       <p className="font-sans text-[13px] font-semibold text-foreground">
-                        OpenClaw installed but not running
+                        OpenClaw compatibility runtime installed but not running
                       </p>
                       <p className="mt-0.5 font-sans text-[12px] leading-relaxed text-muted-foreground">
                         Start it with{' '}
                         <code className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px]">openclaw</code>
-                        {' '}or connect to a remote gateway.
+                        {' '}or connect to another runtime endpoint.
                       </p>
                     </div>
                   </div>
@@ -277,7 +277,7 @@ export function OnboardingPage({
                     <path d="M12 16v-4m0-4h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                   </svg>
                   <span className="font-sans text-[13px] text-muted-foreground">
-                    Enter your gateway details to connect.
+                    Enter your runtime details to connect.
                   </span>
                 </div>
               )}
@@ -311,7 +311,7 @@ export function OnboardingPage({
                     className="mt-3 inline-flex items-center gap-1.5 font-sans text-[13px] font-medium text-foreground/70 underline underline-offset-4 decoration-foreground/30 transition-colors hover:text-foreground hover:decoration-foreground"
                     onClick={() => setStep('connect')}
                   >
-                    Use a different gateway
+                    Use a different runtime
                   </button>
                 </>
               ) : (
@@ -360,30 +360,30 @@ export function OnboardingPage({
                 </svg>
               </div>
               <h2 className="font-sans text-lg font-bold tracking-tight text-foreground">
-                Connect to your gateway
+                Connect to a runtime
               </h2>
               <p className="mt-1 font-sans text-[13px] leading-relaxed text-muted-foreground">
-                Enter your OpenClaw gateway URL and optional access token.
+                Enter your runtime URL and optional access token.
               </p>
             </div>
 
             <form className="grid gap-4" onSubmit={handleConnect}>
               <div>
                 <label className="mb-1.5 flex items-center gap-1.5 font-sans text-[12px] font-medium text-foreground">
-                  Gateway URL
+                  Runtime URL
                   <span className="relative ml-0.5 inline-flex group">
                     <span className="flex h-4 w-4 cursor-default items-center justify-center rounded-full border border-muted-foreground/30 bg-muted text-[10px] font-semibold text-muted-foreground select-none">
                       ?
                     </span>
                     <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-64 -translate-x-1/2 rounded-lg border border-border bg-popover px-3 py-2.5 font-normal text-[12px] leading-relaxed text-popover-foreground shadow-md opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-                      The URL of your running OpenClaw gateway. Use <code className="rounded bg-muted px-1 font-mono text-[11px]">http://localhost:18789</code> for a local instance, or your VPS/server address for a remote one.
+                      The URL of your runtime endpoint. Use <code className="rounded bg-muted px-1 font-mono text-[11px]">ws://127.0.0.1:18789</code> for the current local OpenClaw compatibility path, or enter another runtime address.
                     </span>
                   </span>
                 </label>
                 <Input
                   value={draftGatewayUrl}
                   onChange={(event) => onDraftGatewayUrlChange(event.target.value)}
-                  placeholder="e.g. http://localhost:18789 or https://your-vps.com"
+                  placeholder="e.g. ws://127.0.0.1:18789 or wss://your-runtime.example.com"
                   className="h-10 font-mono text-[13px]"
                 />
               </div>
@@ -487,7 +487,7 @@ export function OnboardingPage({
                 Approve this device
               </h2>
               <p className="mt-1 font-sans text-[13px] leading-relaxed text-muted-foreground">
-                Your gateway requires device approval. Run this command on your gateway host:
+                This runtime requires device approval. Run this command on the runtime host:
               </p>
             </div>
 
@@ -573,7 +573,7 @@ export function OnboardingPage({
               You're all set
             </h2>
             <p className="mb-2 font-sans text-[15px] leading-relaxed text-muted-foreground">
-              Relay is connected to your OpenClaw gateway.
+              Cloffice is connected to the current runtime endpoint.
             </p>
 
             {health?.message && (
@@ -587,7 +587,7 @@ export function OnboardingPage({
 
             <div className="mt-4 w-full max-w-[320px]">
               <PrimaryButton onClick={onComplete}>
-                Start using Relay
+                Start using Cloffice
               </PrimaryButton>
             </div>
           </div>
@@ -596,3 +596,4 @@ export function OnboardingPage({
     </main>
   );
 }
+

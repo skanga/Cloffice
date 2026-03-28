@@ -1,3 +1,7 @@
+/**
+ * Transitional runtime config. Gateway keys are intentionally retained until
+ * Cloffice ships its internal engine config migration.
+ */
 export type AppConfig = {
   gatewayUrl: string;
   gatewayToken: string;
@@ -137,6 +141,7 @@ export type LocalFileStatResult = {
   modifiedMs: number;
 };
 
+/** Compatibility runtime discovery result for the current OpenClaw-based path. */
 export type GatewayDiscoveryResult = {
   /** A running gateway was found and responded to a health check. */
   found: boolean;
@@ -149,6 +154,8 @@ export type GatewayDiscoveryResult = {
   /** Human-readable summary of what was detected. */
   message: string;
 };
+
+export type EngineRuntimeKind = 'openclaw-compat' | 'internal';
 
 export type LocalActionType = 'create_file' | 'append_file' | 'read_file' | 'list_dir' | 'exists' | 'rename' | 'delete' | 'shell_exec' | 'web_fetch';
 
@@ -285,6 +292,11 @@ export type UserPreferences = {
   systemPrompt: string;
   injectMemory: boolean;
   theme: 'light' | 'auto' | 'dark';
+  /**
+   * Persisted values retained for compatibility with existing Relay installs.
+   * The UI may label the elay style as Cloffice.
+   */
   style: 'claude' | 'relay';
   language: 'en' | 'de';
 };
+

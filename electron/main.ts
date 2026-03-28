@@ -78,6 +78,10 @@ const extensionCategories: Record<string, string> = {
   '.c': 'Code',
 };
 
+/**
+ * Transitional config path retained for compatibility with existing Relay/OpenClaw installs.
+ * TODO(engine-migration): move to a Cloffice-owned engine config file with explicit migration.
+ */
 const configPath = () => path.join(app.getPath('userData'), 'openclaw-config.json');
 
 const isDev = !app.isPackaged;
@@ -769,7 +773,7 @@ async function runHealthCheck(gatewayUrl: string): Promise<HealthCheckResult> {
         return {
           ok: true,
           status: response.status,
-          message: `OpenClaw backend reachable at ${candidate}`,
+          message: `Runtime endpoint reachable at ${candidate}`,
         };
       }
 
@@ -785,7 +789,7 @@ async function runHealthCheck(gatewayUrl: string): Promise<HealthCheckResult> {
 
   return {
     ok: false,
-    message: 'Unable to reach the OpenClaw backend. Check the URL, port, and network path.',
+    message: 'Unable to reach the configured runtime endpoint. Check the URL, port, and network path.',
   };
 }
 
@@ -819,7 +823,7 @@ function getOpenClawBinaryCandidates(): string[] {
   const paths: string[] = [
     // Standard install location
     path.join(home, '.openclaw', 'bin', bin),
-    // Relay-managed location
+    // Legacy Relay-managed location
     path.join(home, '.relay', 'openclaw', bin),
   ];
 
@@ -871,7 +875,7 @@ async function discoverGateway(): Promise<GatewayDiscoveryResult> {
         gatewayUrl: `ws://127.0.0.1:${port}`,
         binaryFound: true,
         binaryPath: null,
-        message: `OpenClaw gateway detected on port ${port}.`,
+        message: `OpenClaw compatibility runtime detected on port ${port}.`,
       };
     }
   }
@@ -884,7 +888,7 @@ async function discoverGateway(): Promise<GatewayDiscoveryResult> {
       gatewayUrl: null,
       binaryFound: true,
       binaryPath,
-      message: `OpenClaw binary found at ${binaryPath} but no gateway is running.`,
+      message: `OpenClaw compatibility binary found at ${binaryPath} but no runtime is running.`,
     };
   }
 
@@ -894,7 +898,7 @@ async function discoverGateway(): Promise<GatewayDiscoveryResult> {
     gatewayUrl: null,
     binaryFound: false,
     binaryPath: null,
-    message: 'No local OpenClaw installation detected.',
+    message: 'No local OpenClaw compatibility runtime detected.',
   };
 }
 
@@ -907,7 +911,7 @@ async function createWindow() {
     minWidth: 1200,
     minHeight: 760,
     backgroundColor: '#f4f3ee',
-    title: 'Relay',
+    title: 'Cloffice',
     frame: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -954,7 +958,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('gateway:discover', async () => discoverGateway());
   ipcMain.handle('plugin:check-workspace', async () => {
     const binaryPath = await findBinaryOnDisk();
-    if (!binaryPath) return { installed: false, error: 'OpenClaw binary not found.' };
+    if (!binaryPath) return { installed: false, error: 'OpenClaw compatibility binary not found.' };
     try {
       const { stdout } = await execFileAsync(binaryPath, ['plugins', 'list'], {
         timeout: 10_000,
@@ -968,7 +972,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('plugin:install-workspace', async () => {
     const binaryPath = await findBinaryOnDisk();
     if (!binaryPath) {
-      return { ok: false as const, error: 'OpenClaw binary not found on this system.' };
+      return { ok: false as const, error: 'OpenClaw compatibility binary not found on this system.' };
     }
     try {
       const { stdout, stderr } = await execFileAsync(
@@ -1256,7 +1260,7 @@ app.whenReady().then(async () => {
   /* ── Notification IPC ───────────────────────────────────────────────────── */
   ipcMain.handle('notify', async (_event, payload: { title: string; body?: string }) => {
     if (!payload || typeof payload !== 'object') return { ok: false };
-    const title = typeof payload.title === 'string' ? payload.title : 'Relay';
+    const title = typeof payload.title === 'string' ? payload.title : 'Cloffice';
     const body = typeof payload.body === 'string' ? payload.body : '';
 
     if (Notification.isSupported()) {

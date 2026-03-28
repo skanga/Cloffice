@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent, FormEvent, KeyboardEvent } from 'react';
 
 import { ArrowUp, ChevronDown, Code2, Download, FolderPlus, Loader2, Paperclip, PanelRightClose, PanelRightOpen, Pencil, Star, Trash2, WifiOff, X } from 'lucide-react';
@@ -229,10 +229,10 @@ export function ChatPage({
           </div>
           <h2 className="text-lg font-semibold">Chat is offline</h2>
           <p className="mt-2 font-sans text-sm text-muted-foreground">
-            Connect the gateway to continue chatting.
+            Connect the current runtime to continue chatting.
           </p>
           <Button type="button" className="mt-4" onClick={() => (onOpenGatewaySettings ?? onOpenSettings)?.()}>
-            Open Gateway Settings
+            Open Engine Settings
           </Button>
         </div>
       </section>
@@ -708,10 +708,11 @@ export function ChatPage({
         </form>
 
         <p className="mt-2 text-center font-sans text-[11px] text-muted-foreground" aria-live="polite">
-          {trimmedStatus || (gatewayConnected ? 'Claude is an AI and can make mistakes. Please verify cited sources.' : 'Gateway disconnected. Chat is paused.')}
+          {trimmedStatus || (gatewayConnected ? 'Claude is an AI and can make mistakes. Please verify cited sources.' : 'Runtime disconnected. Chat is paused.')}
         </p>
         </div>
       </div>
     </section>
   );
 }
+

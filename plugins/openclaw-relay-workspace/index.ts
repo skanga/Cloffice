@@ -1,7 +1,7 @@
-/**
- * OpenClaw Plugin: Relay Workspace
+﻿/**
+ * OpenClaw Plugin: Cloffice Workspace Compatibility
  *
- * Registers workspace.* Gateway RPC methods so the Relay desktop app can
+ * Registers workspace.* Gateway RPC methods so the Cloffice desktop app can
  * browse, read, write, rename, and delete files in the agent's workspace
  * over the WebSocket protocol.
  */
@@ -45,8 +45,8 @@ function safePath(workspaceRoot: string, relPath: string): string {
 
 export default definePluginEntry({
   id: "relay-workspace",
-  name: "Relay Workspace",
-  description: "Exposes workspace.* Gateway RPC methods for Relay file browsing",
+  name: "Cloffice Workspace Compatibility",
+  description: "Exposes workspace.* Gateway RPC methods for Cloffice remote workspace browsing during the compatibility phase",
 
   configSchema: {
     type: "object",
@@ -72,7 +72,7 @@ export default definePluginEntry({
       const maxReadBytes = pluginCfg.maxReadBytes ?? DEFAULT_MAX_READ_BYTES;
       const workspaceRoot = api.runtime.agent.resolveAgentWorkspaceDir(cfg);
 
-      api.logger.info(`Relay Workspace plugin registered — workspace: ${workspaceRoot}`);
+      api.logger.info(`Cloffice Workspace Compatibility plugin registered - workspace: ${workspaceRoot}`);
 
       // workspace.list — list directory contents
       api.registerGatewayMethod("workspace.list", async ({ params, respond }: any) => {
@@ -238,10 +238,11 @@ export default definePluginEntry({
         }
       });
 
-      api.logger.info("Relay Workspace plugin ready");
+      api.logger.info("Cloffice Workspace Compatibility plugin ready");
     } catch (err) {
-      api.logger.error(`Relay Workspace plugin registration failed: ${err instanceof Error ? err.message : String(err)}`);
+      api.logger.error(`Cloffice Workspace Compatibility plugin registration failed: ${err instanceof Error ? err.message : String(err)}`);
       throw err;
     }
   }
 });
+

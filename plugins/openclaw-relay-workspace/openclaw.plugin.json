@@ -1,7 +1,7 @@
 {
   "id": "relay-workspace",
-  "name": "Relay Workspace",
-  "description": "Exposes workspace.* Gateway RPC methods so Relay can browse and edit the agent workspace remotely.",
+  "name": "Cloffice Workspace Compatibility",
+  "description": "Exposes workspace.* Gateway RPC methods so Cloffice can browse and edit the runtime workspace during the compatibility phase.",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -17,3 +17,4 @@
     }
   }
 }
+

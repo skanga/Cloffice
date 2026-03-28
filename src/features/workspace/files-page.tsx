@@ -831,7 +831,7 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
             </div>
             <h2 className="text-base font-semibold">Workspace plugin required</h2>
             <p className="mt-1.5 text-sm text-muted-foreground">
-              The OpenClaw gateway needs the{' '}
+              The remote runtime needs the{' '}
               <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">openclaw-relay-workspace</code>{' '}
               plugin to expose the file explorer.
             </p>
@@ -842,8 +842,8 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
             <div className="rounded-xl border border-border bg-card p-5">
               <p className="mb-3 text-sm font-medium">Install automatically</p>
               <p className="mb-4 text-xs text-muted-foreground">
-                Relay can install the plugin on your local OpenClaw instance with one click.
-                OpenClaw will need to be restarted after installation.
+                Cloffice can install the compatibility plugin on your local OpenClaw instance with one click.
+                The compatibility runtime will need to be restarted after installation.
               </p>
               {installStatus === 'error' && (
                 <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
@@ -877,7 +877,7 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
                 <p className="text-sm font-medium">Run on your server</p>
               </div>
               <p className="mb-3 text-xs text-muted-foreground">
-                SSH into your OpenClaw host and run this command, then restart OpenClaw.
+                SSH into the host running the compatibility runtime, run this command, then restart it.
               </p>
               <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 p-3">
                 <code className="flex-1 break-all font-mono text-xs">{INSTALL_CMD}</code>
@@ -1040,7 +1040,7 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
               type="button"
               className="shrink-0 rounded px-1 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
               onClick={() => void loadDirectory('')}
-              title={activeRootPath || 'OpenClaw Workspace'}
+              title={activeRootPath || 'Remote Workspace'}
             >
               <HardDrive className="inline size-3" />
             </button>
@@ -1616,3 +1616,4 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
     </section>
   );
 }
+

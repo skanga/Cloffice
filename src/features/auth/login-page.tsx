@@ -38,9 +38,9 @@ export function LoginPage({ authenticating, errorMessage, onLogin, onContinueAsG
       <Card className="w-full max-w-[480px] rounded-2xl border-border bg-card shadow-[0_12px_30px_rgba(31,31,28,0.12)]">
         <CardHeader className="space-y-2 border-b border-border/70 pb-4">
           <Badge variant="outline" className="w-fit font-sans text-[11px] text-muted-foreground">
-            Relay Login
+            Cloffice Login
           </Badge>
-          <CardTitle className="text-[1.8rem] tracking-tight">Sign in to Relay</CardTitle>
+          <CardTitle className="text-[1.8rem] tracking-tight">Sign in to Cloffice</CardTitle>
           <p className="font-sans text-sm text-muted-foreground">Sign in with your workspace account (Supabase auth).</p>
         </CardHeader>
 

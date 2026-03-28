@@ -1,9 +1,9 @@
 {
-  "name": "relay",
+  "name": "cloffice",
   "version": "2026.3.24",
   "private": false,
   "license": "MIT",
-  "description": "Electron desktop cowork client for OpenClaw backends",
+  "description": "Local-first AI coworker desktop app with governed approvals and a transitional engine compatibility path",
   "main": "dist-electron/electron/main.js",
   "type": "module",
   "scripts": {
@@ -34,7 +34,7 @@
   },
   "build": {
     "appId": "com.relay.app",
-    "productName": "Relay",
+    "productName": "Cloffice",
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
@@ -87,3 +87,4 @@
     "ws": "^8.18.3"
   }
 }
+

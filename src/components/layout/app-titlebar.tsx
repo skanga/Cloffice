@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, MouseEvent } from 'react';
 import { ArrowLeft, Circle, Copy, Loader2, Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Square, TriangleAlert, X } from 'lucide-react';
 
@@ -422,3 +422,4 @@ export function AppTitlebar({
     </header>
   );
 }
+

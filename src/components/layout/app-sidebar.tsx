@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CoworkProject, MessageUsage } from '@/app-types';
 import { formatCostUsd, formatTokenCount } from '@/lib/token-usage';
 import {
@@ -140,7 +140,7 @@ const sectionLabels: Record<SettingsSection, { en: string; de: string }> = {
   Profile: { en: 'Profile', de: 'Profil' },
   Appearance: { en: 'Appearance', de: 'Darstellung' },
   'System Prompt': { en: 'System Prompt', de: 'System-Prompt' },
-  Gateway: { en: 'Gateway', de: 'Gateway' },
+  Gateway: { en: 'Engine', de: 'Engine' },
   Connectors: { en: 'Connectors', de: 'Konnektoren' },
   Account: { en: 'Account', de: 'Konto' },
   Privacy: { en: 'Privacy', de: 'Datenschutz' },
@@ -876,7 +876,7 @@ export function AppSidebar({
             <DialogHeader>
               <DialogTitle>Delete project</DialogTitle>
               <DialogDescription>
-                Remove this project from Relay. This does not delete any local files in the folder.
+                Remove this project from Cloffice. This does not delete any local files in the folder.
               </DialogDescription>
             </DialogHeader>
             <p className="font-sans text-[13px] text-foreground/90">
@@ -1062,3 +1062,5 @@ export function AppSidebar({
     </Sidebar>
   );
 }
+
+

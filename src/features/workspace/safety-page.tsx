@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Lock, Search, Shield, ShieldAlert, ShieldCheck, ToggleLeft, ToggleRight } from 'lucide-react';
 
 import type { SafetyPermissionScope, SafetyRiskLevel } from '@/app-types';
@@ -121,7 +121,7 @@ export function SafetyPage({ gatewayConnected, projectId, projectTitle }: Safety
                 : 'border-amber-500/40 bg-amber-500/12 text-amber-800 dark:text-amber-300'
             }`}
           >
-            {gatewayConnected ? 'Gateway connected' : 'Gateway offline'}
+            {gatewayConnected ? 'Runtime connected' : 'Runtime offline'}
           </Badge>
         </div>
         <p className="mt-1 font-sans text-sm text-muted-foreground">
@@ -291,3 +291,4 @@ export function SafetyPage({ gatewayConnected, projectId, projectTitle }: Safety
     </section>
   );
 }
+

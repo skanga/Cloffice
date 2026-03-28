@@ -1,7 +1,7 @@
 {
   "name": "@seventeenlabs/openclaw-relay-workspace",
   "version": "0.1.0",
-  "description": "OpenClaw plugin that exposes workspace file operations as Gateway RPC methods for Relay",
+  "description": "OpenClaw compatibility plugin that exposes workspace file operations as Gateway RPC methods for Cloffice",
   "type": "module",
   "openclaw": {
     "extensions": ["./index.ts"]
@@ -9,3 +9,4 @@
   "keywords": ["openclaw", "relay", "workspace", "files"],
   "license": "MIT"
 }
+

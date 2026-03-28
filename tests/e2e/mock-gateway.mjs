@@ -11,8 +11,8 @@ function sendFrame(socket, frame) {
 
 function parsePromptRelayAction(promptText) {
   const fallback = {
-    path: 'relay-e2e/mock-approval.txt',
-    content: 'line from mock gateway',
+    path: 'cloffice-e2e/mock-approval.txt',
+    content: 'line from mock runtime',
   };
 
   if (!promptText) {
@@ -209,4 +209,5 @@ const shutdown = () => {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-console.log(`[relay-e2e-mock-gateway] listening on ws://127.0.0.1:${PORT}`);
+console.log(`[cloffice-e2e-mock-gateway] listening on ws://127.0.0.1:${PORT}`);
+

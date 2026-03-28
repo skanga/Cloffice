@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
 import type {
@@ -47,7 +47,7 @@ import {
 import { Input } from './components/ui/input';
 import { SidebarProvider } from './components/ui/sidebar';
 import { ScrollArea } from './components/ui/scroll-area';
-import { OpenClawGatewayClient } from './lib/openclaw-gateway-client';
+import { createEngineClient, type EngineClientInstance } from './lib/engine-client';
 import { createFileService, LocalFileService } from './lib/file-service';
 import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
 import { accumulateTodayUsage, addUsage, loadTodayUsage, parseUsageFromPayload } from './lib/token-usage';
@@ -122,7 +122,7 @@ type SettingsSection = 'Profile' | 'Appearance' | 'System Prompt' | 'Gateway' | 
 const COWORK_SEND_SPINNER_MS = 300;
 const MAX_LOCAL_ACTIONS_PER_RUN = 20;
 const APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
-const COWORK_CONTEXT_CONNECTORS = ['Web search', 'Desktop files', 'Gateway tools'];
+const COWORK_CONTEXT_CONNECTORS = ['Web search', 'Desktop files', 'Runtime tools'];
 
 const COWORK_PROGRESS_SEQUENCE: Array<{ stage: CoworkProgressStage; label: string }> = [
   { stage: 'planning', label: 'Planning' },
@@ -464,7 +464,7 @@ export default function App() {
   }, []);
 
   const bridge = window.relay;
-  const gatewayClientRef = useRef<OpenClawGatewayClient | null>(null);
+  const gatewayClientRef = useRef<EngineClientInstance | null>(null);
   const activeSessionKeyRef = useRef('');
   const coworkSessionKeyRef = useRef('');
   const workingFolderRef = useRef('');
@@ -1139,7 +1139,7 @@ export default function App() {
     });
   };
 
-  const loadRecentChatsFromBackend = async (client: OpenClawGatewayClient) => {
+  const loadRecentChatsFromBackend = async (client: EngineClientInstance) => {
     const sessions = await client.listSessions(100);
 
     const filtered = sessions.filter((session) => {
@@ -1562,18 +1562,18 @@ export default function App() {
     }
   };
 
-  const ensureConnectedClient = async (client: OpenClawGatewayClient) => {
+  const ensureConnectedClient = async (client: EngineClientInstance) => {
     await client.connect({
       gatewayUrl: draftGatewayUrl,
       token: draftGatewayToken,
     });
   };
 
-  const getOrResolveSession = async (client: OpenClawGatewayClient) => {
+  const getOrResolveSession = async (client: EngineClientInstance) => {
     try {
       const sessionKey = normalizeSessionKey(await client.getActiveSessionKey());
       if (!sessionKey) {
-        throw new Error('No active session available from Gateway.');
+        throw new Error('No active session available from the current runtime.');
       }
 
       commitActiveSessionKey(sessionKey);
@@ -1587,7 +1587,7 @@ export default function App() {
   };
 
   const ensureActiveChatSession = async (
-    client: OpenClawGatewayClient,
+    client: EngineClientInstance,
     options?: { createIfMissing?: boolean },
   ) => {
     await ensureConnectedClient(client);
@@ -1601,7 +1601,7 @@ export default function App() {
     if (options?.createIfMissing) {
       const sessionKey = normalizeSessionKey(await client.createChatSession());
       if (!sessionKey) {
-        throw new Error('No session key returned from Gateway.');
+        throw new Error('No session key returned from the current runtime.');
       }
       commitActiveSessionKey(sessionKey);
       await loadRecentChatsFromBackend(client);
@@ -1612,7 +1612,7 @@ export default function App() {
     throw new Error('No active chat session. Start a new chat first.');
   };
 
-  const loadModelsForSession = async (client: OpenClawGatewayClient, sessionKey: string) => {
+  const loadModelsForSession = async (client: EngineClientInstance, sessionKey: string) => {
     setModelsLoading(true);
     try {
       const [choices, currentModel] = await Promise.all([
@@ -1630,7 +1630,7 @@ export default function App() {
     }
   };
 
-  const loadCoworkModels = async (client: OpenClawGatewayClient, sessionKey?: string) => {
+  const loadCoworkModels = async (client: EngineClientInstance, sessionKey?: string) => {
     setModelsLoading(true);
     try {
       const [choices, currentModel] = await Promise.all([
@@ -1938,7 +1938,7 @@ export default function App() {
   }, [workingFolder]);
 
   useEffect(() => {
-    const client = new OpenClawGatewayClient();
+    const client = createEngineClient();
     client.setConnectionHandler((connected, message) => {
       setStatus(message);
       setGatewayConnected(connected);
@@ -3015,7 +3015,7 @@ export default function App() {
         token: gatewayToken,
       })
       .then(async () => {
-        setHealth({ ok: true, message: `Connected to ${gatewayUrl}` });
+        setHealth({ ok: true, message: `Connected to runtime at ${gatewayUrl}` });
         markGatewayConnectionLastUsed({ gatewayUrl, gatewayToken });
         if (!onboardingComplete) {
           completeOnboarding();
@@ -3031,11 +3031,11 @@ export default function App() {
           setPairingRequestId(info.requestId ?? null);
           const approvalHint = info.requestId
             ? ` Approve with: openclaw devices approve ${info.requestId}`
-            : ' Approve the pending request on the gateway host.';
+            : ' Approve the pending request on the runtime host.';
           setHealth({ ok: false, message: `Pairing required.${approvalHint}` });
           setStatus(`Pairing required.${approvalHint}`);
         } else {
-          const offlineMessage = info.message || 'Gateway is offline or unreachable.';
+          const offlineMessage = info.message || 'Runtime is offline or unreachable.';
           setHealth({ ok: false, message: offlineMessage });
           setStatus(offlineMessage);
         }
@@ -3094,7 +3094,7 @@ export default function App() {
     try {
       const client = gatewayClientRef.current;
       if (!client) {
-        throw new Error('Gateway client not initialized.');
+        throw new Error('Runtime client not initialized.');
       }
 
       await client.connect({
@@ -3112,11 +3112,11 @@ export default function App() {
         setSelectedModel('');
       }
 
-      setHealth({ ok: true, message: `Connected to ${nextConfig.gatewayUrl}` });
-      setStatus('Configuration saved. Connected to Gateway.');
+      setHealth({ ok: true, message: `Connected to runtime at ${nextConfig.gatewayUrl}` });
+      setStatus('Configuration saved. Connected to runtime.');
       markGatewayConnectionLastUsed(nextConfig);
     } catch (error) {
-      console.error('[Relay] connect error:', error);
+      console.error('[Cloffice] connect error:', error);
       const info = readGatewayError(error);
       const isPairing =
         info.code === 'PAIRING_REQUIRED' ||
@@ -3125,12 +3125,12 @@ export default function App() {
         setPairingRequestId(info.requestId ?? null);
         const approvalHint = info.requestId
           ? ` Approve with: openclaw devices approve ${info.requestId}`
-          : ' Approve the pending request on the gateway host.';
+          : ' Approve the pending request on the runtime host.';
         setHealth({ ok: false, message: `Pairing required.${approvalHint}` });
         setStatus(`Configuration saved. Pairing required.${approvalHint}`);
       } else {
-        setHealth({ ok: false, message: info.message || 'Gateway connection failed.' });
-        setStatus(`Configuration saved. ${info.message || 'Gateway connection failed.'}`);
+        setHealth({ ok: false, message: info.message || 'Runtime connection failed.' });
+        setStatus(`Configuration saved. ${info.message || 'Runtime connection failed.'}`);
       }
     } finally {
       setSaving(false);
@@ -3140,7 +3140,7 @@ export default function App() {
   const handleResetPairing = async () => {
     const client = gatewayClientRef.current;
     if (!client) {
-      setStatus('Gateway client not initialized.');
+      setStatus('Runtime client not initialized.');
       return;
     }
 
@@ -3150,7 +3150,7 @@ export default function App() {
 
     try {
       client.disconnect();
-      const clientWithReset = client as OpenClawGatewayClient & {
+      const clientWithReset = client as EngineClientInstance & {
         resetDeviceIdentity?: () => void;
       };
       if (typeof clientWithReset.resetDeviceIdentity === 'function') {
@@ -3171,7 +3171,7 @@ export default function App() {
       setHealth({ ok: true, message: `Re-paired and connected to ${draftGatewayUrl}` });
       setStatus('Re-pair complete. If operator.admin is still missing, approve the new request with admin scope on the gateway host.');
     } catch (error) {
-      console.error('[Relay] reset pairing error:', error);
+      console.error('[Cloffice] reset pairing error:', error);
       const info = readGatewayError(error);
       const isPairing =
         info.code === 'PAIRING_REQUIRED' ||
@@ -3195,11 +3195,11 @@ export default function App() {
   const handlePlanTask = async (event: FormEvent) => {
     event.preventDefault();
     if (!gatewayConnected) {
-      setStatus('Gateway disconnected. Connect in Settings > Gateway to run cowork tasks.');
+      setStatus('Runtime disconnected. Connect in Settings > Engine to run cowork tasks.');
       setCoworkAwaitingStream(false);
       setCoworkSending(false);
       setCoworkRunPhase('error');
-      setCoworkRunStatus('Gateway disconnected.');
+      setCoworkRunStatus('Runtime disconnected.');
       return;
     }
     workingFolderRef.current = workingFolder.trim();
@@ -3212,7 +3212,7 @@ export default function App() {
 
     const text = chatDraftPrompt.trim();
     if (!text) {
-      setStatus('Describe the outcome first so OpenClaw can plan the work.');
+      setStatus('Describe the outcome first so Cloffice can plan the work.');
       setCoworkSending(false);
       return;
     }
@@ -3222,7 +3222,7 @@ export default function App() {
 
     const client = gatewayClientRef.current;
     if (!client) {
-      setStatus('Gateway client not initialized.');
+      setStatus('Runtime client not initialized.');
       setCoworkSending(false);
       return;
     }
@@ -3234,7 +3234,7 @@ export default function App() {
       if (!sessionKey) {
         sessionKey = normalizeSessionKey(await client.createCoworkSession());
         if (!sessionKey) {
-          throw new Error('No cowork session key returned from Gateway.');
+          throw new Error('No cowork session key returned from the current runtime.');
         }
         commitCoworkSessionKey(sessionKey);
       }
@@ -3940,7 +3940,7 @@ export default function App() {
   const handleSendChat = async (event: FormEvent) => {
     event.preventDefault();
     if (!gatewayConnected) {
-      setStatus('Gateway disconnected. Connect in Settings > Gateway to send chat messages.');
+      setStatus('Runtime disconnected. Connect in Settings > Engine to send chat messages.');
       setAwaitingChatStream(false);
       setSendingChat(false);
       return;
@@ -3954,7 +3954,7 @@ export default function App() {
 
     const client = gatewayClientRef.current;
     if (!client) {
-      setStatus('Gateway client not initialized.');
+      setStatus('Runtime client not initialized.');
       return;
     }
 
@@ -3970,7 +3970,7 @@ export default function App() {
         await ensureConnectedClient(client);
         sessionKey = normalizeSessionKey(await client.createChatSession());
         if (!sessionKey) {
-          throw new Error('No session key returned from Gateway.');
+          throw new Error('No session key returned from the current runtime.');
         }
         // Avoid loading history immediately after creating a fresh session,
         // which can race and overwrite the optimistic first user message.
@@ -4016,7 +4016,7 @@ export default function App() {
       }
 
       commitActiveSessionKey(sessionKey);
-      setStatus(`Message sent to OpenClaw Gateway (session: ${sessionKey}). Waiting for streaming events...`);
+      setStatus(`Message sent to the current runtime connection (session: ${sessionKey}). Waiting for streaming events...`);
     } catch (error) {
       setAwaitingChatStream(false);
       const message = error instanceof Error ? error.message : 'Failed to send chat message.';
@@ -4032,7 +4032,7 @@ export default function App() {
 
     const client = gatewayClientRef.current;
     if (!client) {
-      setStatus('Gateway client not initialized.');
+      setStatus('Runtime client not initialized.');
       setSelectedModel(previousModel);
       return;
     }
@@ -4061,7 +4061,7 @@ export default function App() {
 
     const client = gatewayClientRef.current;
     if (!client) {
-      setStatus('Gateway client not initialized.');
+      setStatus('Runtime client not initialized.');
       setCoworkModel(previousModel);
       return;
     }
@@ -4097,7 +4097,7 @@ export default function App() {
   const handleStartNewChat = async () => {
     const client = gatewayClientRef.current;
     if (!client) {
-      setStatus('Gateway client not initialized.');
+      setStatus('Runtime client not initialized.');
       return;
     }
 
@@ -4118,7 +4118,7 @@ export default function App() {
       await ensureConnectedClient(client);
       const sessionKey = normalizeSessionKey(await client.createChatSession());
       if (!sessionKey) {
-        throw new Error('No session key returned from Gateway.');
+        throw new Error('No session key returned from the current runtime.');
       }
       commitActiveSessionKey(sessionKey);
       setActivePage('chat');
@@ -4163,7 +4163,7 @@ export default function App() {
       return;
     }
 
-    // Fall back to Gateway history
+    // Fall back to runtime history
     setChatMessages([]);
     setAwaitingChatStream(false);
     setStatus('Loading recent chat...');
@@ -4228,7 +4228,7 @@ export default function App() {
           await ensureConnectedClient(client);
           await client.setSessionTitle(recentRenameTarget.sessionKey, nextTitle);
         } catch {
-          setStatus('Renamed locally. Gateway title sync is not available on this server.');
+          setStatus('Renamed locally. Runtime title sync is not available on this server.');
         }
       }
 
@@ -4252,7 +4252,7 @@ export default function App() {
 
     const client = gatewayClientRef.current;
     if (!client) {
-      setStatus('Gateway client not initialized.');
+      setStatus('Runtime client not initialized.');
       return;
     }
 
@@ -4274,7 +4274,7 @@ export default function App() {
   const loadScheduledJobs = useCallback(async () => {
     const client = gatewayClientRef.current;
     if (!client) {
-      setStatus('Gateway client not initialized.');
+      setStatus('Runtime client not initialized.');
       return;
     }
 
@@ -4438,7 +4438,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `relay-chat-${activeSessionKey || 'export'}-${Date.now()}.md`;
+    a.download = `cloffice-chat-${activeSessionKey || 'export'}-${Date.now()}.md`;
     a.click();
     URL.revokeObjectURL(url);
   }, [chatMessages, activeSessionKey]);
@@ -4714,12 +4714,12 @@ export default function App() {
                 ) : (
                   <section className="grid h-full place-items-center p-6">
                     <div className="w-full max-w-xl rounded-2xl border border-border bg-card p-6 text-center">
-                      <h2 className="text-lg font-semibold">Gateway disconnected</h2>
+                      <h2 className="text-lg font-semibold">Runtime disconnected</h2>
                       <p className="mt-2 font-sans text-sm text-muted-foreground">
-                        Connect the gateway to view workspace contents.
+                        Connect the current runtime to view workspace contents.
                       </p>
                       <Button type="button" className="mt-4" onClick={() => setActivePage('settings')}>
-                        Open Gateway Settings
+                        Open Engine Settings
                       </Button>
                     </div>
                   </section>
@@ -4738,12 +4738,12 @@ export default function App() {
                 ) : (
                   <section className="grid h-full place-items-center p-6">
                     <div className="w-full max-w-xl rounded-2xl border border-border bg-card p-6 text-center">
-                      <h2 className="text-lg font-semibold">Gateway disconnected</h2>
+                      <h2 className="text-lg font-semibold">Runtime disconnected</h2>
                       <p className="mt-2 font-sans text-sm text-muted-foreground">
-                        Connect the gateway to view project folder contents.
+                        Connect the current runtime to view project folder contents.
                       </p>
                       <Button type="button" className="mt-4" onClick={() => setActivePage('settings')}>
-                        Open Gateway Settings
+                        Open Engine Settings
                       </Button>
                     </div>
                   </section>
@@ -4847,3 +4847,5 @@ export default function App() {
     </div>
   );
 }
+
+

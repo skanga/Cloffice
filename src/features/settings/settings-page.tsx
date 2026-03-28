@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { Code2, Folder, Globe, KeyRound, Link2, Shield, Terminal, Trash2 } from 'lucide-react';
 
@@ -55,12 +55,12 @@ const sectionDescriptions: Record<SettingsSection, { en: string; de: string }> =
     de: 'Standardanweisungen fuer jede Konversation.',
   },
   Gateway: {
-    en: 'OpenClaw gateway connection and device authorization.',
-    de: 'OpenClaw-Gateway-Verbindung und Geraeteautorisierung.',
+    en: 'Engine/runtime connection, device authorization, and compatibility settings.',
+    de: 'Engine-Laufzeit, Geraeteautorisierung und Kompatibilitaetseinstellungen.',
   },
   Connectors: {
-    en: 'Connect external services to Relay.',
-    de: 'Externe Dienste mit Relay verbinden.',
+    en: 'Connect external services to Cloffice.',
+    de: 'Externe Dienste mit Cloffice verbinden.',
   },
   Account: {
     en: 'Email, password, and security settings.',
@@ -293,7 +293,7 @@ export function SettingsPage({
   }, [effectivePairingId]);
 
   const handleSaveCurrentConnection = useCallback(() => {
-    const fallbackName = draftGatewayUrl.trim() || 'Gateway connection';
+    const fallbackName = draftGatewayUrl.trim() || 'Runtime connection';
     const nextName = connectionNameDraft.trim() || fallbackName;
     onSaveGatewayConnection(nextName);
     setConnectionNameDraft('');
@@ -320,13 +320,13 @@ export function SettingsPage({
                 Profile: 'Profil',
                 Appearance: 'Darstellung',
                 'System Prompt': 'System-Prompt',
-                Gateway: 'Gateway',
+                Gateway: 'Engine',
                 Connectors: 'Konnektoren',
                 Account: 'Konto',
                 Privacy: 'Datenschutz',
                 Developer: 'Entwickler',
               } as const)[activeSection]
-            : activeSection}
+            : activeSection === 'Gateway' ? 'Engine' : activeSection}
         </h1>
         <p className="font-sans text-sm text-muted-foreground">{sectionDescriptions[activeSection][preferences.language]}</p>
       </div>
@@ -343,7 +343,7 @@ export function SettingsPage({
                 <Input className="font-sans" placeholder="Christian Lutz" value={preferences.fullName} onChange={(e) => onUpdatePreferences({ fullName: e.target.value })} />
               </label>
               <label className="grid gap-1">
-                <span className="font-sans text-xs text-muted-foreground">{t('How should Relay address you?', 'Wie soll Relay dich nennen?')}</span>
+                <span className="font-sans text-xs text-muted-foreground">{t('How should Cloffice address you?', 'Wie soll Relay dich nennen?')}</span>
                 <Input className="font-sans" placeholder="Christian" value={preferences.displayName} onChange={(e) => onUpdatePreferences({ displayName: e.target.value })} />
               </label>
             </div>
@@ -415,7 +415,7 @@ export function SettingsPage({
             <div className="grid gap-3 md:grid-cols-2">
               {([
                 ['claude', t('Claude Cowork', 'Claude Cowork'), t('Warm editorial look', 'Warmer Editorial-Look')],
-                ['relay', t('Relay', 'Relay'), t('Crisp product look', 'Klarer Produkt-Look')],
+                ['relay', t('Cloffice', 'Cloffice'), t('Crisp product look', 'Klarer Produkt-Look')],
               ] as const).map(([value, label, description]) => (
                 <button
                   key={value}
@@ -549,7 +549,7 @@ export function SettingsPage({
             </div>
             <form className="grid gap-3" onSubmit={onSave}>
               <label className="grid gap-1">
-                <span className="font-sans text-xs text-muted-foreground">Gateway URL (WebSocket)</span>
+                <span className="font-sans text-xs text-muted-foreground">Runtime URL (WebSocket)</span>
                 <Input
                   value={draftGatewayUrl}
                   onChange={(event) => onDraftGatewayUrlChange(event.target.value)}
@@ -559,12 +559,12 @@ export function SettingsPage({
               </label>
 
               <label className="grid gap-1">
-                <span className="font-sans text-xs text-muted-foreground">Gateway token</span>
+                <span className="font-sans text-xs text-muted-foreground">Runtime token</span>
                 <Input
                   type="password"
                   value={draftGatewayToken}
                   onChange={(event) => onDraftGatewayTokenChange(event.target.value)}
-                  placeholder={t('Paste token from OpenClaw setup', 'Token aus dem OpenClaw-Setup einfuegen')}
+                  placeholder={t('Paste token from runtime setup', 'Token aus dem OpenClaw-Setup einfuegen')}
                   className="font-sans"
                 />
               </label>
@@ -582,7 +582,7 @@ export function SettingsPage({
               <div className="mt-3 rounded-lg border border-amber-500/35 bg-amber-500/10 p-3">
                 <p className="font-sans text-xs font-medium text-amber-800 dark:text-amber-200">{t('Device pairing required', 'Geraete-Pairing erforderlich')}</p>
                 <p className="mt-1 font-sans text-xs text-amber-800 dark:text-amber-200">
-                  {t('Run this command on your gateway host:', 'Fuehre diesen Befehl auf deinem Gateway-Host aus:')}
+                  {t('Run this command on the runtime host:', 'Fuehre diesen Befehl auf dem Runtime-Host aus:')}
                 </p>
                 <div className="mt-1 flex items-center gap-1">
                   <code className="flex-1 rounded bg-background/70 px-2 py-1 font-mono text-xs text-amber-900 dark:text-amber-100 select-all">
@@ -618,13 +618,13 @@ export function SettingsPage({
             <div className="mb-3">
               <h2 className="text-base font-medium">{t('Saved connections', 'Gespeicherte Verbindungen')}</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                {t('Store multiple gateways and switch between them quickly.', 'Speichere mehrere Gateways und wechsle schnell zwischen ihnen.')}
+                {t('Store multiple runtime endpoints and switch between them quickly.', 'Speichere mehrere Runtime-Endpunkte und wechsle schnell zwischen ihnen.')}
               </p>
             </div>
             <div className="grid gap-3">
               <div className="rounded-lg border border-border/70 bg-card p-3">
                 <p className="mb-2 font-sans text-xs text-muted-foreground">
-                  {t('Save the current URL/token as a reusable profile.', 'Speichere die aktuelle URL/den Token als wiederverwendbares Profil.')}
+                  {t('Save the current runtime URL/token as a reusable profile.', 'Speichere die aktuelle URL/den Token als wiederverwendbares Profil.')}
                 </p>
                 <div className="flex gap-2">
                   <Input
@@ -911,3 +911,5 @@ function ConnectorsSection({ language }: { language: 'en' | 'de' }) {
     </div>
   );
 }
+
+

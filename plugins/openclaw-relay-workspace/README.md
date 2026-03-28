@@ -1,10 +1,12 @@
 # relay-workspace
 
-OpenClaw plugin that exposes `workspace.*` Gateway RPC methods so the [Relay](https://github.com/seventeenlabs/relay) desktop app can browse and edit the agent's workspace remotely over WebSocket.
+Compatibility plugin for the transitional OpenClaw runtime path used by Cloffice.
+
+OpenClaw plugin that exposes `workspace.*` Gateway RPC methods so the Cloffice desktop app can browse and edit the runtime workspace remotely over WebSocket.
 
 ## What it does
 
-The OpenClaw gateway protocol does not include file browsing RPCs by default. This plugin registers 6 custom gateway methods that Relay's file explorer calls when connected to a remote gateway:
+The OpenClaw gateway protocol does not include file browsing RPCs by default. This plugin registers 6 custom gateway methods that Cloffice calls when connected to a remote compatibility runtime:
 
 | Method | Description |
 |--------|-------------|
@@ -46,40 +48,10 @@ Add plugin config in your `openclaw.json`:
 }
 ```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `maxListItems` | `200` | Maximum entries returned by `workspace.list` |
-| `maxReadBytes` | `262144` (256 KB) | Maximum file size allowed by `workspace.read` |
+## Why this still exists
 
-## Security
-
-- **Path traversal prevention**: All paths are resolved against the workspace root. Any path that resolves outside the boundary (e.g. `../../etc/passwd`) is rejected.
-- **Hidden file filtering**: Dotfiles and OS metadata (`desktop.ini`, `thumbs.db`, `.DS_Store`) are excluded from listings and blocked from direct access.
-- **Root deletion guard**: `workspace.delete` refuses to delete the workspace root directory.
-- **Size limits**: `workspace.read` rejects files exceeding the configured byte limit.
-
-## How it connects to Relay
-
-```
-┌─────────┐   WebSocket JSON-RPC   ┌──────────────────┐   Node.js fs   ┌───────────┐
-│  Relay   │ ─── workspace.list ──→ │  relay-workspace │ ────────────→  │ Workspace │
-│  (app)   │ ←── { items: [...] } ─ │    (plugin)      │ ←────────────  │   (disk)  │
-└─────────┘                         └──────────────────┘                └───────────┘
-```
-
-1. Relay detects a non-localhost gateway URL → uses `RemoteFileService`
-2. `RemoteFileService` calls `workspace.*` RPCs via the gateway client
-3. This plugin handles those RPCs on the server and operates on the agent workspace directory
-4. If the plugin is not installed, Relay shows a fallback UI with agent tool capabilities
-
-## Development
-
-The plugin source lives at `plugins/openclaw-relay-workspace/index.ts`. It uses:
-
-- `definePluginEntry` from the OpenClaw Plugin SDK
-- `api.registerGatewayMethod()` to add custom RPC methods
-- `api.runtime.agent.resolveAgentWorkspaceDir()` to locate the workspace
-- Standard Node.js `fs/promises` for all file operations
+This plugin is a compatibility artifact for Cloffice's current remote workspace path.
+It is not the long-term architecture. The target state is a built-in Cloffice engine that owns runtime access directly.
 
 ## License
 

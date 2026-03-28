@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Pure utility functions and shared types for chat, cowork, and thread management.
  * No React imports — safe to use anywhere.
  */
@@ -347,7 +347,7 @@ export function toRecentSidebarItems(threads: ChatThread[], kind: 'chat' | 'cowo
     }));
 }
 
-/* ── Gateway error helpers ───────────────────────────────────────────────── */
+/* ── Runtime error helpers ───────────────────────────────────────────────── */
 
 function extractUuidFromMessage(msg?: string): string | undefined {
   if (!msg) return undefined;
@@ -357,11 +357,11 @@ function extractUuidFromMessage(msg?: string): string | undefined {
 
 export function readGatewayError(error: unknown): { message: string; code?: string; requestId?: string } {
   if (!(error instanceof Error)) {
-    return { message: 'Gateway connection failed.' };
+    return { message: 'Runtime connection failed.' };
   }
 
   if (error instanceof GatewayRequestError) {
-    console.log('[Relay] GatewayRequestError details:', JSON.stringify(error.details));
+    console.log('[Cloffice] GatewayRequestError details:', JSON.stringify(error.details));
     const d = error.details as Record<string, unknown> | undefined;
     const requestId =
       (typeof d?.requestId === 'string' && d.requestId) ||
@@ -377,7 +377,7 @@ export function readGatewayError(error: unknown): { message: string; code?: stri
   }
 
   return {
-    message: error.message || 'Gateway connection failed.',
+    message: error.message || 'Runtime connection failed.',
     requestId: extractUuidFromMessage(error.message),
   };
 }
@@ -755,3 +755,4 @@ export function normalizeCoworkMessage(message: ChatMessage): ChatMessage {
     },
   };
 }
+

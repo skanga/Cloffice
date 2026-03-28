@@ -497,7 +497,7 @@ export class OpenClawGatewayClient {
               maxProtocol: GATEWAY_PROTOCOL_VERSION,
               client: {
                 id: CLIENT_ID,
-                displayName: 'Relay',
+                displayName: 'Cloffice',
                 version: '2026.3.24',
                 platform,
                 mode: CLIENT_MODE,
@@ -522,10 +522,10 @@ export class OpenClawGatewayClient {
           if (this.grantedScopes.length > 0 && missingScopes.length > 0) {
             this.onConnectionHandler?.(
               true,
-              `Connected to ${wsUrl} (granted: ${this.grantedScopes.join(', ')}; missing: ${missingScopes.join(', ')}).`,
+              `Connected to runtime at ${wsUrl} (granted: ${this.grantedScopes.join(', ')}; missing: ${missingScopes.join(', ')}).`,
             );
           } else {
-            this.onConnectionHandler?.(true, `Connected to ${wsUrl}`);
+            this.onConnectionHandler?.(true, `Connected to runtime at ${wsUrl}`);
           }
 
           resolveIfPending();
@@ -565,7 +565,7 @@ export class OpenClawGatewayClient {
         this.socket = null;
         this.connectedUrl = null;
         this.rejectPending('Gateway connection closed.');
-        this.onConnectionHandler?.(false, 'Disconnected from OpenClaw Gateway.');
+        this.onConnectionHandler?.(false, 'Disconnected from runtime connection.');
         rejectIfPending(new Error('Gateway connection closed before connect completed.'));
         this.scheduleReconnect();
       };
@@ -1246,3 +1246,4 @@ export class OpenClawGatewayClient {
     this.pending.clear();
   }
 }
+

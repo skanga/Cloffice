@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 
 import { ArrowUp, ChevronRight, FileText, FolderOpen, Loader2, WifiOff } from 'lucide-react';
@@ -451,7 +451,7 @@ export function CoworkPage({
           {projectSelected
             ? gatewayConnected
               ? 'Type @ to reference project files/folders. Enter sends, Shift+Enter new line.'
-              : 'Gateway disconnected. Connect to enable sending.'
+              : 'Runtime disconnected. Connect to enable sending.'
             : 'Choose a project to enable sending'}
         </p>
 
@@ -594,10 +594,10 @@ export function CoworkPage({
           </div>
           <h2 className="text-lg font-semibold">Cowork is offline</h2>
           <p className="mt-2 font-sans text-sm text-muted-foreground">
-            Connect the gateway to run cowork tasks and access project context.
+            Connect the current runtime to run cowork tasks and access project context.
           </p>
           <Button type="button" className="mt-4" onClick={onOpenGatewaySettings}>
-            Open Gateway Settings
+            Open Engine Settings
           </Button>
         </div>
       </section>
@@ -910,3 +910,4 @@ export function CoworkPage({
     )
   );
 }
+

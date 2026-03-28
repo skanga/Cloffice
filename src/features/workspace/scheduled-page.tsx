@@ -146,7 +146,7 @@ export function ScheduledPage({ jobs, loading, status, onRefresh }: ScheduledPag
             </Badge>
           </div>
           <p className="mt-1 font-sans text-sm text-muted-foreground">
-            Overview of all scheduled jobs from your OpenClaw gateway.
+            Overview of scheduled jobs reported by the current runtime connection.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -204,7 +204,7 @@ export function ScheduledPage({ jobs, loading, status, onRefresh }: ScheduledPag
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <CalendarDays className="mb-3 size-8 text-muted-foreground/30" />
                 <p className="font-sans text-sm text-muted-foreground">
-                  No scheduled jobs. Make sure your gateway is configured.
+                  No scheduled jobs. Make sure the current runtime connection is configured.
                 </p>
               </div>
             ) : (
@@ -404,3 +404,4 @@ export function ScheduledPage({ jobs, loading, status, onRefresh }: ScheduledPag
     </section>
   );
 }
+

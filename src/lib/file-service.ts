@@ -2,10 +2,11 @@
  * Unified file service abstraction.
  *
  * Routes file operations to either the local Electron bridge (`window.relay`)
- * or the remote OpenClaw gateway via `workspace.*` RPC methods, depending on
+ * or the remote OpenClaw compatibility runtime via `workspace.*` RPC methods, depending on
  * the mode selected at construction time.
  *
- * The OpenClaw gateway currently does NOT expose `workspace.*` RPCs.
+ * The long-term Cloffice architecture does not depend on these RPCs. They remain
+ * as a transitional compatibility path until the internal engine owns workspace access.
  * The agent's file tools (read, write, edit, apply_patch) are agent-side tools
  * invoked by the AI model during chat — they cannot be called directly by operator
  * clients. `tools.catalog` (operator.read scope) returns the available tool list
@@ -111,12 +112,12 @@ export class LocalFileService implements FileService {
 /* ═══════════════════════════════════════ Remote ═══════════════════════════════════════ */
 
 /**
- * Uses the OpenClaw gateway `workspace.*` RPC methods for remote file operations.
+ * Uses the current OpenClaw compatibility runtime `workspace.*` RPC methods for remote file operations.
  * The `rootPath` parameter is ignored — the remote agent's workspace root is implicit.
  */
 export class WorkspaceRpcUnsupportedError extends Error {
   constructor(method: string) {
-    super(`The OpenClaw server does not support "${method}" yet. Server update required.`);
+    super(`The current runtime does not support "${method}" yet. Compatibility plugin or engine update required.`);
     this.name = 'WorkspaceRpcUnsupportedError';
   }
 }
@@ -131,7 +132,7 @@ function isUnsupportedMethodError(err: unknown): boolean {
 }
 
 /**
- * Wraps a gateway RPC call with detection for unsupported `workspace.*` methods.
+ * Wraps the compatibility RPC call with detection for unsupported `workspace.*` methods.
  * Throws `WorkspaceRpcUnsupportedError` when the server doesn't implement the method.
  */
 async function guardedCall<T>(method: string, fn: () => Promise<T>): Promise<T> {
@@ -198,7 +199,7 @@ export class RemoteFileService implements FileService {
 /* ═══════════════════════════════════════ Factory ═══════════════════════════════════════ */
 
 /**
- * Select the appropriate file service based on whether the gateway points to
+ * Select the appropriate file service based on whether the current runtime endpoint points to
  * localhost (local mode) or a remote host.
  *
  * When the Electron bridge is available and the gateway is local (or not
@@ -244,3 +245,4 @@ function isRemoteUrl(url: string): boolean {
     return false;
   }
 }
+
