@@ -208,15 +208,15 @@ export class RemoteFileService implements FileService {
  * remote host, we route through the gateway's `workspace.*` RPCs.
  */
 export function createFileService(
-  gateway: EngineClientInstance | null,
-  gatewayUrl: string,
+  engine: EngineClientInstance | null,
+  engineUrl: string,
   desktopBridgeAvailable: boolean,
 ): FileService {
-  const isRemote = gatewayUrl ? isRemoteUrl(gatewayUrl) : false;
+  const isRemote = engineUrl ? isRemoteUrl(engineUrl) : false;
 
-  // Remote mode: use gateway RPC
-  if (isRemote && gateway) {
-    return new RemoteFileService(gateway);
+  // Remote mode: use engine RPC
+  if (isRemote && engine) {
+    return new RemoteFileService(engine);
   }
 
   // Local mode: use Electron bridge
@@ -224,9 +224,9 @@ export function createFileService(
     return new LocalFileService();
   }
 
-  // Fallback — if gateway is available at all, try remote
-  if (gateway) {
-    return new RemoteFileService(gateway);
+  // Fallback — if the engine is available at all, try remote
+  if (engine) {
+    return new RemoteFileService(engine);
   }
 
   // Nothing available
@@ -246,6 +246,7 @@ function isRemoteUrl(url: string): boolean {
     return false;
   }
 }
+
 
 
 

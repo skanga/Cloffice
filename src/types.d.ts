@@ -47,13 +47,13 @@ type DesktopBridgeApi = {
   notify: (title: string, body?: string) => Promise<{ ok: boolean; message?: string }>;
 };
 
-type RelayApi = DesktopBridgeApi;
 type ClofficeDesktopApi = DesktopBridgeApi;
+type RelayApi = ClofficeDesktopApi;
 
 declare global {
   interface Window {
-    relay?: RelayApi;
     cloffice?: ClofficeDesktopApi;
+    relay?: RelayApi;
   }
 }
 

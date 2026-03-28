@@ -68,7 +68,7 @@ type FilesPageProps = {
   onPickFolder: () => void;
   fileService: FileService;
   localFileService?: FileService | null;
-  gatewayUrl?: string;
+  engineUrl?: string;
   /** Lock the page to a specific root. Omit to allow switching via tab bar. */
   root?: ExplorerRoot;
 };
@@ -302,7 +302,7 @@ function CopyCommandButton({ text }: { text: string }) {
 
 /* ═══════════════════════════════════════════ Main Component ═══════════════════════════════════════════ */
 
-export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder, fileService, localFileService, gatewayUrl, root: rootProp }: FilesPageProps) {
+export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder, fileService, localFileService, engineUrl, root: rootProp }: FilesPageProps) {
   /* ── State ── */
   const [currentRelPath, setCurrentRelPath] = useState('');
   const [items, setItems] = useState<LocalFileListItem[]>([]);
@@ -391,7 +391,7 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
       .catch(() => setPluginInstalled(null));
   }, [isRemote]);
   const activeRoot: ExplorerRoot = rootProp ?? 'workspace';
-  const isLocalGateway = !gatewayUrl || /127\.0\.0\.1|localhost/.test(gatewayUrl);
+  const isLocalRuntime = !engineUrl || /127\.0\.0\.1|localhost/.test(engineUrl);
 
   const activeExplorerService = useMemo(() => {
     if (activeRoot === 'working-folder' && localFileService) {
@@ -841,7 +841,7 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
           </div>
 
           {/* Local: auto-install */}
-          {isLocalGateway && desktopBridgeAvailable && (
+          {isLocalRuntime && desktopBridgeAvailable && (
             <div className="rounded-xl border border-border bg-card p-5">
               <p className="mb-3 text-sm font-medium">Install automatically</p>
               <p className="mb-4 text-xs text-muted-foreground">
@@ -873,7 +873,7 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
           )}
 
           {/* Remote or no bridge: show copy command */}
-          {(!isLocalGateway || !desktopBridgeAvailable) && (
+          {(!isLocalRuntime || !desktopBridgeAvailable) && (
             <div className="rounded-xl border border-border bg-card p-5">
               <div className="mb-2 flex items-center gap-2">
                 <Terminal className="size-3.5 text-muted-foreground" />
@@ -1619,6 +1619,7 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
     </section>
   );
 }
+
 
 
 

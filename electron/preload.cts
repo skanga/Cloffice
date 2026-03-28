@@ -2,7 +2,6 @@
 import type {
   AppConfig,
   HealthCheckResult,
-  GatewayDiscoveryResult,
   EngineDiscoveryResult,
   LocalFileApplyResult,
   LocalFileAppendResult,
@@ -17,7 +16,7 @@ import type {
   LocalFilePlanResult,
 } from '../src/app-types.js';
 
-const api = {
+const desktopBridgeApi = {
   getConfig: () => ipcRenderer.invoke('config:get') as Promise<AppConfig>,
   saveConfig: (config: AppConfig) => ipcRenderer.invoke('config:save', config) as Promise<AppConfig>,
   healthCheck: (baseUrl: string) =>
@@ -25,7 +24,7 @@ const api = {
   checkRuntimeHealth: (baseUrl: string) =>
     ipcRenderer.invoke('backend:health-check', baseUrl) as Promise<HealthCheckResult>,
   discoverGateway: () =>
-    ipcRenderer.invoke('gateway:discover') as Promise<GatewayDiscoveryResult>,
+    ipcRenderer.invoke('gateway:discover') as Promise<EngineDiscoveryResult>,
   discoverEngine: () =>
     ipcRenderer.invoke('gateway:discover') as Promise<EngineDiscoveryResult>,
   checkWorkspacePlugin: () =>
@@ -109,8 +108,8 @@ const api = {
     ipcRenderer.invoke('notify', { title, body }) as Promise<{ ok: boolean; message?: string }>,
 };
 
-contextBridge.exposeInMainWorld('cloffice', api);
-contextBridge.exposeInMainWorld('relay', api);
+contextBridge.exposeInMainWorld('cloffice', desktopBridgeApi);
+contextBridge.exposeInMainWorld('relay', desktopBridgeApi);
 
 
 

@@ -1,4 +1,5 @@
 ﻿import { getDesktopBridge } from '@/lib/desktop-bridge';
+import { getEngineDiscoveryEndpoint } from '@/lib/engine-discovery';
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import type { FormEvent } from 'react';
 
@@ -139,8 +140,9 @@ export function OnboardingPage({
       if (cancelled) return;
       setDiscovery({ status: 'done', result });
 
-      if (result.found && result.gatewayUrl) {
-        onDraftEngineUrlChange(result.gatewayUrl);
+      const discoveredEndpoint = getEngineDiscoveryEndpoint(result);
+      if (result.found && discoveredEndpoint) {
+        onDraftEngineUrlChange(discoveredEndpoint);
       }
     }).catch(() => {
       if (!cancelled) setDiscovery({ status: 'idle' });
@@ -241,7 +243,7 @@ export function OnboardingPage({
                         Runtime detected
                       </p>
                       <p className="font-mono text-[11px] text-muted-foreground">
-                        {discovery.result.gatewayUrl}
+                        {getEngineDiscoveryEndpoint(discovery.result)}
                       </p>
                     </div>
                   </div>
@@ -597,6 +599,7 @@ export function OnboardingPage({
     </main>
   );
 }
+
 
 
 

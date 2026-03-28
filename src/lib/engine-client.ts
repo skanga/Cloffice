@@ -1,4 +1,4 @@
-import type { EngineRuntimeKind } from '@/app-types';
+﻿import type { EngineRuntimeKind, EngineTransport } from '@/app-types';
 import { OpenClawGatewayClient } from './openclaw-gateway-client';
 
 /**
@@ -10,7 +10,7 @@ import { OpenClawGatewayClient } from './openclaw-gateway-client';
  */
 export interface EngineClient {
   readonly runtimeKind: EngineRuntimeKind;
-  readonly transport: 'websocket-gateway' | 'internal-ipc';
+  readonly transport: EngineTransport;
 }
 
 /**
@@ -28,3 +28,5 @@ export type EngineClientInstance = OpenClawRuntimeAdapter;
 export function createEngineClient(): EngineClientInstance {
   return new OpenClawRuntimeAdapter();
 }
+
+
