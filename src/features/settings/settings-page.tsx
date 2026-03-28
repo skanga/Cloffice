@@ -10,7 +10,7 @@ import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { listConnectors, persistConnectorConfig } from '@/lib/connectors';
 import { loadAllowedDomains, saveAllowedDomains } from '@/lib/connectors/web-fetch';
-import { getEngineProviderCapability, listEngineProviderCapabilities } from '@/lib/engine-provider-capabilities';
+import { getEngineProvider, listEngineProviders } from '@/lib/engine-provider-registry';
 import type { ConnectorDefinition } from '@/lib/connectors/connector-types';
 
 type AppLanguage = 'en' | 'de';
@@ -259,7 +259,7 @@ export function SettingsPage({
   const [copied, setCopied] = useState(false);
   const [prefersDarkSystem, setPrefersDarkSystem] = useState(false);
   const [connectionNameDraft, setConnectionNameDraft] = useState('');
-  const providerCapabilities = useMemo(() => listEngineProviderCapabilities(), []);
+  const engineProviders = useMemo(() => listEngineProviders(), []);
   const t = useCallback((en: string, de: string) => (preferences.language === 'de' ? de : en), [preferences.language]);
 
   useEffect(() => {
@@ -564,7 +564,7 @@ export function SettingsPage({
                 </p>
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
-                {providerCapabilities.map((provider) => {
+                {engineProviders.map((provider) => {
                   const isSelected = draftEngineProviderId === provider.id;
                   return (
                     <button
@@ -708,7 +708,7 @@ export function SettingsPage({
                           <div className="min-w-0">
                             <p className="truncate text-sm font-medium">{connection.name}</p>
                             <p className="truncate text-[11px] text-muted-foreground">
-                              {getEngineProviderCapability(connection.providerId).displayName}
+                              {getEngineProvider(connection.providerId).displayName}
                             </p>
                             <p className="truncate font-mono text-[11px] text-muted-foreground">{connection.endpointUrl}</p>
                             <p className="mt-0.5 font-sans text-[11px] text-muted-foreground">

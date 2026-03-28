@@ -1,6 +1,6 @@
 import { getDesktopBridge } from '@/lib/desktop-bridge';
 import { getEngineDiscoveryEndpoint } from '@/lib/engine-discovery';
-import { listEngineProviderCapabilities } from '@/lib/engine-provider-capabilities';
+import { listEngineProviders } from '@/lib/engine-provider-registry';
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import type { FormEvent } from 'react';
 
@@ -133,7 +133,7 @@ export function OnboardingPage({
   const [connectAttempted, setConnectAttempted] = useState(false);
   const [discovery, setDiscovery] = useState<DiscoveryState>({ status: 'idle' });
   const [showToken, setShowToken] = useState(false);
-  const providerCapabilities = useMemo(() => listEngineProviderCapabilities(), []);
+  const engineProviders = useMemo(() => listEngineProviders(), []);
 
   // Auto-discover a local runtime on mount.
   useEffect(() => {
@@ -383,7 +383,7 @@ export function OnboardingPage({
                   Engine provider
                 </label>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {providerCapabilities.map((provider) => {
+                  {engineProviders.map((provider) => {
                     const isSelected = draftEngineProviderId === provider.id;
                     return (
                       <button

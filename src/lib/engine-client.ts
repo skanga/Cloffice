@@ -4,7 +4,7 @@ import {
   OpenClawCompatibilityEngineClient,
   type OpenClawCompatibilityEventFrame,
 } from './openclaw-compat-engine';
-import { getEngineProviderCapability } from './engine-provider-capabilities';
+import { getEngineProvider } from './engine-provider-registry';
 
 export type EngineConnectionHandler = (connected: boolean, message: string) => void;
 export type EngineEventFrame = OpenClawCompatibilityEventFrame;
@@ -38,8 +38,8 @@ export type EngineClientInstance = OpenClawRuntimeAdapter | InternalEnginePlaceh
  * available in this build.
  */
 export function resolveAvailableEngineProviderId(providerId: EngineProviderId): EngineProviderId {
-  const capability = getEngineProviderCapability(providerId);
-  return capability.availableInBuild ? capability.id : 'openclaw-compat';
+  const provider = getEngineProvider(providerId);
+  return provider.availableInBuild ? provider.id : 'openclaw-compat';
 }
 
 export function createEngineClient(providerId: EngineProviderId = 'openclaw-compat'): EngineClientInstance {

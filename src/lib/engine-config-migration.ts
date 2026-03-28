@@ -1,8 +1,20 @@
-import type { EngineProviderId } from '@/app-types';
+import type { EngineProviderId, EngineRuntimeKind, EngineTransport } from '@/app-types';
+
+export const CURRENT_ENGINE_CONFIG_STORAGE_VERSION = 1;
+export const NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION = 2;
+
+export type ProviderAwareStoredEngineConfigV2 = {
+  version: typeof NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION;
+  providerId: EngineProviderId;
+  runtimeKind: EngineRuntimeKind;
+  transport: EngineTransport;
+  endpointUrl: string;
+  accessToken: string;
+};
 
 export type ProviderAwareEngineConfigMigrationPlan = {
-  currentStorageVersion: 1;
-  nextStorageVersion: 2;
+  currentStorageVersion: typeof CURRENT_ENGINE_CONFIG_STORAGE_VERSION;
+  nextStorageVersion: typeof NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION;
   currentReader: 'app-config-v1-compat';
   currentWriter: 'app-config-v1-compat';
   nextWriter: 'deferred-provider-aware-v2';
@@ -13,8 +25,8 @@ export type ProviderAwareEngineConfigMigrationPlan = {
 };
 
 export const FIRST_PROVIDER_AWARE_ENGINE_CONFIG_MIGRATION: ProviderAwareEngineConfigMigrationPlan = {
-  currentStorageVersion: 1,
-  nextStorageVersion: 2,
+  currentStorageVersion: CURRENT_ENGINE_CONFIG_STORAGE_VERSION,
+  nextStorageVersion: NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION,
   currentReader: 'app-config-v1-compat',
   currentWriter: 'app-config-v1-compat',
   nextWriter: 'deferred-provider-aware-v2',
@@ -33,4 +45,13 @@ export const FIRST_PROVIDER_AWARE_ENGINE_CONFIG_MIGRATION: ProviderAwareEngineCo
 
 export function getProviderAwareEngineConfigMigrationPlan(): ProviderAwareEngineConfigMigrationPlan {
   return FIRST_PROVIDER_AWARE_ENGINE_CONFIG_MIGRATION;
+}
+
+export function buildDeferredProviderAwareEngineConfigV2(
+  config: Omit<ProviderAwareStoredEngineConfigV2, 'version'>,
+): ProviderAwareStoredEngineConfigV2 {
+  return {
+    version: NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION,
+    ...config,
+  };
 }

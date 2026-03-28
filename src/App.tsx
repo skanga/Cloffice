@@ -83,15 +83,13 @@ import {
   isCustomChatThreadTitle,
   findMatchingSessionKey,
   buildOutboundChatPrompt,
-  extractChatText,
-  extractChatRole,
   readEngineError,
   parseRelayFileActions,
-  stripRelayActionPayloadFromText,
   parseRelayActivityItems,
   deriveActivityItemsFromAssistantText,
   normalizeCoworkMessage,
 } from './lib/chat-utils';
+import { parseEngineChatEvent } from './lib/engine-session-events';
 
 const ChatPage = lazy(() => import('./features/chat/chat-page').then((module) => ({ default: module.ChatPage })));
 const CoworkPage = lazy(() => import('./features/cowork/cowork-page').then((module) => ({ default: module.CoworkPage })));
@@ -1935,38 +1933,28 @@ export default function App() {
       setEngineConnected(connected);
     });
     client.setEventHandler((event) => {
-      if (event.type === 'event' && event.event === 'chat') {
-        const payload = (event.payload ?? {}) as Record<string, unknown>;
-        const eventSessionKey = typeof payload.sessionKey === 'string' ? payload.sessionKey.trim() : '';
-
+      const chatEvent = parseEngineChatEvent(event, `evt-${Date.now()}`);
+      if (chatEvent) {
+        const { payload, eventSessionKey, runId, state, text, visibleText, role, errorMessage } = chatEvent;
         const isCoworkEvent = !!eventSessionKey && eventSessionKey === coworkSessionKeyRef.current;
-        const runId = typeof payload.runId === 'string' ? payload.runId : `evt-${Date.now()}`;
-        const state = typeof payload.state === 'string' ? payload.state : 'final';
-        const message = payload.message ?? payload;
-        const text = extractChatText(message);
-        const visibleText = stripRelayActionPayloadFromText(text);
-        const role = extractChatRole(message);
 
         if (isCoworkEvent) {
           if (state === 'error') {
             setCoworkAwaitingStream(false);
             setCoworkRunPhase('error');
-            const errorMessage =
-              typeof payload.errorMessage === 'string' && payload.errorMessage.trim()
-                ? payload.errorMessage
-                : 'Cowork stream failed.';
-            setCoworkRunStatus(errorMessage);
+            const resolvedErrorMessage = errorMessage ?? 'Cowork stream failed.';
+            setCoworkRunStatus(resolvedErrorMessage);
             setCoworkProgressStage('executing_workstreams', {
               blocked: true,
-              details: errorMessage,
+              details: resolvedErrorMessage,
             });
-            setStatus(errorMessage);
+            setStatus(resolvedErrorMessage);
             const taskEntry = resolveCoworkTaskForRun(eventSessionKey || coworkSessionKeyRef.current, runId);
             if (taskEntry) {
               setCoworkTaskStatus(taskEntry.taskId, 'failed', {
                 runId,
-                summary: errorMessage,
-                outcome: errorMessage,
+                summary: resolvedErrorMessage,
+                outcome: resolvedErrorMessage,
               });
               finalizeCoworkTaskRun(eventSessionKey || coworkSessionKeyRef.current, taskEntry.taskId);
             }
@@ -2023,6 +2011,7 @@ export default function App() {
             const finalId = `cowork-final-${runId}`;
             const activeModel = typeof payload.model === 'string' ? payload.model : undefined;
             const coworkUsage = parseUsageFromPayload(payload, activeModel);
+            const message = payload.message ?? payload;
             if (coworkUsage) {
               accumulateTodayUsage(coworkUsage);
               setSessionUsage((prev) => addUsage(prev, coworkUsage));
