@@ -119,7 +119,7 @@ const coworkNavItems = [
 ] as const;
 
 const projectFolderNavItems: { label: string; icon: typeof FolderOpen; page: AppPage }[] = [
-  { label: 'File Viewer', icon: FolderOpen, page: 'local-files' },
+  { label: 'Project Folder', icon: FolderOpen, page: 'local-files' },
   { label: 'Activity', icon: Zap, page: 'activity' },
   { label: 'Memory', icon: Brain, page: 'memory' },
   { label: 'Schedule', icon: CalendarClock, page: 'scheduled' },
@@ -472,14 +472,14 @@ export function AppSidebar({
                         <SidebarMenuItem>
                           <SidebarMenuButton
                             type="button"
-                            active={activePage === 'local-files'}
-                            aria-current={activePage === 'local-files' ? 'page' : undefined}
-                            onClick={() => onSelectPage('local-files')}
+                            active={activePage === 'files'}
+                            aria-current={activePage === 'files' ? 'page' : undefined}
+                            onClick={() => onSelectPage('files')}
                             className="gap-2 font-sans text-[13px]"
-                            title="Local Files"
+                            title="Workspace"
                           >
                             <HardDrive data-icon="inline-start" />
-                            <span className="min-w-0 flex-1 truncate">Local Files</span>
+                            <span className="min-w-0 flex-1 truncate">Workspace</span>
                           </SidebarMenuButton>
                         </SidebarMenuItem>
                       </SidebarMenu>

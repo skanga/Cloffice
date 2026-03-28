@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
-type ProjectPageTarget = 'cowork' | 'local-files' | 'activity' | 'memory' | 'scheduled' | 'safety';
+type ProjectPageTarget = 'cowork' | 'files' | 'local-files' | 'activity' | 'memory' | 'scheduled' | 'safety';
 
 type ProjectPageProps = {
   project: CoworkProject | null;
@@ -26,7 +26,7 @@ const projectActions: Array<{
   icon: typeof FolderOpen;
 }> = [
   {
-    label: 'File Viewer',
+    label: 'Project Folder',
     description: 'Open the mapped local project folder.',
     page: 'local-files',
     icon: FolderOpen,
@@ -190,7 +190,7 @@ export function ProjectPage({ project, tasks, scheduledCount, pendingApprovalsCo
             </Button>
             <Button type="button" variant="outline" className="gap-2" onClick={() => onSelectPage('local-files')}>
               <FolderOpen className="size-3.5" />
-              Open File Viewer
+              Open Project Folder
             </Button>
             <Button type="button" variant="outline" className="gap-2" onClick={() => onSelectPage('safety')}>
               <Shield className="size-3.5" />
