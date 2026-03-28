@@ -17,7 +17,16 @@ export type GatewayConnectionProfile = {
   lastUsedAt?: number;
 };
 
-export type EngineConnectionProfile = GatewayConnectionProfile;
+export type EngineConnectionProfile = {
+  id: string;
+  name: string;
+  endpointUrl: string;
+  accessToken: string;
+  providerId: EngineProviderId;
+  createdAt: number;
+  updatedAt: number;
+  lastUsedAt?: number;
+};
 
 export type HealthCheckResult = {
   ok: boolean;
@@ -160,6 +169,8 @@ export type GatewayDiscoveryResult = {
 export type EngineDiscoveryResult = GatewayDiscoveryResult;
 
 export type EngineRuntimeKind = 'openclaw-compat' | 'internal';
+export type EngineTransport = 'websocket-gateway' | 'internal-ipc';
+export type EngineProviderId = 'openclaw-compat' | 'internal';
 
 export type LocalActionType = 'create_file' | 'append_file' | 'read_file' | 'list_dir' | 'exists' | 'rename' | 'delete' | 'shell_exec' | 'web_fetch';
 
@@ -303,5 +314,7 @@ export type UserPreferences = {
   style: 'claude' | 'relay';
   language: 'en' | 'de';
 };
+
+
 
 

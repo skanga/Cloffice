@@ -2,7 +2,7 @@
 import type { FormEvent, ReactNode } from 'react';
 import { Code2, Folder, Globe, KeyRound, Link2, Shield, Terminal, Trash2 } from 'lucide-react';
 
-import type { EngineConnectionProfile, HealthCheckResult, UserPreferences } from '@/app-types';
+import type { EngineConnectionProfile, EngineProviderId, HealthCheckResult, UserPreferences } from '@/app-types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,8 +21,9 @@ type ThemeOption = UserPreferences['theme'];
 
 type SettingsPageProps = {
   activeSection: SettingsSection;
-  draftGatewayUrl: string;
-  draftGatewayToken: string;
+  draftEngineProviderId: EngineProviderId;
+  draftEngineUrl: string;
+  draftEngineToken: string;
   health: HealthCheckResult | null;
   status: string;
   saving: boolean;
@@ -30,8 +31,9 @@ type SettingsPageProps = {
   preferences: UserPreferences;
   engineConnections: EngineConnectionProfile[];
   selectedEngineConnectionId: string | null;
-  onDraftGatewayUrlChange: (value: string) => void;
-  onDraftGatewayTokenChange: (value: string) => void;
+  onDraftEngineProviderIdChange: (value: EngineProviderId) => void;
+  onDraftEngineUrlChange: (value: string) => void;
+  onDraftEngineTokenChange: (value: string) => void;
   onSave: (event: FormEvent) => void;
   onSelectEngineConnection: (connectionId: string) => void;
   onSaveEngineConnection: (name: string) => void;
@@ -231,8 +233,9 @@ function ThemePreview({ mode, style }: { mode: ThemeOption; style: StyleOption }
 
 export function SettingsPage({
   activeSection,
-  draftGatewayUrl,
-  draftGatewayToken,
+  draftEngineProviderId,
+  draftEngineUrl,
+  draftEngineToken,
   health,
   status,
   saving,
@@ -240,8 +243,9 @@ export function SettingsPage({
   preferences,
   engineConnections,
   selectedEngineConnectionId,
-  onDraftGatewayUrlChange,
-  onDraftGatewayTokenChange,
+  onDraftEngineProviderIdChange,
+  onDraftEngineUrlChange,
+  onDraftEngineTokenChange,
   onSave,
   onSelectEngineConnection,
   onSaveEngineConnection,
@@ -293,11 +297,11 @@ export function SettingsPage({
   }, [effectivePairingId]);
 
   const handleSaveCurrentConnection = useCallback(() => {
-    const fallbackName = draftGatewayUrl.trim() || 'Runtime connection';
+    const fallbackName = draftEngineUrl.trim() || (draftEngineProviderId === 'internal' ? 'Internal engine' : 'Runtime connection');
     const nextName = connectionNameDraft.trim() || fallbackName;
     onSaveEngineConnection(nextName);
     setConnectionNameDraft('');
-  }, [connectionNameDraft, draftGatewayUrl, onSaveEngineConnection]);
+  }, [connectionNameDraft, draftEngineProviderId, draftEngineUrl, onSaveEngineConnection]);
 
   const renderPlaceholder = (icon: ReactNode, hint: string) => (
     <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border/60 py-12 text-center">
@@ -547,12 +551,53 @@ export function SettingsPage({
                 {health?.ok ? t('Connected', 'Verbunden') : t('Not connected', 'Nicht verbunden')}
               </Badge>
             </div>
+            <div className="mb-4 grid gap-3">
+              <div>
+                <p className="font-sans text-xs text-muted-foreground">{t('Engine provider', 'Engine-Anbieter')}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {t(
+                    'Choose the runtime/provider model Cloffice should prepare for. Only the OpenClaw compatibility path is active in this phase.',
+                    'Waehle das Laufzeit-/Anbietermodell, auf das Cloffice vorbereitet werden soll. In dieser Phase ist nur der OpenClaw-Kompatibilitaetspfad aktiv.',
+                  )}
+                </p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  className={`rounded-lg border px-3 py-3 text-left transition ${
+                    draftEngineProviderId === 'openclaw-compat'
+                      ? 'border-primary/45 bg-primary/10'
+                      : 'border-border bg-card hover:border-primary/30'
+                  }`}
+                  onClick={() => onDraftEngineProviderIdChange('openclaw-compat')}
+                >
+                  <p className="text-sm font-medium">OpenClaw compatibility</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t('Current runtime connection path.', 'Aktueller Laufzeitpfad.')}
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  disabled
+                  className="rounded-lg border border-border bg-muted/40 px-3 py-3 text-left opacity-70"
+                >
+                  <p className="text-sm font-medium">Internal engine</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t(
+                      'Planned next phase. Selection model only for now.',
+                      'Geplante naechste Phase. Vorlaeufig nur das Auswahlmodell.',
+                    )}
+                  </p>
+                </button>
+              </div>
+            </div>
+
             <form className="grid gap-3" onSubmit={onSave}>
               <label className="grid gap-1">
                 <span className="font-sans text-xs text-muted-foreground">Runtime URL (WebSocket)</span>
                 <Input
-                  value={draftGatewayUrl}
-                  onChange={(event) => onDraftGatewayUrlChange(event.target.value)}
+                  value={draftEngineUrl}
+                  onChange={(event) => onDraftEngineUrlChange(event.target.value)}
                   placeholder="ws://127.0.0.1:18789"
                   className="font-sans"
                 />
@@ -562,8 +607,8 @@ export function SettingsPage({
                 <span className="font-sans text-xs text-muted-foreground">Runtime token</span>
                 <Input
                   type="password"
-                  value={draftGatewayToken}
-                  onChange={(event) => onDraftGatewayTokenChange(event.target.value)}
+                  value={draftEngineToken}
+                  onChange={(event) => onDraftEngineTokenChange(event.target.value)}
                   placeholder={t('Paste token from runtime setup', 'Token aus dem OpenClaw-Setup einfuegen')}
                   className="font-sans"
                 />
@@ -659,9 +704,12 @@ export function SettingsPage({
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <p className="truncate text-sm font-medium">{connection.name}</p>
-                            <p className="truncate font-mono text-[11px] text-muted-foreground">{connection.gatewayUrl}</p>
+                            <p className="truncate text-[11px] text-muted-foreground">
+                              {connection.providerId === 'internal' ? 'Internal engine' : 'OpenClaw compatibility'}
+                            </p>
+                            <p className="truncate font-mono text-[11px] text-muted-foreground">{connection.endpointUrl}</p>
                             <p className="mt-0.5 font-sans text-[11px] text-muted-foreground">
-                              {connection.gatewayToken ? t('Token saved', 'Token gespeichert') : t('No token', 'Kein Token')}
+                              {connection.accessToken ? t('Token saved', 'Token gespeichert') : t('No token', 'Kein Token')}
                               {connection.lastUsedAt
                                 ? ` • ${t('Last used', 'Zuletzt verwendet')} ${new Date(connection.lastUsedAt).toLocaleString()}`
                                 : ''}
@@ -911,6 +959,9 @@ function ConnectorsSection({ language }: { language: 'en' | 'de' }) {
     </div>
   );
 }
+
+
+
 
 
 

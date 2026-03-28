@@ -1,4 +1,6 @@
-﻿import { getDesktopBridge } from './lib/desktop-bridge';
+﻿import { appConfigFromEngineDraft, engineDraftFromAppConfig } from './lib/engine-config';
+import { parseStoredEngineConnectionProfile, serializeEngineConnectionProfile } from './lib/engine-connection-profiles';
+import { getDesktopBridge } from './lib/desktop-bridge';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
@@ -15,6 +17,7 @@ import type {
   CoworkProject,
   CoworkRunPhase,
   EngineConnectionProfile,
+  EngineProviderId,
   HealthCheckResult,
   LocalActionReceipt,
   LocalFilePlanAction,
@@ -284,34 +287,7 @@ function loadEngineConnectionProfiles(): EngineConnectionProfile[] {
     }
 
     return parsed
-      .map((entry): EngineConnectionProfile | null => {
-        if (!entry || typeof entry !== 'object') {
-          return null;
-        }
-
-        const record = entry as Record<string, unknown>;
-        const id = typeof record.id === 'string' ? record.id.trim() : '';
-        const name = typeof record.name === 'string' ? record.name.trim() : '';
-        const gatewayUrl = typeof record.gatewayUrl === 'string' ? record.gatewayUrl.trim() : '';
-        const gatewayToken = typeof record.gatewayToken === 'string' ? record.gatewayToken : '';
-        const createdAt = typeof record.createdAt === 'number' ? record.createdAt : Date.now();
-        const updatedAt = typeof record.updatedAt === 'number' ? record.updatedAt : createdAt;
-        const lastUsedAt = typeof record.lastUsedAt === 'number' ? record.lastUsedAt : undefined;
-
-        if (!id || !name || !gatewayUrl) {
-          return null;
-        }
-
-        return {
-          id,
-          name,
-          gatewayUrl,
-          gatewayToken,
-          createdAt,
-          updatedAt,
-          lastUsedAt,
-        };
-      })
+      .map(parseStoredEngineConnectionProfile)
       .filter((profile): profile is EngineConnectionProfile => profile !== null)
       .sort((a, b) => b.updatedAt - a.updatedAt);
   } catch {
@@ -320,7 +296,10 @@ function loadEngineConnectionProfiles(): EngineConnectionProfile[] {
 }
 
 function persistEngineConnectionProfiles(profiles: EngineConnectionProfile[]) {
-  localStorage.setItem(GATEWAY_CONNECTIONS_STORAGE_KEY, JSON.stringify(profiles));
+  localStorage.setItem(
+    GATEWAY_CONNECTIONS_STORAGE_KEY,
+    JSON.stringify(profiles.map(serializeEngineConnectionProfile)),
+  );
 }
 
 function loadActiveCoworkProjectId(): string {
@@ -482,8 +461,9 @@ export default function App() {
 
   const [config, setConfig] = useState<AppConfig>(defaultConfig);
   const [configReady, setConfigReady] = useState(false);
-  const [draftGatewayUrl, setDraftGatewayUrl] = useState(DEFAULT_GATEWAY_URL);
-  const [draftGatewayToken, setDraftGatewayToken] = useState('');
+  const [draftEngineUrl, setDraftEngineUrl] = useState(DEFAULT_GATEWAY_URL);
+  const [draftEngineToken, setDraftEngineToken] = useState('');
+  const [draftEngineProviderId, setDraftEngineProviderId] = useState<EngineProviderId>('openclaw-compat');
   const [engineConnections, setGatewayConnections] = useState<EngineConnectionProfile[]>(() => loadEngineConnectionProfiles());
   const [health, setHealth] = useState<HealthCheckResult | null>(null);
   const [status, setStatus] = useState('Loading configuration...');
@@ -582,10 +562,10 @@ export default function App() {
   }, []);
 
   const fileService = useMemo(
-    () => createFileService(engineClientRef.current, draftGatewayUrl, Boolean(bridge)),
+    () => createFileService(engineClientRef.current, draftEngineUrl, Boolean(bridge)),
     // Re-create when connection state or URL changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [draftGatewayUrl, engineConnected, bridge],
+    [draftEngineUrl, engineConnected, bridge],
   );
 
   const localFileService = useMemo(
@@ -638,10 +618,10 @@ export default function App() {
     return coworkArtifacts.filter((artifact) => !artifact.runId || runIds.has(artifact.runId)).slice(0, 40);
   }, [coworkArtifacts, visibleCoworkTasks]);
   const selectedEngineConnectionId = useMemo(() => {
-    const normalizedUrl = draftGatewayUrl.trim() || DEFAULT_GATEWAY_URL;
-    const normalizedToken = draftGatewayToken ?? '';
-    return engineConnections.find((profile) => profile.gatewayUrl === normalizedUrl && profile.gatewayToken === normalizedToken)?.id ?? null;
-  }, [draftGatewayToken, draftGatewayUrl, engineConnections]);
+    const normalizedUrl = draftEngineUrl.trim() || DEFAULT_GATEWAY_URL;
+    const normalizedToken = draftEngineToken ?? '';
+    return engineConnections.find((profile) => profile.endpointUrl === normalizedUrl && profile.accessToken === normalizedToken && profile.providerId === draftEngineProviderId)?.id ?? null;
+  }, [draftEngineProviderId, draftEngineToken, draftEngineUrl, engineConnections]);
 
   const contextFolders = useMemo(() => {
     const folders = [activeCoworkProject?.workspaceFolder?.trim() || '', workingFolder.trim()].filter(Boolean);
@@ -1422,8 +1402,8 @@ export default function App() {
 
     try {
       await client.connect({
-        gatewayUrl: draftGatewayUrl,
-        token: draftGatewayToken,
+        gatewayUrl: draftEngineUrl,
+        token: draftEngineToken,
       });
 
       let resolvedSessionKey = requestedSessionKey;
@@ -1527,8 +1507,8 @@ export default function App() {
 
     try {
       await client.connect({
-        gatewayUrl: draftGatewayUrl,
-        token: draftGatewayToken,
+        gatewayUrl: draftEngineUrl,
+        token: draftEngineToken,
       });
 
       const history = await client.getHistory(requestedSessionKey, 50);
@@ -1565,8 +1545,8 @@ export default function App() {
 
   const ensureConnectedClient = async (client: EngineClientInstance) => {
     await client.connect({
-      gatewayUrl: draftGatewayUrl,
-      token: draftGatewayToken,
+      gatewayUrl: draftEngineUrl,
+      token: draftEngineToken,
     });
   };
 
@@ -1689,7 +1669,7 @@ export default function App() {
 
     updateEngineConnections((prev) =>
       prev.map((profile) =>
-        profile.gatewayUrl === gatewayUrl && profile.gatewayToken === gatewayToken
+        profile.endpointUrl === gatewayUrl && profile.accessToken === gatewayToken
           ? { ...profile, lastUsedAt: now, updatedAt: now }
           : profile,
       ),
@@ -1702,8 +1682,8 @@ export default function App() {
       return;
     }
 
-    setDraftGatewayUrl(profile.gatewayUrl);
-    setDraftGatewayToken(profile.gatewayToken);
+    setDraftEngineUrl(profile.endpointUrl);
+    setDraftEngineToken(profile.accessToken);
     setStatus(`Loaded connection "${profile.name}". Click Save and connect to apply it.`);
   }, [engineConnections]);
 
@@ -1714,7 +1694,7 @@ export default function App() {
       return;
     }
 
-    const normalizedUrl = draftGatewayUrl.trim() || DEFAULT_GATEWAY_URL;
+    const normalizedUrl = draftEngineUrl.trim() || DEFAULT_GATEWAY_URL;
     const now = Date.now();
 
     updateEngineConnections((prev) => {
@@ -1726,8 +1706,9 @@ export default function App() {
               ? {
                   ...entry,
                   name: trimmedName,
-                  gatewayUrl: normalizedUrl,
-                  gatewayToken: draftGatewayToken,
+                  endpointUrl: normalizedUrl,
+                  accessToken: draftEngineToken,
+                  providerId: draftEngineProviderId,
                   updatedAt: now,
                 }
               : entry,
@@ -1744,8 +1725,9 @@ export default function App() {
         {
           id,
           name: trimmedName,
-          gatewayUrl: normalizedUrl,
-          gatewayToken: draftGatewayToken,
+          endpointUrl: normalizedUrl,
+          accessToken: draftEngineToken,
+          providerId: draftEngineProviderId,
           createdAt: now,
           updatedAt: now,
         },
@@ -1754,10 +1736,10 @@ export default function App() {
     });
 
     setStatus(`Saved connection "${trimmedName}".`);
-  }, [draftGatewayToken, draftGatewayUrl, updateEngineConnections]);
+  }, [draftEngineProviderId, draftEngineToken, draftEngineUrl, updateEngineConnections]);
 
   const handleOverwriteEngineConnection = useCallback((connectionId: string) => {
-    const normalizedUrl = draftGatewayUrl.trim() || DEFAULT_GATEWAY_URL;
+    const normalizedUrl = draftEngineUrl.trim() || DEFAULT_GATEWAY_URL;
     const now = Date.now();
 
     updateEngineConnections((prev) =>
@@ -1766,8 +1748,9 @@ export default function App() {
           entry.id === connectionId
             ? {
                 ...entry,
-                gatewayUrl: normalizedUrl,
-                gatewayToken: draftGatewayToken,
+                endpointUrl: normalizedUrl,
+                accessToken: draftEngineToken,
+                providerId: draftEngineProviderId,
                 updatedAt: now,
               }
             : entry,
@@ -1775,8 +1758,8 @@ export default function App() {
         .sort((a, b) => b.updatedAt - a.updatedAt),
     );
 
-    setStatus('Updated saved connection with current URL/token.');
-  }, [draftGatewayToken, draftGatewayUrl, updateEngineConnections]);
+    setStatus('Updated saved connection with current runtime settings.');
+  }, [draftEngineProviderId, draftEngineToken, draftEngineUrl, updateEngineConnections]);
 
   const handleDeleteEngineConnection = useCallback((connectionId: string) => {
     updateEngineConnections((prev) => prev.filter((entry) => entry.id !== connectionId));
@@ -1844,8 +1827,8 @@ export default function App() {
       const localConfig = loadLocalConfig();
       if (localConfig) {
         setConfig(localConfig);
-        setDraftGatewayUrl(localConfig.gatewayUrl);
-        setDraftGatewayToken(localConfig.gatewayToken);
+        setDraftEngineUrl(localConfig.gatewayUrl);
+        setDraftEngineToken(localConfig.gatewayToken);
         setStatus('Loaded local configuration (bridge unavailable).');
       } else {
         setStatus('Electron bridge unavailable. Configuration will be saved locally for this browser profile.');
@@ -1864,8 +1847,8 @@ export default function App() {
         }
 
         setConfig(storedConfig);
-        setDraftGatewayUrl(storedConfig.gatewayUrl);
-        setDraftGatewayToken(storedConfig.gatewayToken);
+        setDraftEngineUrl(storedConfig.gatewayUrl);
+        setDraftEngineToken(storedConfig.gatewayToken);
         setStatus('Configuration loaded.');
         setConfigReady(true);
       })
@@ -1877,8 +1860,8 @@ export default function App() {
         const localConfig = loadLocalConfig();
         if (localConfig) {
           setConfig(localConfig);
-          setDraftGatewayUrl(localConfig.gatewayUrl);
-          setDraftGatewayToken(localConfig.gatewayToken);
+          setDraftEngineUrl(localConfig.gatewayUrl);
+          setDraftEngineToken(localConfig.gatewayToken);
           setStatus('Loaded local fallback configuration.');
         } else {
           setStatus('Unable to load config. Using defaults.');
@@ -3007,8 +2990,9 @@ export default function App() {
       return;
     }
 
-    const gatewayUrl = config.gatewayUrl?.trim() || DEFAULT_GATEWAY_URL;
-    const gatewayToken = config.gatewayToken ?? '';
+    const engineConfig = engineDraftFromAppConfig(config);
+    const gatewayUrl = engineConfig.endpointUrl?.trim() || DEFAULT_GATEWAY_URL;
+    const gatewayToken = engineConfig.accessToken ?? '';
 
     void client
       .connect({
@@ -3064,10 +3048,13 @@ export default function App() {
   const handleSave = async (event: FormEvent) => {
     event.preventDefault();
 
-    const nextConfig: AppConfig = {
-      gatewayUrl: draftGatewayUrl.trim() || DEFAULT_GATEWAY_URL,
-      gatewayToken: draftGatewayToken,
-    };
+    const nextConfig = appConfigFromEngineDraft({
+      runtimeKind: 'openclaw-compat',
+      providerId: 'openclaw-compat',
+      transport: 'websocket-gateway',
+      endpointUrl: draftEngineUrl.trim() || DEFAULT_GATEWAY_URL,
+      accessToken: draftEngineToken,
+    });
 
     setSaving(true);
     setStatus('Saving and connecting...');
@@ -3078,8 +3065,8 @@ export default function App() {
       try {
         const savedConfig = await bridge.saveConfig(nextConfig);
         setConfig(savedConfig);
-        setDraftGatewayUrl(savedConfig.gatewayUrl);
-        setDraftGatewayToken(savedConfig.gatewayToken);
+        setDraftEngineUrl(savedConfig.gatewayUrl);
+        setDraftEngineToken(savedConfig.gatewayToken);
         persistLocalConfig(savedConfig);
       } catch {
         setStatus('Failed to save configuration.');
@@ -3161,15 +3148,15 @@ export default function App() {
         localStorage.removeItem('openclaw-device-identity-v1');
       }
       await client.connect({
-        gatewayUrl: draftGatewayUrl,
-        token: draftGatewayToken,
+        gatewayUrl: draftEngineUrl,
+        token: draftEngineToken,
       });
 
       const sessionKey = normalizeSessionKey(activeSessionKeyRef.current);
       if (sessionKey) {
         commitActiveSessionKey(sessionKey);
       }
-      setHealth({ ok: true, message: `Re-paired and connected to ${draftGatewayUrl}` });
+      setHealth({ ok: true, message: `Re-paired and connected to ${draftEngineUrl}` });
       setStatus('Re-pair complete. If operator.admin is still missing, approve the new request with admin scope on the gateway host.');
     } catch (error) {
       console.error('[Cloffice] reset pairing error:', error);
@@ -4282,8 +4269,8 @@ export default function App() {
     setScheduledLoading(true);
     try {
       await client.connect({
-        gatewayUrl: draftGatewayUrl,
-        token: draftGatewayToken,
+        gatewayUrl: draftEngineUrl,
+        token: draftEngineToken,
       });
       const rows = await client.listCronJobs();
       setScheduledJobs(rows);
@@ -4294,7 +4281,7 @@ export default function App() {
     } finally {
       setScheduledLoading(false);
     }
-  }, [draftGatewayToken, draftGatewayUrl]);
+  }, [draftEngineToken, draftEngineUrl]);
 
   useEffect(() => {
     if (activePage !== 'cowork' && activePage !== 'scheduled') {
@@ -4476,13 +4463,13 @@ export default function App() {
 
       {needsOnboarding ? (
         <OnboardingPage
-          draftGatewayUrl={draftGatewayUrl}
-          draftGatewayToken={draftGatewayToken}
+          draftEngineUrl={draftEngineUrl}
+          draftEngineToken={draftEngineToken}
           health={health}
           saving={saving}
           pairingRequestId={pairingRequestId}
-          onDraftGatewayUrlChange={setDraftGatewayUrl}
-          onDraftGatewayTokenChange={setDraftGatewayToken}
+          onDraftEngineUrlChange={setDraftEngineUrl}
+          onDraftEngineTokenChange={setDraftEngineToken}
           onSave={handleSave}
           onComplete={handleCompleteOnboarding}
         />
@@ -4709,7 +4696,7 @@ export default function App() {
                     onPickFolder={handlePickWorkingFolder}
                     fileService={fileService}
                     localFileService={localFileService}
-                    gatewayUrl={draftGatewayUrl}
+                    engineUrl={draftEngineUrl}
                     root="workspace"
                   />
                 ) : (
@@ -4733,7 +4720,7 @@ export default function App() {
                     onPickFolder={handlePickWorkingFolder}
                     fileService={fileService}
                     localFileService={localFileService}
-                    gatewayUrl={draftGatewayUrl}
+                    engineUrl={draftEngineUrl}
                     root="working-folder"
                   />
                 ) : (
@@ -4817,8 +4804,9 @@ export default function App() {
                     {activePage === 'settings' && (
                       <SettingsPage
                         activeSection={settingsSection}
-                        draftGatewayUrl={draftGatewayUrl}
-                        draftGatewayToken={draftGatewayToken}
+                        draftEngineProviderId={draftEngineProviderId}
+                        draftEngineUrl={draftEngineUrl}
+                        draftEngineToken={draftEngineToken}
                         health={health}
                         status={status}
                         saving={saving}
@@ -4826,8 +4814,9 @@ export default function App() {
                         preferences={preferences}
                         engineConnections={engineConnections}
                         selectedEngineConnectionId={selectedEngineConnectionId}
-                        onDraftGatewayUrlChange={setDraftGatewayUrl}
-                        onDraftGatewayTokenChange={setDraftGatewayToken}
+                        onDraftEngineProviderIdChange={setDraftEngineProviderId}
+                        onDraftEngineUrlChange={setDraftEngineUrl}
+                        onDraftEngineTokenChange={setDraftEngineToken}
                         onSave={handleSave}
                         onSelectEngineConnection={handleSelectEngineConnection}
                         onSaveEngineConnection={handleSaveEngineConnection}
@@ -4848,6 +4837,17 @@ export default function App() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
 
 
 

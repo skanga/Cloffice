@@ -15,13 +15,13 @@ type DiscoveryState =
   | { status: 'done'; result: EngineDiscoveryResult };
 
 type OnboardingPageProps = {
-  draftGatewayUrl: string;
-  draftGatewayToken: string;
+  draftEngineUrl: string;
+  draftEngineToken: string;
   health: HealthCheckResult | null;
   saving: boolean;
   pairingRequestId: string | null;
-  onDraftGatewayUrlChange: (value: string) => void;
-  onDraftGatewayTokenChange: (value: string) => void;
+  onDraftEngineUrlChange: (value: string) => void;
+  onDraftEngineTokenChange: (value: string) => void;
   onSave: (event: FormEvent) => void;
   onComplete: () => void;
 };
@@ -111,13 +111,13 @@ function PrimaryButton({
 }
 
 export function OnboardingPage({
-  draftGatewayUrl,
-  draftGatewayToken,
+  draftEngineUrl,
+  draftEngineToken,
   health,
   saving,
   pairingRequestId,
-  onDraftGatewayUrlChange,
-  onDraftGatewayTokenChange,
+  onDraftEngineUrlChange,
+  onDraftEngineTokenChange,
   onSave,
   onComplete,
 }: OnboardingPageProps) {
@@ -140,7 +140,7 @@ export function OnboardingPage({
       setDiscovery({ status: 'done', result });
 
       if (result.found && result.gatewayUrl) {
-        onDraftGatewayUrlChange(result.gatewayUrl);
+        onDraftEngineUrlChange(result.gatewayUrl);
       }
     }).catch(() => {
       if (!cancelled) setDiscovery({ status: 'idle' });
@@ -211,7 +211,7 @@ export function OnboardingPage({
             <p className="mb-2 max-w-[340px] font-sans text-[15px] leading-relaxed text-muted-foreground">
               Local-first AI coworking with governed approvals.
               <br />
-              Connect a runtime endpoint to get started.
+              Connect a runtime endpoint to get started. This phase uses the OpenClaw compatibility provider while the internal engine is being prepared.
             </p>
 
             {/* Discovery states */}
@@ -382,8 +382,8 @@ export function OnboardingPage({
                   </span>
                 </label>
                 <Input
-                  value={draftGatewayUrl}
-                  onChange={(event) => onDraftGatewayUrlChange(event.target.value)}
+                  value={draftEngineUrl}
+                  onChange={(event) => onDraftEngineUrlChange(event.target.value)}
                   placeholder="e.g. ws://127.0.0.1:18789 or wss://your-runtime.example.com"
                   className="h-10 font-mono text-[13px]"
                 />
@@ -405,8 +405,8 @@ export function OnboardingPage({
                 <div className="relative">
                   <Input
                     type={showToken ? 'text' : 'password'}
-                    value={draftGatewayToken}
-                    onChange={(event) => onDraftGatewayTokenChange(event.target.value)}
+                    value={draftEngineToken}
+                    onChange={(event) => onDraftEngineTokenChange(event.target.value)}
                     placeholder="Paste your access token"
                     className="h-10 pr-10 font-mono text-[13px]"
                   />
@@ -597,6 +597,10 @@ export function OnboardingPage({
     </main>
   );
 }
+
+
+
+
 
 
 
