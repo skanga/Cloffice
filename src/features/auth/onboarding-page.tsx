@@ -1,5 +1,6 @@
 import { getDesktopBridge } from '@/lib/desktop-bridge';
 import { getEngineDiscoveryEndpoint } from '@/lib/engine-discovery';
+import { listEngineProviderCapabilities } from '@/lib/engine-provider-capabilities';
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import type { FormEvent } from 'react';
 
@@ -30,7 +31,7 @@ type OnboardingPageProps = {
   onComplete: () => void;
 };
 
-/* ── Inline brand mark (track logo from branding system) ── */
+/* Ã¢â€â‚¬Ã¢â€â‚¬ Inline brand mark (track logo from branding system) Ã¢â€â‚¬Ã¢â€â‚¬ */
 function ClofficeMark({ size = 48 }: { size?: number }) {
   const primary = 'var(--app-primary)';
   const primaryForeground = 'var(--app-primary-foreground)';
@@ -46,7 +47,7 @@ function ClofficeMark({ size = 48 }: { size?: number }) {
   );
 }
 
-/* ── Step indicator ── */
+/* Ã¢â€â‚¬Ã¢â€â‚¬ Step indicator Ã¢â€â‚¬Ã¢â€â‚¬ */
 const STEP_LABELS = ['Welcome', 'Connect', 'Ready'] as const;
 
 function StepIndicator({ current }: { current: number }) {
@@ -93,7 +94,7 @@ function StepIndicator({ current }: { current: number }) {
   );
 }
 
-/* ── Primary CTA button ── */
+/* Ã¢â€â‚¬Ã¢â€â‚¬ Primary CTA button Ã¢â€â‚¬Ã¢â€â‚¬ */
 function PrimaryButton({
   children,
   disabled,
@@ -132,6 +133,7 @@ export function OnboardingPage({
   const [connectAttempted, setConnectAttempted] = useState(false);
   const [discovery, setDiscovery] = useState<DiscoveryState>({ status: 'idle' });
   const [showToken, setShowToken] = useState(false);
+  const providerCapabilities = useMemo(() => listEngineProviderCapabilities(), []);
 
   // Auto-discover a local runtime on mount.
   useEffect(() => {
@@ -205,7 +207,7 @@ export function OnboardingPage({
       <div className="relative z-10 w-full max-w-[480px] px-6">
         <StepIndicator current={stepIndex} />
 
-        {/* ── Welcome ── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ Welcome Ã¢â€â‚¬Ã¢â€â‚¬ */}
         {visibleStep === 'welcome' && (
           <div className="flex flex-col items-center text-center">
             <div className="mb-6">
@@ -230,7 +232,7 @@ export function OnboardingPage({
                     <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
                   </svg>
                   <span className="font-sans text-[13px] text-muted-foreground">
-                    Looking for a local compatibility runtime…
+                    Looking for a local compatibility runtimeÃ¢â‚¬Â¦
                   </span>
                 </div>
               )}
@@ -308,7 +310,7 @@ export function OnboardingPage({
                           <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" opacity="0.2" />
                           <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
                         </svg>
-                        Connecting…
+                        ConnectingÃ¢â‚¬Â¦
                       </span>
                     ) : (
                       'Connect now'
@@ -333,7 +335,7 @@ export function OnboardingPage({
                         <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" opacity="0.2" />
                         <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
                       </svg>
-                      Scanning…
+                      ScanningÃ¢â‚¬Â¦
                     </span>
                   ) : (
                     'Get started'
@@ -357,7 +359,7 @@ export function OnboardingPage({
           </div>
         )}
 
-        {/* ── Connect ── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ Connect Ã¢â€â‚¬Ã¢â€â‚¬ */}
         {visibleStep === 'connect' && (
           <div className="rounded-2xl border border-border bg-card p-8 shadow-sm">
             <div className="mb-6">
@@ -381,30 +383,34 @@ export function OnboardingPage({
                   Engine provider
                 </label>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    className={`rounded-xl border px-3 py-3 text-left transition ${
-                      draftEngineProviderId === 'openclaw-compat'
-                        ? 'border-primary/45 bg-primary/10'
-                        : 'border-border bg-card hover:border-primary/30'
-                    }`}
-                    onClick={() => onDraftEngineProviderIdChange('openclaw-compat')}
-                  >
-                    <p className="text-sm font-medium text-foreground">OpenClaw compatibility</p>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      Current runtime path. Use this for today&apos;s connection flow.
-                    </p>
-                  </button>
-                  <button
-                    type="button"
-                    disabled
-                    className="rounded-xl border border-border bg-muted/40 px-3 py-3 text-left opacity-70"
-                  >
-                    <p className="text-sm font-medium text-foreground">Internal engine</p>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      Planned next phase. Visible here so onboarding already matches the future engine model.
-                    </p>
-                  </button>
+                  {providerCapabilities.map((provider) => {
+                    const isSelected = draftEngineProviderId === provider.id;
+                    return (
+                      <button
+                        key={provider.id}
+                        type="button"
+                        disabled={!provider.selectionEnabled}
+                        className={`rounded-xl border px-3 py-3 text-left transition ${
+                          isSelected
+                            ? 'border-primary/45 bg-primary/10'
+                            : provider.selectionEnabled
+                              ? 'border-border bg-card hover:border-primary/30'
+                              : 'border-border bg-muted/40 opacity-70'
+                        }`}
+                        onClick={() => {
+                          if (provider.selectionEnabled) {
+                            onDraftEngineProviderIdChange(provider.id);
+                          }
+                        }}
+                      >
+                        <p className="text-sm font-medium text-foreground">{provider.displayName}</p>
+                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{provider.summary}</p>
+                        {!provider.selectionEnabled && provider.availabilityReason ? (
+                          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{provider.availabilityReason}</p>
+                        ) : null}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -437,7 +443,7 @@ export function OnboardingPage({
                       ?
                     </span>
                     <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-64 -translate-x-1/2 rounded-lg border border-border bg-popover px-3 py-2.5 font-normal text-[12px] leading-relaxed text-popover-foreground shadow-md opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-                      For the current OpenClaw compatibility path, this is in <code className="rounded bg-muted px-1 font-mono text-[11px]">openclaw.json</code> under <code className="rounded bg-muted px-1 font-mono text-[11px]">gateway → auth → token</code>. Leave blank if token auth is disabled.
+                      For the current OpenClaw compatibility path, this is in <code className="rounded bg-muted px-1 font-mono text-[11px]">openclaw.json</code> under <code className="rounded bg-muted px-1 font-mono text-[11px]">gateway -&gt; auth -&gt; token</code>. Leave blank if token auth is disabled.
                     </span>
                   </span>
                 </label>
@@ -501,7 +507,7 @@ export function OnboardingPage({
                         <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" opacity="0.2" />
                         <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
                       </svg>
-                      Connecting…
+                      ConnectingÃ¢â‚¬Â¦
                     </span>
                   ) : (
                     'Connect'
@@ -512,7 +518,7 @@ export function OnboardingPage({
           </div>
         )}
 
-        {/* ── Pairing ── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ Pairing Ã¢â€â‚¬Ã¢â€â‚¬ */}
         {visibleStep === 'pairing' && (
           <div className="rounded-2xl border border-border bg-card p-8 shadow-sm">
             <div className="mb-6">
@@ -583,7 +589,7 @@ export function OnboardingPage({
                       <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" opacity="0.2" />
                       <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
                     </svg>
-                    Reconnecting…
+                    ReconnectingÃ¢â‚¬Â¦
                   </span>
                 ) : (
                   'Reconnect'
@@ -593,7 +599,7 @@ export function OnboardingPage({
           </div>
         )}
 
-        {/* ── Ready ── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ Ready Ã¢â€â‚¬Ã¢â€â‚¬ */}
         {visibleStep === 'ready' && (
           <div className="flex flex-col items-center text-center">
             <div className="relative mb-6">

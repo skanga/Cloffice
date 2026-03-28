@@ -1,13 +1,14 @@
 import type { EngineRuntimeKind, EngineTransport } from '@/app-types';
 import {
   OpenClawGatewayClient,
-  type EngineChatMessage,
-  type EngineConnectOptions,
-  type EngineCronJob,
-  type EngineModelChoice,
-  type EngineSessionSummary,
-  type EngineToolEntry,
-  type EngineToolsCatalog,
+  type GatewayChatMessage,
+  type GatewayConnectOptions,
+  type GatewayCronJob,
+  type GatewayErrorDetails,
+  type GatewayModelChoice,
+  type GatewaySessionSummary,
+  type GatewayToolEntry,
+  type GatewayToolsCatalog,
   GatewayRequestError,
 } from './openclaw-gateway-client';
 
@@ -21,13 +22,23 @@ import {
 export class OpenClawCompatibilityEngineClient extends OpenClawGatewayClient {
   readonly runtimeKind: EngineRuntimeKind = 'openclaw-compat';
   readonly transport: EngineTransport = 'websocket-gateway';
+
+  override setEventHandler(handler: (event: OpenClawCompatibilityEventFrame) => void) {
+    super.setEventHandler((event) => handler(event as OpenClawCompatibilityEventFrame));
+  }
 }
 
-export type OpenClawCompatibilityConnectOptions = EngineConnectOptions;
-export type OpenClawCompatibilityChatMessage = EngineChatMessage;
-export type OpenClawCompatibilityModelChoice = EngineModelChoice;
-export type OpenClawCompatibilityCronJob = EngineCronJob;
-export type OpenClawCompatibilitySessionSummary = EngineSessionSummary;
-export type OpenClawCompatibilityToolEntry = EngineToolEntry;
-export type OpenClawCompatibilityToolsCatalog = EngineToolsCatalog;
+export type OpenClawCompatibilityConnectOptions = GatewayConnectOptions;
+export type OpenClawCompatibilityChatMessage = GatewayChatMessage;
+export type OpenClawCompatibilityModelChoice = GatewayModelChoice;
+export type OpenClawCompatibilityCronJob = GatewayCronJob;
+export type OpenClawCompatibilitySessionSummary = GatewaySessionSummary;
+export type OpenClawCompatibilityToolEntry = GatewayToolEntry;
+export type OpenClawCompatibilityToolsCatalog = GatewayToolsCatalog;
+export type OpenClawCompatibilityErrorDetails = GatewayErrorDetails;
+export type OpenClawCompatibilityEventFrame = {
+  type: 'event';
+  event: string;
+  payload?: unknown;
+};
 export { GatewayRequestError as OpenClawCompatibilityRequestError };

@@ -1,6 +1,14 @@
 import type { EngineProviderId, EngineRuntimeKind, EngineTransport } from '@/app-types';
 import { InternalEnginePlaceholderClient } from './internal-engine-placeholder';
-import { OpenClawCompatibilityEngineClient } from './openclaw-compat-engine';
+import {
+  OpenClawCompatibilityEngineClient,
+  type OpenClawCompatibilityEventFrame,
+} from './openclaw-compat-engine';
+import { getEngineProviderCapability } from './engine-provider-capabilities';
+
+export type EngineConnectionHandler = (connected: boolean, message: string) => void;
+export type EngineEventFrame = OpenClawCompatibilityEventFrame;
+export type EngineEventHandler = (event: EngineEventFrame) => void;
 
 /**
  * Minimal seam for the future provider-neutral Cloffice engine.
@@ -12,6 +20,8 @@ import { OpenClawCompatibilityEngineClient } from './openclaw-compat-engine';
 export interface EngineClient {
   readonly runtimeKind: EngineRuntimeKind;
   readonly transport: EngineTransport;
+  setConnectionHandler(handler: EngineConnectionHandler): void;
+  setEventHandler(handler: EngineEventHandler): void;
 }
 
 /**
@@ -25,11 +35,11 @@ export type EngineClientInstance = OpenClawRuntimeAdapter | InternalEnginePlaceh
 
 /**
  * Maps the configured provider model to the runtime path that is actually
- * available in this build. The internal engine remains modeled in state, but it
- * still falls back to the OpenClaw compatibility runtime until that path ships.
+ * available in this build.
  */
 export function resolveAvailableEngineProviderId(providerId: EngineProviderId): EngineProviderId {
-  return providerId === 'internal' ? 'openclaw-compat' : providerId;
+  const capability = getEngineProviderCapability(providerId);
+  return capability.availableInBuild ? capability.id : 'openclaw-compat';
 }
 
 export function createEngineClient(providerId: EngineProviderId = 'openclaw-compat'): EngineClientInstance {

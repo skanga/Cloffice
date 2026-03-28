@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { Code2, Folder, Globe, KeyRound, Link2, Shield, Terminal, Trash2 } from 'lucide-react';
 
@@ -10,6 +10,7 @@ import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { listConnectors, persistConnectorConfig } from '@/lib/connectors';
 import { loadAllowedDomains, saveAllowedDomains } from '@/lib/connectors/web-fetch';
+import { getEngineProviderCapability, listEngineProviderCapabilities } from '@/lib/engine-provider-capabilities';
 import type { ConnectorDefinition } from '@/lib/connectors/connector-types';
 
 type AppLanguage = 'en' | 'de';
@@ -258,6 +259,7 @@ export function SettingsPage({
   const [copied, setCopied] = useState(false);
   const [prefersDarkSystem, setPrefersDarkSystem] = useState(false);
   const [connectionNameDraft, setConnectionNameDraft] = useState('');
+  const providerCapabilities = useMemo(() => listEngineProviderCapabilities(), []);
   const t = useCallback((en: string, de: string) => (preferences.language === 'de' ? de : en), [preferences.language]);
 
   useEffect(() => {
@@ -562,33 +564,34 @@ export function SettingsPage({
                 </p>
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
-                <button
-                  type="button"
-                  className={`rounded-lg border px-3 py-3 text-left transition ${
-                    draftEngineProviderId === 'openclaw-compat'
-                      ? 'border-primary/45 bg-primary/10'
-                      : 'border-border bg-card hover:border-primary/30'
-                  }`}
-                  onClick={() => onDraftEngineProviderIdChange('openclaw-compat')}
-                >
-                  <p className="text-sm font-medium">OpenClaw compatibility</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {t('Current runtime connection path.', 'Aktueller Laufzeitpfad.')}
-                  </p>
-                </button>
-                <button
-                  type="button"
-                  disabled
-                  className="rounded-lg border border-border bg-muted/40 px-3 py-3 text-left opacity-70"
-                >
-                  <p className="text-sm font-medium">Internal engine</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {t(
-                      'Planned next phase. Selection model only for now.',
-                      'Geplante naechste Phase. Vorlaeufig nur das Auswahlmodell.',
-                    )}
-                  </p>
-                </button>
+                {providerCapabilities.map((provider) => {
+                  const isSelected = draftEngineProviderId === provider.id;
+                  return (
+                    <button
+                      key={provider.id}
+                      type="button"
+                      disabled={!provider.selectionEnabled}
+                      className={`rounded-lg border px-3 py-3 text-left transition ${
+                        isSelected
+                          ? 'border-primary/45 bg-primary/10'
+                          : provider.selectionEnabled
+                            ? 'border-border bg-card hover:border-primary/30'
+                            : 'border-border bg-muted/40 opacity-70'
+                      }`}
+                      onClick={() => {
+                        if (provider.selectionEnabled) {
+                          onDraftEngineProviderIdChange(provider.id);
+                        }
+                      }}
+                    >
+                      <p className="text-sm font-medium">{provider.displayName}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{provider.summary}</p>
+                      {!provider.selectionEnabled && provider.availabilityReason ? (
+                        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{provider.availabilityReason}</p>
+                      ) : null}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -705,13 +708,13 @@ export function SettingsPage({
                           <div className="min-w-0">
                             <p className="truncate text-sm font-medium">{connection.name}</p>
                             <p className="truncate text-[11px] text-muted-foreground">
-                              {connection.providerId === 'internal' ? 'Internal engine' : 'OpenClaw compatibility'}
+                              {getEngineProviderCapability(connection.providerId).displayName}
                             </p>
                             <p className="truncate font-mono text-[11px] text-muted-foreground">{connection.endpointUrl}</p>
                             <p className="mt-0.5 font-sans text-[11px] text-muted-foreground">
                               {connection.accessToken ? t('Token saved', 'Token gespeichert') : t('No token', 'Kein Token')}
                               {connection.lastUsedAt
-                                ? ` • ${t('Last used', 'Zuletzt verwendet')} ${new Date(connection.lastUsedAt).toLocaleString()}`
+                                ? ` Ã¢â‚¬Â¢ ${t('Last used', 'Zuletzt verwendet')} ${new Date(connection.lastUsedAt).toLocaleString()}`
                                 : ''}
                             </p>
                           </div>
@@ -814,7 +817,7 @@ export function SettingsPage({
   );
 }
 
-/* ── Connectors settings section ─────────────────────────────────────────── */
+/* Ã¢â€â‚¬Ã¢â€â‚¬ Connectors settings section Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
 
 const connectorIcons: Record<string, ReactNode> = {
   folder: <Folder className="size-4" />,
@@ -932,7 +935,7 @@ function ConnectorsSection({ language }: { language: 'en' | 'de' }) {
                       className="ml-1 text-muted-foreground hover:text-foreground"
                       onClick={() => removeDomain(domain)}
                     >
-                      ×
+                      Ãƒâ€”
                     </button>
                   </Badge>
                 ))}
