@@ -16,6 +16,7 @@ import type {
 } from './app-types';
 import type { DesktopBridgeEngineConfig, EngineDraftConfig } from './lib/engine-config';
 import type { EngineDiscoveryResult } from './lib/engine-discovery';
+import type { EngineRuntimeHealthResult } from './lib/engine-runtime-types';
 
 type DesktopBridgeApi = {
   getConfig: () => Promise<AppConfig>;
@@ -23,7 +24,7 @@ type DesktopBridgeApi = {
   getEngineConfig: () => Promise<DesktopBridgeEngineConfig>;
   saveEngineConfig: (draft: EngineDraftConfig) => Promise<DesktopBridgeEngineConfig>;
   healthCheck: (baseUrl: string) => Promise<HealthCheckResult>;
-  checkRuntimeHealth: (baseUrl: string) => Promise<HealthCheckResult>;
+  checkRuntimeHealth: (baseUrl: string) => Promise<EngineRuntimeHealthResult>;
   discoverGateway: () => Promise<GatewayDiscoveryResult>;
   discoverEngine: () => Promise<EngineDiscoveryResult>;
   checkWorkspacePlugin: () => Promise<{ installed: boolean; error?: string }>;

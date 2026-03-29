@@ -2919,8 +2919,8 @@ export default function App() {
 
     void client
       .connect({
-        gatewayUrl: runtimeEndpointUrl,
-        token: runtimeAccessToken,
+        endpointUrl: runtimeEndpointUrl,
+        accessToken: runtimeAccessToken,
       })
       .then(async () => {
         setHealth({ ok: true, message: `Connected to runtime at ${runtimeEndpointUrl}` });

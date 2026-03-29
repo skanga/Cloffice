@@ -1,5 +1,5 @@
 import type { AppConfig, EngineProviderId, EngineRuntimeKind, EngineTransport } from '../app-types.js';
-import type { OpenClawCompatibilityConnectOptions } from './openclaw-compat-engine.js';
+import type { EngineConnectOptions } from './engine-runtime-types.js';
 import {
   NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION,
   type ProviderAwareStoredEngineConfigV2,
@@ -109,10 +109,10 @@ export function appConfigFromEngineDraft(draft: EngineDraftConfig): AppConfig {
 
 export function engineConnectOptionsFromDraft(
   draft: Pick<EngineDraftConfig, 'endpointUrl' | 'accessToken'>,
-): OpenClawCompatibilityConnectOptions {
+): EngineConnectOptions {
   return {
-    gatewayUrl: draft.endpointUrl,
-    token: draft.accessToken,
+    endpointUrl: draft.endpointUrl,
+    accessToken: draft.accessToken,
   };
 }
 

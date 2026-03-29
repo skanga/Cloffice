@@ -17,6 +17,8 @@ import type {
 } from '../src/app-types.js';
 import { appConfigFromEngineDraft, parseDesktopBridgeEngineConfig, type DesktopBridgeEngineConfig, type EngineDraftConfig } from '../src/lib/engine-config.js';
 import { normalizeEngineDiscoveryResult } from '../src/lib/engine-discovery.js';
+import { normalizeEngineRuntimeHealthResult, type EngineRuntimeHealthResult } from '../src/lib/engine-runtime-types.js';
+import { OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR } from '../src/lib/openclaw-compat-engine.js';
 
 const DEFAULT_COMPAT_ENGINE_ENDPOINT = 'ws://127.0.0.1:18789';
 
@@ -32,8 +34,11 @@ const desktopBridgeApi = {
     ) as DesktopBridgeEngineConfig,
   healthCheck: (baseUrl: string) =>
     ipcRenderer.invoke('backend:health-check', baseUrl) as Promise<HealthCheckResult>,
-  checkRuntimeHealth: (baseUrl: string) =>
-    ipcRenderer.invoke('backend:health-check', baseUrl) as Promise<HealthCheckResult>,
+  checkRuntimeHealth: async (baseUrl: string) =>
+    normalizeEngineRuntimeHealthResult(
+      await ipcRenderer.invoke('backend:health-check', baseUrl) as HealthCheckResult,
+      OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR,
+    ) as EngineRuntimeHealthResult,
   discoverGateway: () =>
     ipcRenderer.invoke('gateway:discover') as Promise<GatewayDiscoveryResult>,
   discoverEngine: async () =>
