@@ -55,9 +55,15 @@ import { SidebarProvider } from './components/ui/sidebar';
 import { ScrollArea } from './components/ui/scroll-area';
 import { createEngineClient, type EngineClientInstance } from './lib/engine-client';
 import { createFileService, LocalFileService } from './lib/file-service';
+import { executeEngineLocalActionPlan } from './lib/engine-local-action-orchestrator';
 import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
+import {
+  buildOpenClawCompatibilityAdminPairingHint,
+  buildOpenClawCompatibilityPairingHint,
+  OPENCLAW_COMPAT_DEVICE_IDENTITY_STORAGE_KEY,
+} from './lib/openclaw-compat-engine';
 import { accumulateTodayUsage, addUsage, loadTodayUsage, parseUsageFromPayload } from './lib/token-usage';
-import { loadSafetyScopes, resolveLocalActionPolicy } from './lib/safety-policy';
+import { loadSafetyScopes } from './lib/safety-policy';
 import { registerConnector, hydrateConnectors } from './lib/connectors';
 import { createFilesystemConnector } from './lib/connectors/filesystem';
 import { createShellConnector } from './lib/connectors/shell';
@@ -164,10 +170,6 @@ function createInitialCoworkProgressSteps(): CoworkProgressStep[] {
     label: item.label,
     status: 'pending',
   }));
-}
-
-function isDestructiveLocalAction(actionType: PendingApprovalAction['actionType']): boolean {
-  return actionType === 'delete' || actionType === 'rename';
 }
 
 type ApprovalResolverEntry = {
@@ -2314,615 +2316,32 @@ export default function App() {
                   details: 'Applying local actions in scoped workspace.',
                 });
 
-                const boundedActions = requestedActions.slice(0, MAX_LOCAL_ACTIONS_PER_RUN);
                 const safetyScopes = loadSafetyScopes(runContext.projectId || undefined);
-                const actionReceipts: LocalActionReceipt[] = [];
-                const previews: string[] = [];
-                const errors: string[] = [];
-
-                if (requestedActions.length > MAX_LOCAL_ACTIONS_PER_RUN) {
-                  errors.push(
-                    `Action limit exceeded: received ${requestedActions.length}, executed ${MAX_LOCAL_ACTIONS_PER_RUN}.`,
-                  );
-                }
-
-                const formatPreviewContent = (value: string) => {
-                  const trimmed = value.trim();
-                  if (!trimmed) {
-                    return '(empty)';
-                  }
-                  const maxChars = 1200;
-                  if (trimmed.length <= maxChars) {
-                    return trimmed;
-                  }
-                  return `${trimmed.slice(0, maxChars)}\n... (truncated)`;
-                };
-
-                const mapLocalActionErrorCode = (message: string): string => {
-                  const normalized = message.toLowerCase();
-                  if (normalized.includes('already exists')) {
-                    return 'FILE_EXISTS';
-                  }
-                  if (normalized.includes('not found') || normalized.includes('enoent')) {
-                    return 'NOT_FOUND';
-                  }
-                  if (normalized.includes('blocked') || normalized.includes('outside') || normalized.includes('traversal')) {
-                    return 'PROJECT_BOUNDARY_BLOCK';
-                  }
-                  if (normalized.includes('permission') || normalized.includes('eacces') || normalized.includes('eperm')) {
-                    return 'PERMISSION_DENIED';
-                  }
-                  if (normalized.includes('timeout')) {
-                    return 'TIMEOUT';
-                  }
-                  return 'ACTION_FAILED';
-                };
-
-                const summarizeActionPreview = (action: (typeof boundedActions)[number]) => {
-                  if (action.type === 'create_file') {
-                    return `Create ${action.path}${action.overwrite ? ' (overwrite)' : ''}`;
-                  }
-                  if (action.type === 'append_file') {
-                    return `Append ${action.path}`;
-                  }
-                  if (action.type === 'read_file') {
-                    return `Read ${action.path}`;
-                  }
-                  if (action.type === 'list_dir') {
-                    return `List directory ${action.path || '.'}`;
-                  }
-                  if (action.type === 'rename') {
-                    return `Rename ${action.path} -> ${action.newPath}`;
-                  }
-                  if (action.type === 'delete') {
-                    return `Delete ${action.path}`;
-                  }
-                  return `Check exists ${action.path}`;
-                };
-
-                const isLowRiskTextWriteAction = (action: (typeof boundedActions)[number]) => {
-                  if (action.type !== 'create_file' && action.type !== 'append_file') {
-                    return false;
-                  }
-
-                  if (action.type === 'create_file' && action.overwrite) {
-                    return false;
-                  }
-
-                  const normalizedPath = action.path.replace(/\\/g, '/').trim();
-                  if (!normalizedPath || normalizedPath.includes('/')) {
-                    return false;
-                  }
-
-                  const lowered = normalizedPath.toLowerCase();
-                  const isTextFile = lowered.endsWith('.md') || lowered.endsWith('.txt');
-                  if (!isTextFile) {
-                    return false;
-                  }
-
-                  // Keep auto-approval conservative: only small single-file drafts.
-                  return action.content.length <= 20_000;
-                };
-
-                for (let index = 0; index < boundedActions.length; index += 1) {
-                  const action = boundedActions[index];
-                  const actionId = action.id || `action-${index + 1}`;
-                  const actionPath = action.path ?? '.';
-                  const policy = resolveLocalActionPolicy(action.type, safetyScopes);
-                  let createFileOverwriteApproved = false;
-                  let approvedByOperator = false;
-
-                  const pathValidation = validateProjectRelativePath(actionPath, {
-                    allowEmpty: action.type === 'list_dir',
-                  });
-                  if (!pathValidation.ok) {
-                    const message = `Blocked by project boundary: ${pathValidation.reason}`;
-                    errors.push(`${actionPath || '.'}: ${message}`);
-                    actionReceipts.push({
-                      id: actionId,
-                      type: action.type,
-                      path: actionPath || '.',
-                      status: 'error',
-                      errorCode: 'PROJECT_BOUNDARY_BLOCK',
-                      message,
-                    });
-                    continue;
-                  }
-
-                  if (action.type === 'rename') {
-                    const targetValidation = validateProjectRelativePath(action.newPath);
-                    if (!targetValidation.ok) {
-                      const message = `Blocked by project boundary: ${targetValidation.reason}`;
-                      errors.push(`${action.newPath}: ${message}`);
-                      actionReceipts.push({
-                        id: actionId,
-                        type: action.type,
-                        path: action.newPath,
-                        status: 'error',
-                        errorCode: 'PROJECT_BOUNDARY_BLOCK',
-                        message,
-                      });
-                      continue;
-                    }
-                  }
-
-                  if ((action.type === 'create_file' || action.type === 'append_file' || action.type === 'rename' || action.type === 'delete') && !runContext.projectId) {
-                    const message = 'Blocked: write actions require an active project context.';
-                    errors.push(`${actionPath}: ${message}`);
-                    actionReceipts.push({
-                      id: actionId,
-                      type: action.type,
-                      path: actionPath,
-                      status: 'error',
-                      errorCode: 'PROJECT_REQUIRED',
-                      message,
-                    });
-                    continue;
-                  }
-
-                  if (!policy.enabled) {
-                    const message = `Blocked by safety policy: ${policy.scopeName} is disabled.`;
-                    errors.push(`${actionPath}: ${message}`);
-                    actionReceipts.push({
-                      id: actionId,
-                      type: action.type,
-                      path: actionPath,
-                      status: 'error',
-                      errorCode: 'BLOCKED_BY_POLICY',
-                      message,
-                    });
-                    continue;
-                  }
-
-                  if (
-                    action.type === 'create_file' &&
-                    !action.overwrite &&
-                    bridge.existsInFolder
-                  ) {
-                    try {
-                      const existing = await bridge.existsInFolder(rootPath, action.path);
-                      if (existing.exists) {
-                        const overwriteApprovalId = `${runId}-${actionId}-${index + 1}-overwrite`;
-                        setCoworkRunStatus(`Awaiting overwrite approval for ${actionPath}...`);
-                        setCoworkProgressStage('executing_workstreams', {
-                          details: `File exists at ${actionPath}. Awaiting overwrite approval.`,
-                        });
-
-                        const overwriteDecision = await requestActionApproval({
-                          id: overwriteApprovalId,
-                          runId,
-                          actionId,
-                          actionType: action.type,
-                          projectId: runContext.projectId || undefined,
-                          projectTitle: runContext.projectTitle || undefined,
-                          projectRootFolder: runContext.rootFolder || undefined,
-                          path: actionPath,
-                          scopeId: policy.scopeId,
-                          scopeName: policy.scopeName,
-                          riskLevel: 'high',
-                          summary: `${runContext.projectTitle ? `[${runContext.projectTitle}] ` : ''}Overwrite existing file ${actionPath}`,
-                          preview: [
-                            'The file already exists.',
-                            'Approve to overwrite it with the new generated content.',
-                            '',
-                            formatPreviewContent(action.content),
-                          ].join('\n'),
-                          createdAt: Date.now(),
-                        });
-
-                        if (!overwriteDecision.approved) {
-                          const reason = overwriteDecision.reason || 'Overwrite rejected by operator.';
-                          const code = overwriteDecision.expired ? 'APPROVAL_TIMEOUT' : 'REJECTED_BY_OPERATOR';
-                          errors.push(`${actionPath}: ${reason}`);
-                          actionReceipts.push({
-                            id: actionId,
-                            type: action.type,
-                            path: actionPath,
-                            status: 'error',
-                            errorCode: code,
-                            message: reason,
-                          });
-                          continue;
-                        }
-
-                        approvedByOperator = true;
-                        createFileOverwriteApproved = true;
-                        previews.push(`Approved overwrite create_file -> ${actionPath}`);
-                        if (taskEntry) {
-                          setCoworkTaskStatus(taskEntry.taskId, 'approved', {
-                            runId,
-                            summary: `Approved overwrite: ${action.type} ${actionPath}`,
-                          });
-                        }
-                      }
-                    } catch (error) {
-                      const message = error instanceof Error ? error.message : 'Unable to verify file existence.';
-                      errors.push(`${actionPath}: ${message}`);
-                      actionReceipts.push({
-                        id: actionId,
-                        type: action.type,
-                        path: actionPath,
-                        status: 'error',
-                        errorCode: 'ACTION_FAILED',
-                        message,
-                      });
-                      continue;
-                    }
-                  }
-
-                  const autoApproved = policy.requiresApproval && isLowRiskTextWriteAction(action);
-
-                  const requiresHardApproval = isDestructiveLocalAction(action.type) || policy.riskLevel === 'critical';
-
-                  if ((policy.requiresApproval || requiresHardApproval) && !autoApproved && !approvedByOperator) {
-                    const approvalId = `${runId}-${actionId}-${index + 1}`;
-                    const previewBody =
-                      action.type === 'create_file' || action.type === 'append_file'
-                        ? formatPreviewContent(action.content)
-                        : summarizeActionPreview(action);
-
-                    setCoworkRunStatus(`Awaiting approval for ${action.type} (${actionPath})...`);
-                    setCoworkProgressStage('executing_workstreams', {
-                      details: `Awaiting operator approval for ${action.type} on ${actionPath}.`,
-                    });
-                    if (taskEntry) {
-                      setCoworkTaskStatus(taskEntry.taskId, 'needs_approval', {
-                        runId,
-                        summary: `Needs approval: ${action.type} ${actionPath}`,
-                      });
-                    }
-                    const decision = await requestActionApproval({
-                      id: approvalId,
-                      runId,
-                      actionId,
-                      actionType: action.type,
-                      projectId: runContext.projectId || undefined,
-                      projectTitle: runContext.projectTitle || undefined,
-                      projectRootFolder: runContext.rootFolder || undefined,
-                      path: actionPath,
-                      scopeId: policy.scopeId,
-                      scopeName: policy.scopeName,
-                      riskLevel: policy.riskLevel,
-                      summary: `${runContext.projectTitle ? `[${runContext.projectTitle}] ` : ''}${summarizeActionPreview(action)}`,
-                      preview: previewBody,
-                      createdAt: Date.now(),
-                    });
-
-                    if (!decision.approved) {
-                      const reason = decision.reason || 'Rejected by operator.';
-                      const code = decision.expired ? 'APPROVAL_TIMEOUT' : 'REJECTED_BY_OPERATOR';
-                      errors.push(`${actionPath}: ${reason}`);
-                      if (taskEntry) {
-                        setCoworkTaskStatus(taskEntry.taskId, 'rejected', {
-                          runId,
-                          summary: `Rejected: ${action.type} ${actionPath}`,
-                          outcome: reason,
-                        });
-                      }
-                      actionReceipts.push({
-                        id: actionId,
-                        type: action.type,
-                        path: actionPath,
-                        status: 'error',
-                        errorCode: code,
-                        message: reason,
-                      });
-                      continue;
-                    }
-
-                    previews.push(`Approved ${action.type} -> ${actionPath}`);
-                    if (taskEntry) {
-                      setCoworkTaskStatus(taskEntry.taskId, 'approved', {
-                        runId,
-                        summary: `Approved: ${action.type} ${actionPath}`,
-                      });
-                    }
-                  } else if (autoApproved) {
-                    previews.push(`Auto-approved ${action.type} -> ${actionPath}`);
-                    if (taskEntry) {
-                      setCoworkTaskStatus(taskEntry.taskId, 'approved', {
-                        runId,
-                        summary: `Auto-approved: ${action.type} ${actionPath}`,
-                      });
-                    }
-                  }
-
-                  try {
-                    if (action.type === 'create_file') {
-                      if (!bridge.createFileInFolder) {
-                        const message = `${actionPath}: create_file is unavailable in this app context.`;
-                        errors.push(message);
-                        actionReceipts.push({
-                          id: actionId,
-                          type: 'create_file',
-                          path: actionPath,
-                          status: 'error',
-                          errorCode: 'UNAVAILABLE',
-                          message,
-                        });
-                        continue;
-                      }
-
-                      const result = await bridge.createFileInFolder(
-                        rootPath,
-                        action.path,
-                        action.content,
-                        createFileOverwriteApproved ? true : action.overwrite,
-                      );
-                      actionReceipts.push({
-                        id: actionId,
-                        type: 'create_file',
-                        path: result.filePath,
-                        status: 'ok',
-                      });
-                      previews.push(`+ ${result.filePath}`);
-                      continue;
-                    }
-
-                    if (action.type === 'append_file') {
-                      if (!bridge.appendFileInFolder) {
-                        const message = `${actionPath}: append_file is unavailable in this app context.`;
-                        errors.push(message);
-                        actionReceipts.push({
-                          id: actionId,
-                          type: 'append_file',
-                          path: actionPath,
-                          status: 'error',
-                          errorCode: 'UNAVAILABLE',
-                          message,
-                        });
-                        continue;
-                      }
-
-                      const result = await bridge.appendFileInFolder(rootPath, action.path, action.content);
-                      actionReceipts.push({
-                        id: actionId,
-                        type: 'append_file',
-                        path: result.filePath,
-                        status: 'ok',
-                        message: `Appended ${result.bytesAppended} bytes`,
-                      });
-                      previews.push(`+ appended ${result.bytesAppended} bytes -> ${result.filePath}`);
-                      continue;
-                    }
-
-                    if (action.type === 'read_file') {
-                      if (!bridge.readFileInFolder) {
-                        const message = `${actionPath}: read_file is unavailable in this app context.`;
-                        errors.push(message);
-                        actionReceipts.push({
-                          id: actionId,
-                          type: 'read_file',
-                          path: actionPath,
-                          status: 'error',
-                          errorCode: 'UNAVAILABLE',
-                          message,
-                        });
-                        continue;
-                      }
-
-                      const result = await bridge.readFileInFolder(rootPath, action.path);
-                      actionReceipts.push({
-                        id: actionId,
-                        type: 'read_file',
-                        path: result.filePath,
-                        status: 'ok',
-                      });
-                      previews.push(`> ${result.filePath}`);
-                      previews.push('```');
-                      previews.push(formatPreviewContent(result.content));
-                      previews.push('```');
-                      continue;
-                    }
-
-                    if (action.type === 'list_dir') {
-                      if (!bridge.listDirInFolder) {
-                        const message = `${actionPath}: list_dir is unavailable in this app context.`;
-                        errors.push(message);
-                        actionReceipts.push({
-                          id: actionId,
-                          type: 'list_dir',
-                          path: actionPath,
-                          status: 'error',
-                          errorCode: 'UNAVAILABLE',
-                          message,
-                        });
-                        continue;
-                      }
-
-                      const result = await bridge.listDirInFolder(rootPath, action.path || '');
-                      actionReceipts.push({
-                        id: actionId,
-                        type: 'list_dir',
-                        path: action.path || '.',
-                        status: 'ok',
-                        message: `Listed ${result.items.length} items${result.truncated ? ' (truncated)' : ''}`,
-                      });
-                      previews.push(`# list_dir ${action.path || '.'}`);
-                      previews.push(...result.items.slice(0, 20).map((item) => `${item.kind === 'directory' ? '[dir]' : '[file]'} ${item.path}`));
-                      if (result.truncated) {
-                        previews.push('... (truncated)');
-                      }
-                      continue;
-                    }
-
-                    if (action.type === 'exists') {
-                      if (!bridge.existsInFolder) {
-                        const message = `${actionPath}: exists is unavailable in this app context.`;
-                        errors.push(message);
-                        actionReceipts.push({
-                          id: actionId,
-                          type: 'exists',
-                          path: actionPath,
-                          status: 'error',
-                          errorCode: 'UNAVAILABLE',
-                          message,
-                        });
-                        continue;
-                      }
-
-                      const result = await bridge.existsInFolder(rootPath, action.path);
-                      actionReceipts.push({
-                        id: actionId,
-                        type: 'exists',
-                        path: result.path,
-                        status: 'ok',
-                        message: result.exists ? result.kind : 'none',
-                      });
-                      previews.push(`? ${result.path} => ${result.exists ? result.kind : 'none'}`);
-                    }
-
-                    if (action.type === 'rename') {
-                      if (!bridge.renameInFolder) {
-                        const message = `${actionPath}: rename is unavailable in this app context.`;
-                        errors.push(message);
-                        actionReceipts.push({
-                          id: actionId,
-                          type: 'rename',
-                          path: actionPath,
-                          status: 'error',
-                          errorCode: 'UNAVAILABLE',
-                          message,
-                        });
-                        continue;
-                      }
-
-                      const result = await bridge.renameInFolder(rootPath, action.path, action.newPath);
-                      actionReceipts.push({
-                        id: actionId,
-                        type: 'rename',
-                        path: result.newPath,
-                        status: 'ok',
-                        message: `Renamed ${result.oldPath} -> ${result.newPath}`,
-                      });
-                      previews.push(`~ ${result.oldPath} -> ${result.newPath}`);
-                      continue;
-                    }
-
-                    if (action.type === 'delete') {
-                      if (!bridge.deleteInFolder) {
-                        const message = `${actionPath}: delete is unavailable in this app context.`;
-                        errors.push(message);
-                        actionReceipts.push({
-                          id: actionId,
-                          type: 'delete',
-                          path: actionPath,
-                          status: 'error',
-                          errorCode: 'UNAVAILABLE',
-                          message,
-                        });
-                        continue;
-                      }
-
-                      const result = await bridge.deleteInFolder(rootPath, action.path);
-                      actionReceipts.push({
-                        id: actionId,
-                        type: 'delete',
-                        path: result.path,
-                        status: 'ok',
-                        message: 'Deleted',
-                      });
-                      previews.push(`- deleted ${result.path}`);
-                      continue;
-                    }
-
-                    if (action.type === 'shell_exec') {
-                      if (!bridge.shellExec) {
-                        const message = `${actionPath}: shell_exec is unavailable in this app context.`;
-                        errors.push(message);
-                        actionReceipts.push({
-                          id: actionId,
-                          type: 'shell_exec',
-                          path: actionPath,
-                          status: 'error',
-                          errorCode: 'UNAVAILABLE',
-                          message,
-                        });
-                        continue;
-                      }
-
-                      const timeoutMs = typeof action.timeoutMs === 'number' ? action.timeoutMs : 30_000;
-                      const result = await bridge.shellExec(rootPath, action.command, timeoutMs);
-                      const ok = result.exitCode === 0;
-                      actionReceipts.push({
-                        id: actionId,
-                        type: 'shell_exec',
-                        path: actionPath,
-                        status: ok ? 'ok' : 'error',
-                        message: result.timedOut ? 'Command timed out' : (ok ? `Exit 0` : `Exit ${result.exitCode}`),
-                      });
-                      previews.push(`$ ${action.command}`);
-                      if (result.stdout) {
-                        previews.push('```');
-                        previews.push(result.stdout.slice(0, 2000));
-                        previews.push('```');
-                      }
-                      if (result.stderr) {
-                        previews.push('stderr:');
-                        previews.push('```');
-                        previews.push(result.stderr.slice(0, 1000));
-                        previews.push('```');
-                      }
-                      continue;
-                    }
-
-                    if (action.type === 'web_fetch') {
-                      if (!bridge.webFetch) {
-                        const message = `${actionPath}: web_fetch is unavailable in this app context.`;
-                        errors.push(message);
-                        actionReceipts.push({
-                          id: actionId,
-                          type: 'web_fetch',
-                          path: actionPath,
-                          status: 'error',
-                          errorCode: 'UNAVAILABLE',
-                          message,
-                        });
-                        continue;
-                      }
-
-                      const method = typeof action.method === 'string' ? action.method : 'GET';
-                      const headers: Record<string, string> = {};
-                      if (typeof action.contentType === 'string') headers['Content-Type'] = action.contentType;
-                      const result = await bridge.webFetch(action.url, { method, headers, body: action.body });
-                      const ok = result.status >= 200 && result.status < 400;
-                      actionReceipts.push({
-                        id: actionId,
-                        type: 'web_fetch',
-                        path: action.url,
-                        status: ok ? 'ok' : 'error',
-                        message: `${result.status} ${result.statusText}${result.truncated ? ' (truncated)' : ''}`,
-                      });
-                      previews.push(`> fetch ${method} ${action.url} => ${result.status}`);
-                      if (result.body) {
-                        previews.push('```');
-                        previews.push(result.body.slice(0, 2000));
-                        previews.push('```');
-                      }
-                      continue;
-                    }
-                  } catch (error) {
-                    const message = error instanceof Error ? error.message : 'Unknown local file action error.';
-                    const fullMessage = `${actionPath}: ${message}`;
-                    errors.push(fullMessage);
-                    actionReceipts.push({
-                      id: actionId,
-                      type: action.type,
-                      path: actionPath,
-                      status: 'error',
-                      errorCode: mapLocalActionErrorCode(message),
-                      message,
-                    });
-                  }
-                }
-
-                const actionResult = buildEngineActionExecutionResult({
-                  runId,
-                  receipts: actionReceipts,
-                  previews,
-                  errors,
-                  projectTitle: runContext.projectTitle,
+                const actionResult = await executeEngineLocalActionPlan({
+                  actions: requestedActions,
+                  maxActionsPerRun: MAX_LOCAL_ACTIONS_PER_RUN,
+                  bridge,
                   rootPath,
+                  runId,
+                  projectId: runContext.projectId || undefined,
+                  projectTitle: runContext.projectTitle || undefined,
+                  safetyScopes,
+                  validateProjectRelativePath,
+                  requestApproval: requestActionApproval,
+                  onRunStatus: (status, details) => {
+                    setCoworkRunStatus(status);
+                    setCoworkProgressStage('executing_workstreams', { details });
+                  },
+                  onTaskStatus: (status, summary, outcome) => {
+                    if (!taskEntry) {
+                      return;
+                    }
+                    setCoworkTaskStatus(taskEntry.taskId, status, {
+                      runId,
+                      summary,
+                      outcome,
+                    });
+                  },
                 });
                 postCoworkActionReceipt(actionResult);
 
@@ -3109,9 +2528,7 @@ export default function App() {
           /pairing.required/i.test(info.message);
         if (isPairing) {
           setPairingRequestId(info.requestId ?? null);
-          const approvalHint = info.requestId
-            ? ` Approve with: openclaw devices approve ${info.requestId}`
-            : ' Approve the pending request on the runtime host.';
+          const approvalHint = ` ${buildOpenClawCompatibilityPairingHint(info.requestId)}`;
           setHealth({ ok: false, message: `Pairing required.${approvalHint}` });
           setStatus(`Pairing required.${approvalHint}`);
         } else {
@@ -3227,9 +2644,7 @@ export default function App() {
         /pairing.required/i.test(info.message);
       if (isPairing) {
         setPairingRequestId(info.requestId ?? null);
-        const approvalHint = info.requestId
-          ? ` Approve with: openclaw devices approve ${info.requestId}`
-          : ' Approve the pending request on the runtime host.';
+        const approvalHint = ` ${buildOpenClawCompatibilityPairingHint(info.requestId)}`;
         setHealth({ ok: false, message: `Pairing required.${approvalHint}` });
         setStatus(`Configuration saved. Pairing required.${approvalHint}`);
       } else {
@@ -3261,7 +2676,7 @@ export default function App() {
         clientWithReset.resetDeviceIdentity();
       } else {
         // Fallback for stale runtime instances that predate resetDeviceIdentity().
-        localStorage.removeItem('openclaw-device-identity-v1');
+        localStorage.removeItem(OPENCLAW_COMPAT_DEVICE_IDENTITY_STORAGE_KEY);
       }
       await client.connect(engineConnectOptionsFromDraft(getCurrentEngineDraft()));
 
@@ -3281,9 +2696,7 @@ export default function App() {
         /pairing.required/i.test(info.message);
       if (isPairing) {
         setPairingRequestId(info.requestId ?? null);
-        const approvalHint = info.requestId
-          ? `openclaw devices approve ${info.requestId}`
-          : 'openclaw devices list then openclaw devices approve <requestId>';
+        const approvalHint = buildOpenClawCompatibilityAdminPairingHint(info.requestId);
         setHealth({ ok: false, message: 'New pairing request created. Approve it with admin scope.' });
         setStatus(`New pairing request created. Approve with admin scope: ${approvalHint}`);
       } else {

@@ -23,6 +23,7 @@ interface Window {
     deleteInternalSession: (sessionKey: string) => Promise<void>;
     getInternalHistory: (sessionKey: string, limit?: number) => Promise<any[]>;
     sendInternalChat: (sessionKey: string, text: string) => Promise<any>;
+    continueInternalCoworkRun: (payload: any) => Promise<any>;
     getEngineConfig: () => Promise<any>;
     saveEngineConfig: (draft: any) => Promise<any>;
     healthCheck: (baseUrl: string) => Promise<any>;

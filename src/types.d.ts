@@ -16,7 +16,13 @@ import type {
 import type { DesktopBridgeEngineConfig, EngineDraftConfig } from './lib/engine-config';
 import type { EngineDiscoveryResult } from './lib/engine-discovery';
 import type { EngineChatMessage, EngineConnectOptions, EngineModelChoice, EngineRuntimeHealthResult, EngineSessionSummary } from './lib/engine-runtime-types';
-import type { InternalEngineRuntimeInfo, InternalEngineSendChatResult, InternalEngineShellStatus } from './lib/internal-engine-bridge';
+import type {
+  InternalEngineCoworkContinuationRequest,
+  InternalEngineCoworkContinuationResult,
+  InternalEngineRuntimeInfo,
+  InternalEngineSendChatResult,
+  InternalEngineShellStatus,
+} from './lib/internal-engine-bridge';
 import type { OpenClawCompatibilityDiscoveryResult } from './lib/openclaw-compat-engine';
 
 type DesktopBridgeApi = {
@@ -38,6 +44,7 @@ type DesktopBridgeApi = {
   deleteInternalSession: (sessionKey: string) => Promise<void>;
   getInternalHistory: (sessionKey: string, limit?: number) => Promise<EngineChatMessage[]>;
   sendInternalChat: (sessionKey: string, text: string) => Promise<InternalEngineSendChatResult>;
+  continueInternalCoworkRun: (payload: InternalEngineCoworkContinuationRequest) => Promise<InternalEngineCoworkContinuationResult>;
   getEngineConfig: () => Promise<DesktopBridgeEngineConfig>;
   saveEngineConfig: (draft: EngineDraftConfig) => Promise<DesktopBridgeEngineConfig>;
   healthCheck: (baseUrl: string) => Promise<HealthCheckResult>;

@@ -31,6 +31,8 @@ export const OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR: EngineRuntimeDescriptor 
   transport: 'websocket-gateway',
 };
 
+export const OPENCLAW_COMPAT_DEVICE_IDENTITY_STORAGE_KEY = 'openclaw-device-identity-v1';
+
 export type OpenClawCompatibilityDiscoveryResult = {
   found: boolean;
   gatewayUrl: string | null;
@@ -213,6 +215,18 @@ export function readOpenClawCompatibilityError(error: unknown): EngineErrorInfo 
     code: compatibilityError.code,
     requestId,
   };
+}
+
+export function buildOpenClawCompatibilityPairingHint(requestId?: string): string {
+  return requestId
+    ? `Approve with: openclaw devices approve ${requestId}`
+    : 'Approve the pending request on the runtime host.';
+}
+
+export function buildOpenClawCompatibilityAdminPairingHint(requestId?: string): string {
+  return requestId
+    ? `openclaw devices approve ${requestId}`
+    : 'openclaw devices list then openclaw devices approve <requestId>';
 }
 
 export { GatewayRequestError as OpenClawCompatibilityRequestError };

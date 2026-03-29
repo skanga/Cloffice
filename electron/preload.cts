@@ -17,7 +17,13 @@ import type {
 import type { DesktopBridgeEngineConfig, EngineDraftConfig } from '../src/lib/engine-config.js';
 import type { EngineDiscoveryResult } from '../src/lib/engine-discovery.js';
 import type { EngineConnectOptions, EngineRuntimeHealthResult } from '../src/lib/engine-runtime-types.js';
-import type { InternalEngineRuntimeInfo, InternalEngineSendChatResult, InternalEngineShellStatus } from '../src/lib/internal-engine-bridge.js';
+import type {
+  InternalEngineCoworkContinuationRequest,
+  InternalEngineCoworkContinuationResult,
+  InternalEngineRuntimeInfo,
+  InternalEngineSendChatResult,
+  InternalEngineShellStatus,
+} from '../src/lib/internal-engine-bridge.js';
 import type { OpenClawCompatibilityDiscoveryResult } from '../src/lib/openclaw-compat-engine.js';
 
 const DEFAULT_COMPAT_ENGINE_ENDPOINT = 'ws://127.0.0.1:18789';
@@ -124,6 +130,8 @@ const desktopBridgeApi = {
     ipcRenderer.invoke('internal-engine:get-history', sessionKey, limit) as Promise<Array<{ id: string; role: 'user' | 'assistant' | 'system'; text: string }>>,
   sendInternalChat: (sessionKey: string, text: string) =>
     ipcRenderer.invoke('internal-engine:send-chat', sessionKey, text) as Promise<InternalEngineSendChatResult>,
+  continueInternalCoworkRun: (payload: InternalEngineCoworkContinuationRequest) =>
+    ipcRenderer.invoke('internal-engine:continue-cowork-run', payload) as Promise<InternalEngineCoworkContinuationResult>,
   getEngineConfig: async () =>
     parseDesktopBridgeEngineConfig(await ipcRenderer.invoke('config:get') as AppConfig, DEFAULT_COMPAT_ENGINE_ENDPOINT) as DesktopBridgeEngineConfig,
   saveEngineConfig: async (draft: EngineDraftConfig) => {
