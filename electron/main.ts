@@ -124,6 +124,21 @@ function createInternalEngineMainService() {
     | 'completed'
     | 'blocked'
     | 'interrupted';
+  type PersistedInternalRunTimelinePhase =
+    | 'submitted'
+    | 'awaiting_approval'
+    | 'approval_decision'
+    | 'executing'
+    | 'completed'
+    | 'blocked'
+    | 'interrupted';
+  type PersistedInternalRunTimelineEntry = {
+    id: string;
+    at: number;
+    phase: PersistedInternalRunTimelinePhase;
+    message: string;
+    details?: string;
+  };
   type PersistedInternalRunRecord = {
     runId: string;
     sessionKey: string;
@@ -136,6 +151,11 @@ function createInternalEngineMainService() {
     promptPreview?: string;
     summary?: string;
     interruptedReason?: string;
+    artifactId?: string;
+    approvedActionCount?: number;
+    rejectedActionCount?: number;
+    resultSummary?: string;
+    timeline?: PersistedInternalRunTimelineEntry[];
   };
   type PersistedInternalRunJournal = {
     version: 1;
@@ -527,6 +547,41 @@ function createInternalEngineMainService() {
       || candidate.status === 'interrupted'
       ? candidate.status
       : 'completed';
+    const timeline = Array.isArray(candidate.timeline)
+      ? candidate.timeline.flatMap((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return [];
+          }
+          const timelineEntry = entry as Record<string, unknown>;
+          const phase = timelineEntry.phase === 'submitted'
+            || timelineEntry.phase === 'awaiting_approval'
+            || timelineEntry.phase === 'approval_decision'
+            || timelineEntry.phase === 'executing'
+            || timelineEntry.phase === 'completed'
+            || timelineEntry.phase === 'blocked'
+            || timelineEntry.phase === 'interrupted'
+            ? timelineEntry.phase
+            : null;
+          const message =
+            typeof timelineEntry.message === 'string' && timelineEntry.message.trim()
+              ? timelineEntry.message.trim()
+              : null;
+          if (!phase || !message) {
+            return [];
+          }
+          return [{
+            id: typeof timelineEntry.id === 'string' && timelineEntry.id.trim()
+              ? timelineEntry.id.trim()
+              : crypto.randomUUID(),
+            at: Number.isFinite(timelineEntry.at) ? Number(timelineEntry.at) : now(),
+            phase,
+            message,
+            ...(typeof timelineEntry.details === 'string' && timelineEntry.details.trim()
+              ? { details: timelineEntry.details.trim() }
+              : {}),
+          } satisfies PersistedInternalRunTimelineEntry];
+        })
+      : undefined;
     return {
       runId,
       sessionKey,
@@ -547,6 +602,19 @@ function createInternalEngineMainService() {
       ...(typeof candidate.interruptedReason === 'string' && candidate.interruptedReason.trim()
         ? { interruptedReason: candidate.interruptedReason.trim() }
         : {}),
+      ...(typeof candidate.artifactId === 'string' && candidate.artifactId.trim()
+        ? { artifactId: candidate.artifactId.trim() }
+        : {}),
+      ...(Number.isFinite(candidate.approvedActionCount)
+        ? { approvedActionCount: Number(candidate.approvedActionCount) }
+        : {}),
+      ...(Number.isFinite(candidate.rejectedActionCount)
+        ? { rejectedActionCount: Number(candidate.rejectedActionCount) }
+        : {}),
+      ...(typeof candidate.resultSummary === 'string' && candidate.resultSummary.trim()
+        ? { resultSummary: candidate.resultSummary.trim() }
+        : {}),
+      ...(timeline && timeline.length > 0 ? { timeline } : {}),
     };
   };
   const parsePersistedArtifact = (value: unknown): PersistedInternalArtifactRecord | null => {
@@ -618,6 +686,23 @@ function createInternalEngineMainService() {
     version: 1,
     flows: pendingApprovalFlows,
   });
+  const latestArtifactSummary = () => {
+    const lastArtifact = artifacts[artifacts.length - 1];
+    return lastArtifact?.summary ?? null;
+  };
+  const latestRunTimelineEntry = () => {
+    let latest: PersistedInternalRunTimelineEntry | null = null;
+    for (const run of runs.values()) {
+      const candidate = run.timeline?.[run.timeline.length - 1] ?? null;
+      if (!candidate) {
+        continue;
+      }
+      if (!latest || candidate.at > latest.at) {
+        latest = candidate;
+      }
+    }
+    return latest;
+  };
   const writePersistedState = async (override?: Partial<Pick<PersistedInternalEngineState, 'cleanShutdown'>>): Promise<void> => {
     await fs.mkdir(runtimeHome, { recursive: true });
     await fs.writeFile(stateFilePath, JSON.stringify({
@@ -656,6 +741,25 @@ function createInternalEngineMainService() {
   const upsertRunRecord = (record: PersistedInternalRunRecord) => {
     runs.set(record.runId, record);
   };
+  const appendRunTimelineEntry = (
+    runId: string,
+    entry: Omit<PersistedInternalRunTimelineEntry, 'id' | 'at'> & { at?: number },
+  ) => {
+    const run = runs.get(runId);
+    if (!run) {
+      return;
+    }
+    run.timeline = [
+      ...(run.timeline ?? []),
+      {
+        id: crypto.randomUUID(),
+        at: entry.at ?? now(),
+        phase: entry.phase,
+        message: entry.message,
+        ...(entry.details ? { details: entry.details } : {}),
+      },
+    ].slice(-24);
+  };
   const markInterruptedRuns = () => {
     const recoveryReason = 'Recovered after interrupted shutdown before the run completed.';
     interruptedRunCount = 0;
@@ -664,6 +768,12 @@ function createInternalEngineMainService() {
         run.status = 'interrupted';
         run.updatedAt = now();
         run.interruptedReason = recoveryReason;
+        appendRunTimelineEntry(run.runId, {
+          phase: 'interrupted',
+          message: 'Run marked interrupted during internal runtime recovery.',
+          details: recoveryReason,
+          at: run.updatedAt,
+        });
         interruptedRunCount += 1;
       }
     }
@@ -821,6 +931,7 @@ function createInternalEngineMainService() {
       return activeSessionKey;
     },
     async getRuntimeInfo(): Promise<InternalEngineRuntimeInfo> {
+      const latestTimelineEntry = latestRunTimelineEntry();
       return {
         status: shellStatus,
         runtimeHome,
@@ -831,11 +942,15 @@ function createInternalEngineMainService() {
         sessionCount: sessions.size,
         runCount: runs.size,
         artifactCount: artifacts.length,
+        pendingApprovalCount: pendingApprovalFlows.length,
         interruptedRunCount,
         activeSessionKey,
         defaultModel,
         stateRestoreStatus,
         lastRecoveryNote,
+        latestArtifactSummary: latestArtifactSummary(),
+        latestRunTimelinePhase: latestTimelineEntry?.phase ?? null,
+        latestRunTimelineMessage: latestTimelineEntry?.message ?? null,
       };
     },
     async createChatSession(): Promise<string> {
@@ -991,6 +1106,22 @@ function createInternalEngineMainService() {
         updatedAt: now(),
         ...(previewPrompt(text) ? { promptPreview: previewPrompt(text) } : {}),
         summary: requestedActions.length > 0 ? 'Awaiting operator approval for internal read-only actions.' : 'Internal chat run completed.',
+        timeline: [
+          {
+            id: crypto.randomUUID(),
+            at: now(),
+            phase: 'submitted',
+            message: session.kind === 'cowork' ? 'Internal cowork run submitted.' : 'Internal chat run submitted.',
+          },
+          {
+            id: crypto.randomUUID(),
+            at: now(),
+            phase: requestedActions.length > 0 ? 'awaiting_approval' : 'completed',
+            message: requestedActions.length > 0
+              ? 'Awaiting operator approval for internal read-only actions.'
+              : 'Internal chat response completed.',
+          },
+        ],
       });
       interruptedRunCount = Array.from(runs.values()).filter((run) => run.status === 'interrupted').length;
       await persistState();
@@ -1030,6 +1161,12 @@ function createInternalEngineMainService() {
         existingRun.status = 'executing';
         existingRun.updatedAt = now();
         existingRun.summary = 'Executing approved internal read-only actions.';
+        appendRunTimelineEntry(payload.runId, {
+          phase: 'executing',
+          message: 'Executing approved internal read-only actions.',
+          details: `Approved: ${payload.approvedActions.length}. Rejected: ${payload.rejectedActions.length}.`,
+          at: existingRun.updatedAt,
+        });
       }
       await persistState();
 
@@ -1083,10 +1220,19 @@ function createInternalEngineMainService() {
             ? 'Internal cowork continuation completed with blocking errors.'
             : 'Internal cowork continuation completed.',
       });
+      const artifactId = `artifact:${payload.runId}`;
+      const resultSummary =
+        execution.errors.length > 0 && approvedExecution.receipts.every((receipt) => receipt.status === 'error')
+          ? 'Internal cowork continuation recorded blocking execution errors.'
+          : 'Internal cowork continuation recorded execution receipts.';
+      const completionPhase =
+        execution.errors.length > 0 && approvedExecution.receipts.every((receipt) => receipt.status === 'error')
+          ? 'blocked'
+          : 'completed';
       artifacts = [
         ...artifacts.filter((artifact) => artifact.runId !== payload.runId),
         {
-          id: `artifact:${payload.runId}`,
+          id: artifactId,
           runId: payload.runId,
           sessionKey: session.key,
           kind: 'cowork_execution' as const,
@@ -1095,14 +1241,24 @@ function createInternalEngineMainService() {
           receipts: execution.receipts,
           previews: execution.previews,
           errors: execution.errors,
-          summary:
-            execution.errors.length > 0 && approvedExecution.receipts.every((receipt) => receipt.status === 'error')
-              ? 'Internal cowork continuation recorded blocking execution errors.'
-              : 'Internal cowork continuation recorded execution receipts.',
+          summary: resultSummary,
         },
       ].sort((left, right) => left.createdAt - right.createdAt).slice(-200);
       pendingApprovalFlows = pendingApprovalFlows.filter((flow) => flow.runId !== payload.runId);
       interruptedRunCount = Array.from(runs.values()).filter((run) => run.status === 'interrupted').length;
+      const runRecord = runs.get(payload.runId);
+      if (runRecord) {
+        runRecord.artifactId = artifactId;
+        runRecord.approvedActionCount = payload.approvedActions.length;
+        runRecord.rejectedActionCount = payload.rejectedActions.length;
+        runRecord.resultSummary = resultSummary;
+        appendRunTimelineEntry(payload.runId, {
+          phase: completionPhase,
+          message: resultSummary,
+          details: `Receipts: ${execution.receipts.length}. Errors: ${execution.errors.length}.`,
+          at: now(),
+        });
+      }
       await persistState();
 
       return {
@@ -1153,11 +1309,22 @@ function createInternalEngineMainService() {
       }
 
       const next = applyInternalApprovalRecoveryDecision(flow, decision);
+      appendRunTimelineEntry(runId, {
+        phase: 'approval_decision',
+        message: decision.approved
+          ? `Approved ${flow.currentApproval.summary}.`
+          : `Rejected ${flow.currentApproval.summary}.`,
+        ...(decision.approved ? {} : { details: decision.reason || 'Rejected by operator.' }),
+      });
       if (next.kind === 'next') {
         pendingApprovalFlows = [
           ...pendingApprovalFlows.filter((entry) => entry.runId !== runId),
           next.flow,
         ];
+        appendRunTimelineEntry(runId, {
+          phase: 'awaiting_approval',
+          message: `Awaiting approval for ${next.flow.currentApproval.summary}.`,
+        });
         await persistState();
         return next;
       }

@@ -39,11 +39,15 @@ export type InternalEngineRuntimeInfo = {
   sessionCount: number;
   runCount: number;
   artifactCount: number;
+  pendingApprovalCount: number;
   interruptedRunCount: number;
   activeSessionKey: string | null;
   defaultModel: string;
   stateRestoreStatus: 'fresh' | 'restored' | 'recovered_after_interruption' | 'load_failed';
   lastRecoveryNote: string | null;
+  latestArtifactSummary: string | null;
+  latestRunTimelinePhase: string | null;
+  latestRunTimelineMessage: string | null;
 };
 
 export type InternalEngineCoworkActionPhase =

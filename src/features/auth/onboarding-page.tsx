@@ -695,10 +695,21 @@ export function OnboardingPage({
                   <p><span className="font-medium text-foreground">Sessions:</span> {internalRuntimeInfo.sessionCount}</p>
                   <p><span className="font-medium text-foreground">Runs:</span> {internalRuntimeInfo.runCount}</p>
                   <p><span className="font-medium text-foreground">Artifacts:</span> {internalRuntimeInfo.artifactCount}</p>
+                  <p><span className="font-medium text-foreground">Pending approvals:</span> {internalRuntimeInfo.pendingApprovalCount}</p>
                   <p><span className="font-medium text-foreground">Interrupted runs:</span> {internalRuntimeInfo.interruptedRunCount}</p>
                   <p><span className="font-medium text-foreground">Active session:</span> {internalRuntimeInfo.activeSessionKey ?? 'none'}</p>
                   <p><span className="font-medium text-foreground">Default model:</span> {internalRuntimeInfo.defaultModel}</p>
                   <p><span className="font-medium text-foreground">Status:</span> {internalRuntimeInfo.status.availableInBuild ? 'Internal development runtime available.' : internalRuntimeInfo.status.unavailableReason}</p>
+                  {internalRuntimeInfo.latestArtifactSummary ? (
+                    <p><span className="font-medium text-foreground">Latest artifact:</span> {internalRuntimeInfo.latestArtifactSummary}</p>
+                  ) : null}
+                  {internalRuntimeInfo.latestRunTimelineMessage ? (
+                    <p>
+                      <span className="font-medium text-foreground">Latest run event:</span>{' '}
+                      {internalRuntimeInfo.latestRunTimelinePhase ? `${internalRuntimeInfo.latestRunTimelinePhase} - ` : ''}
+                      {internalRuntimeInfo.latestRunTimelineMessage}
+                    </p>
+                  ) : null}
                   {internalRuntimeInfo.lastRecoveryNote ? (
                     <p><span className="font-medium text-foreground">Recovery:</span> {internalRuntimeInfo.lastRecoveryNote}</p>
                   ) : null}
