@@ -14,16 +14,72 @@ import type {
   LocalFilePlanAction,
   LocalFilePlanResult,
 } from '../src/app-types.js';
-import { parseDesktopBridgeEngineConfig, prepareEngineConfigWrite, type DesktopBridgeEngineConfig, type EngineDraftConfig } from '../src/lib/engine-config.js';
-import { normalizeEngineDiscoveryResult } from '../src/lib/engine-discovery.js';
-import { normalizeEngineRuntimeHealthResult, type EngineConnectOptions, type EngineRuntimeHealthResult } from '../src/lib/engine-runtime-types.js';
+import type { DesktopBridgeEngineConfig, EngineDraftConfig } from '../src/lib/engine-config.js';
+import type { EngineDiscoveryResult } from '../src/lib/engine-discovery.js';
+import type { EngineConnectOptions, EngineRuntimeHealthResult } from '../src/lib/engine-runtime-types.js';
 import type { InternalEngineRuntimeInfo, InternalEngineSendChatResult, InternalEngineShellStatus } from '../src/lib/internal-engine-bridge.js';
-import {
-  OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR,
-  type OpenClawCompatibilityDiscoveryResult,
-} from '../src/lib/openclaw-compat-engine.js';
+import type { OpenClawCompatibilityDiscoveryResult } from '../src/lib/openclaw-compat-engine.js';
 
 const DEFAULT_COMPAT_ENGINE_ENDPOINT = 'ws://127.0.0.1:18789';
+const OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR = {
+  providerId: 'openclaw-compat',
+  runtimeKind: 'openclaw-compat',
+  transport: 'websocket-gateway',
+} as const;
+
+function parseDesktopBridgeEngineConfig(
+  config: AppConfig,
+  fallbackEndpoint: string,
+): DesktopBridgeEngineConfig {
+  return {
+    appConfig: {
+      gatewayUrl: config.gatewayUrl?.trim() || fallbackEndpoint,
+      gatewayToken: config.gatewayToken ?? '',
+    },
+    engineDraft: {
+      providerId: 'openclaw-compat',
+      runtimeKind: 'openclaw-compat',
+      transport: 'websocket-gateway',
+      endpointUrl: config.gatewayUrl?.trim() || fallbackEndpoint,
+      accessToken: config.gatewayToken ?? '',
+    },
+    storageVersion: 1,
+  };
+}
+
+function prepareDesktopBridgeEngineConfigWrite(draft: EngineDraftConfig): { legacyAppConfig: AppConfig } {
+  return {
+    legacyAppConfig: {
+      gatewayUrl: draft.endpointUrl?.trim() || DEFAULT_COMPAT_ENGINE_ENDPOINT,
+      gatewayToken: draft.accessToken ?? '',
+    },
+  };
+}
+
+function normalizeEngineDiscoveryResult(result: OpenClawCompatibilityDiscoveryResult): EngineDiscoveryResult {
+  return {
+    found: result.found,
+    endpointUrl: result.gatewayUrl,
+    binaryFound: result.binaryFound,
+    binaryPath: result.binaryPath,
+    message: result.message,
+    providerId: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.providerId,
+    runtimeKind: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind,
+    transport: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.transport,
+  };
+}
+
+function normalizeEngineRuntimeHealthResult(
+  result: HealthCheckResult,
+  runtime: typeof OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR,
+): EngineRuntimeHealthResult {
+  return {
+    ...result,
+    providerId: runtime.providerId,
+    runtimeKind: runtime.runtimeKind,
+    transport: runtime.transport,
+  };
+}
 
 const desktopBridgeApi = {
   getConfig: () => ipcRenderer.invoke('config:get') as Promise<AppConfig>,
@@ -40,6 +96,8 @@ const desktopBridgeApi = {
     ipcRenderer.invoke('internal-engine:get-active-session-key') as Promise<string>,
   createInternalChatSession: () =>
     ipcRenderer.invoke('internal-engine:create-chat-session') as Promise<string>,
+  createInternalCoworkSession: () =>
+    ipcRenderer.invoke('internal-engine:create-cowork-session') as Promise<string>,
   resolveInternalSessionKey: (preferredKey?: string) =>
     ipcRenderer.invoke('internal-engine:resolve-session-key', preferredKey) as Promise<string>,
   listInternalSessions: (limit?: number) =>
@@ -61,10 +119,7 @@ const desktopBridgeApi = {
   getEngineConfig: async () =>
     parseDesktopBridgeEngineConfig(await ipcRenderer.invoke('config:get') as AppConfig, DEFAULT_COMPAT_ENGINE_ENDPOINT) as DesktopBridgeEngineConfig,
   saveEngineConfig: async (draft: EngineDraftConfig) => {
-    const preparedWrite = prepareEngineConfigWrite(draft, {
-      developerBuild: process.env.NODE_ENV !== 'production',
-      developerOptIn: process.env.CLOFFICE_ENABLE_INTERNAL_CONFIG_V2 === '1',
-    });
+    const preparedWrite = prepareDesktopBridgeEngineConfigWrite(draft);
     return parseDesktopBridgeEngineConfig(
       await ipcRenderer.invoke('config:save', preparedWrite.legacyAppConfig) as AppConfig,
       draft.endpointUrl || DEFAULT_COMPAT_ENGINE_ENDPOINT,

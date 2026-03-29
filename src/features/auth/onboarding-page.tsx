@@ -145,7 +145,7 @@ export function OnboardingPage({
             selectionEnabled: internalRuntimeInfo.status.availableInBuild,
             availabilityReason: internalRuntimeInfo.status.availableInBuild ? undefined : internalRuntimeInfo.status.unavailableReason,
             summary: internalRuntimeInfo.status.availableInBuild
-              ? 'Developer-only internal runtime available in this build.'
+              ? `Developer-only internal runtime ${internalRuntimeInfo.readiness === 'ready' ? 'ready for chat sessions' : 'available in this build'}.`
               : provider.summary,
           }
         : provider
@@ -266,7 +266,7 @@ export function OnboardingPage({
             <p className="mb-2 max-w-[340px] font-sans text-[15px] leading-relaxed text-muted-foreground">
               Local-first AI coworking with governed approvals.
               <br />
-              Connect a runtime endpoint to get started. This phase currently runs through the OpenClaw compatibility provider while the internal engine is being prepared.
+              Connect a runtime endpoint to get started. OpenClaw compatibility remains the default path, while the internal engine development runtime is available in developer builds.
             </p>
 
             {/* Discovery states */}
@@ -665,8 +665,10 @@ export function OnboardingPage({
               You're all set
             </h2>
             <p className="mb-2 font-sans text-[15px] leading-relaxed text-muted-foreground">
-              {selectedEngineProviderCard.availableInBuild
-                ? `Cloffice is connected to the current runtime endpoint through ${selectedEngineProviderCard.displayName}.`
+              {selectedEngineProviderCard.id === 'internal' && internalRuntimeInfo
+                ? `Cloffice is connected to the internal development runtime. Readiness: ${internalRuntimeInfo.readiness}.`
+                : selectedEngineProviderCard.availableInBuild
+                  ? `Cloffice is connected to the current runtime endpoint through ${selectedEngineProviderCard.displayName}.`
                 : `${selectedEngineProviderCard.displayName} is registered in Cloffice, but this build is currently connected through the OpenClaw compatibility runtime. ${selectedEngineProviderCard.availabilityReason ?? ''}`.trim()}
             </p>
 
@@ -683,11 +685,15 @@ export function OnboardingPage({
               <div className="mb-6 w-full max-w-[360px] rounded-xl border border-dashed border-border bg-muted/20 px-4 py-3 text-left">
                 <p className="font-sans text-[12px] font-semibold text-foreground">Internal runtime diagnostics</p>
                 <div className="mt-2 grid gap-1 font-sans text-[11px] text-muted-foreground">
+                  <p><span className="font-medium text-foreground">Readiness:</span> {internalRuntimeInfo.readiness}</p>
                   <p><span className="font-medium text-foreground">Service:</span> {internalRuntimeInfo.serviceName}</p>
                   <p><span className="font-medium text-foreground">Version:</span> {internalRuntimeInfo.serviceVersion}</p>
                   <p><span className="font-medium text-foreground">Home:</span> {internalRuntimeInfo.runtimeHome}</p>
                   <p><span className="font-medium text-foreground">Connected:</span> {internalRuntimeInfo.connected ? 'yes' : 'no'}</p>
-                  <p><span className="font-medium text-foreground">Status:</span> {internalRuntimeInfo.status.unavailableReason}</p>
+                  <p><span className="font-medium text-foreground">Sessions:</span> {internalRuntimeInfo.sessionCount}</p>
+                  <p><span className="font-medium text-foreground">Active session:</span> {internalRuntimeInfo.activeSessionKey ?? 'none'}</p>
+                  <p><span className="font-medium text-foreground">Default model:</span> {internalRuntimeInfo.defaultModel}</p>
+                  <p><span className="font-medium text-foreground">Status:</span> {internalRuntimeInfo.status.availableInBuild ? 'Internal development runtime available.' : internalRuntimeInfo.status.unavailableReason}</p>
                 </div>
               </div>
             ) : null}

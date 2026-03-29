@@ -21,11 +21,11 @@ import {
 } from './internal-engine-bridge.js';
 
 /**
- * Placeholder client for the future internal engine.
+ * Transitional client for the internal engine development path.
  *
- * It intentionally does not provide a working transport yet. The class exists so
- * higher-level factory code can model the future provider split without claiming
- * that the internal engine path is implemented.
+ * The current implementation is intentionally narrow: it supports the desktop-
+ * backed development runtime for connection/session/chat semantics, while
+ * leaving broader cowork, scheduling, and workspace behavior for later phases.
  */
 export const INTERNAL_ENGINE_RUNTIME_DESCRIPTOR: EngineRuntimeDescriptor = {
   providerId: 'internal',
@@ -118,6 +118,9 @@ export class InternalEnginePlaceholderClient implements EngineRuntimeClient {
         this.eventHandler?.({
           type: 'event',
           event: 'chat',
+          stateVersion: {
+            historyLength: internalResult.historyLength,
+          },
           payload: {
             sessionKey: internalResult.sessionKey,
             runId: internalResult.runId,

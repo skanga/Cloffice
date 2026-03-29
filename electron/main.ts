@@ -53,36 +53,188 @@ function createInternalEngineMainService() {
   const runtimeHome = path.join(app.getPath('userData'), 'internal-engine');
   const serviceName = 'cloffice-internal-engine-shell';
   const defaultModel = 'internal/dev-echo';
-  const modelChoices: EngineModelChoice[] = [{ value: defaultModel, label: 'Internal Dev Echo' }];
+  const modelBehaviors: Record<string, {
+    label: string;
+    historyLimit: number;
+    titlePrefix: string;
+    bootstrapMessage: string | null;
+  }> = {
+    'internal/dev-echo': {
+      label: 'Internal Dev Echo',
+      historyLimit: 80,
+      titlePrefix: 'Chat',
+      bootstrapMessage: null,
+    },
+    'internal/dev-brief': {
+      label: 'Internal Dev Brief',
+      historyLimit: 24,
+      titlePrefix: 'Brief',
+      bootstrapMessage: 'Brief mode active. Prefer short summaries and concise answers.',
+    },
+    'internal/dev-planner': {
+      label: 'Internal Dev Planner',
+      historyLimit: 120,
+      titlePrefix: 'Plan',
+      bootstrapMessage: 'Planner mode active. Prefer structured plans and explicit next steps.',
+    },
+  };
+  const modelChoices: EngineModelChoice[] = Object.entries(modelBehaviors).map(([value, behavior]) => ({
+    value,
+    label: behavior.label,
+  }));
   const mainSessionKey = 'internal:main';
+  const maxSessionHistory = 80;
+  let activeSessionKey: string | null = null;
   const sessions = new Map<string, {
     key: string;
     kind: string;
     title?: string;
     model: string | null;
     messages: EngineChatMessage[];
+    updatedAt: number;
   }>();
 
   const unavailable = () => new Error(shellStatus.unavailableReason);
+  const requireConnected = () => {
+    if (!shellStatus.availableInBuild) {
+      throw unavailable();
+    }
+    if (!connected) {
+      throw new Error('Internal engine development runtime is not connected.');
+    }
+  };
+  const now = () => Date.now();
+  const resolveModelValue = (value: string | null | undefined) => (
+    value && value in modelBehaviors ? value : defaultModel
+  );
+  const getModelBehavior = (value: string | null | undefined) => modelBehaviors[resolveModelValue(value)];
+  const normalizeSessionTitle = (title: string) => {
+    const compact = title.replace(/\s+/g, ' ').trim();
+    return compact.length > 48 ? `${compact.slice(0, 45).trimEnd()}...` : compact;
+  };
+  const inferSessionTitle = (sessionKey: string, text: string, model: string) => {
+    if (sessionKey === mainSessionKey) {
+      return 'Main chat';
+    }
+    const behavior = getModelBehavior(model);
+    const normalized = normalizeSessionTitle(text);
+    if (sessionKey.startsWith('internal:cowork:')) {
+      return normalized ? `Task: ${normalized}` : 'Task session';
+    }
+    return normalized ? `${behavior.titlePrefix}: ${normalized}` : `${behavior.titlePrefix} session`;
+  };
+  const formatPlannerResponse = (text: string) => {
+    const normalized = text.replace(/\s+/g, ' ').trim() || 'the current request';
+    return [
+      'Internal planner response.',
+      '',
+      `Goal: ${normalized}`,
+      '',
+      '1. Clarify the immediate objective and required output.',
+      '2. Isolate the smallest runnable change that advances the objective.',
+      '3. Identify the next validation or integration step after the change lands.',
+    ].join('\n');
+  };
+  const formatCoworkFoundationResponse = (text: string, sessionKey: string) => {
+    const normalized = text.replace(/\s+/g, ' ').trim() || 'the current cowork task';
+    return [
+      'Internal cowork foundation response.',
+      '',
+      `Task session: ${sessionKey}`,
+      `Task: ${normalized}`,
+      '',
+      'Planned steps:',
+      '1. Restate the task and confirm the intended output.',
+      '2. Break the task into a small execution plan.',
+      '3. Identify which engine actions would be needed once the internal action runner exists.',
+      '',
+      'Current limitation: internal cowork foundations do not execute workspace actions yet.',
+    ].join('\n');
+  };
+  const formatInternalAssistantText = (
+    model: string,
+    text: string,
+    sessionKey: string,
+    historyLength: number,
+    kind: string,
+  ) => {
+    const normalized = text.trim() || 'No prompt text supplied.';
+    if (kind === 'cowork') {
+      return formatCoworkFoundationResponse(normalized, sessionKey);
+    }
+    if (model === 'internal/dev-brief') {
+      return [
+        'Internal brief response.',
+        '',
+        `Session: ${sessionKey}`,
+        `History messages: ${historyLength}`,
+        '',
+        `Summary: ${normalized.slice(0, 220)}`,
+      ].join('\n');
+    }
+    if (model === 'internal/dev-planner') {
+      return formatPlannerResponse(normalized);
+    }
+    return [
+      'Internal engine development response.',
+      '',
+      `Session: ${sessionKey}`,
+      `History messages: ${historyLength}`,
+      '',
+      'Echo:',
+      normalized,
+    ].join('\n');
+  };
+  const touchSession = (sessionKey: string) => {
+    const session = sessions.get(sessionKey);
+    if (session) {
+      session.updatedAt = now();
+    }
+  };
+  const appendSystemMessage = (messages: EngineChatMessage[], text: string) => {
+    messages.push({
+      id: crypto.randomUUID(),
+      role: 'system',
+      text,
+    });
+  };
+  const ensureModeBootstrap = (session: { model: string | null; messages: EngineChatMessage[] }) => {
+    const behavior = getModelBehavior(session.model);
+    if (
+      behavior.bootstrapMessage
+      && !session.messages.some((message) => message.role === 'system' && message.text === behavior.bootstrapMessage)
+    ) {
+      appendSystemMessage(session.messages, behavior.bootstrapMessage);
+    }
+  };
+  const trimSessionHistory = (session: { model: string | null; messages: EngineChatMessage[] }) => {
+    const historyLimit = getModelBehavior(session.model).historyLimit ?? maxSessionHistory;
+    if (session.messages.length > historyLimit) {
+      session.messages.splice(0, session.messages.length - historyLimit);
+    }
+  };
 
   const ensureSession = (sessionKey: string, kind: string = 'chat') => {
     const normalizedKey = sessionKey.trim() || mainSessionKey;
     const existing = sessions.get(normalizedKey);
     if (existing) {
+      touchSession(normalizedKey);
       return existing;
     }
     const created = {
       key: normalizedKey,
       kind,
       title: normalizedKey === mainSessionKey ? 'Main chat' : undefined,
-      model: defaultModel,
+      model: kind === 'cowork' ? 'internal/dev-planner' : defaultModel,
       messages: [] as EngineChatMessage[],
+      updatedAt: now(),
     };
     sessions.set(normalizedKey, created);
     return created;
   };
 
   ensureSession(mainSessionKey, 'main');
+  activeSessionKey = mainSessionKey;
 
   return {
     getStatus() {
@@ -94,16 +246,17 @@ function createInternalEngineMainService() {
         throw unavailable();
       }
       connected = true;
+      activeSessionKey = mainSessionKey;
+      ensureSession(mainSessionKey, 'main');
       await fs.mkdir(runtimeHome, { recursive: true });
     },
     async disconnect(): Promise<void> {
       connected = false;
     },
     async getActiveSessionKey(): Promise<string> {
-      if (!connected) {
-        throw unavailable();
-      }
-      return ensureSession(mainSessionKey, 'main').key;
+      requireConnected();
+      activeSessionKey = ensureSession(mainSessionKey, 'main').key;
+      return activeSessionKey;
     },
     async getRuntimeInfo(): Promise<InternalEngineRuntimeInfo> {
       return {
@@ -112,75 +265,112 @@ function createInternalEngineMainService() {
         serviceVersion: app.getVersion(),
         serviceName,
         connected,
+        readiness: !shellStatus.availableInBuild ? 'unavailable' : connected ? 'ready' : 'idle',
+        sessionCount: sessions.size,
+        activeSessionKey,
+        defaultModel,
       };
     },
     async createChatSession(): Promise<string> {
-      if (!connected) {
-        throw unavailable();
-      }
+      requireConnected();
       const key = `internal:chat:${crypto.randomUUID()}`;
-      return ensureSession(key, 'chat').key;
+      activeSessionKey = ensureSession(key, 'chat').key;
+      return activeSessionKey;
+    },
+    async createCoworkSession(): Promise<string> {
+      requireConnected();
+      const key = `internal:cowork:${crypto.randomUUID()}`;
+      activeSessionKey = ensureSession(key, 'cowork').key;
+      return activeSessionKey;
     },
     async resolveSessionKey(preferredKey = 'main'): Promise<string> {
-      if (!connected) {
-        throw unavailable();
-      }
+      requireConnected();
       if (!preferredKey || preferredKey === 'main') {
+        activeSessionKey = mainSessionKey;
         return mainSessionKey;
       }
-      return ensureSession(preferredKey, 'chat').key;
+      activeSessionKey = ensureSession(
+        preferredKey,
+        preferredKey.startsWith('internal:cowork:') ? 'cowork' : 'chat',
+      ).key;
+      return activeSessionKey;
     },
     async listSessions(limit = 200): Promise<EngineSessionSummary[]> {
-      if (!connected) {
-        throw unavailable();
-      }
-      return Array.from(sessions.values()).slice(0, limit).map(({ key, kind, title }) => ({ key, kind, title }));
+      requireConnected();
+      return Array.from(sessions.values())
+        .sort((left, right) => right.updatedAt - left.updatedAt)
+        .slice(0, limit)
+        .map(({ key, kind, title }) => ({ key, kind, title }));
     },
     async listModels(): Promise<EngineModelChoice[]> {
-      if (!connected) {
-        throw unavailable();
-      }
+      requireConnected();
       return modelChoices;
     },
     async getSessionModel(sessionKey: string): Promise<string | null> {
-      if (!connected) {
-        throw unavailable();
-      }
-      return ensureSession(sessionKey, 'chat').model;
+      requireConnected();
+      return ensureSession(
+        sessionKey,
+        sessionKey.startsWith('internal:cowork:') ? 'cowork' : 'chat',
+      ).model;
     },
     async setSessionModel(sessionKey: string, modelValue: string | null): Promise<void> {
-      if (!connected) {
-        throw unavailable();
+      requireConnected();
+      const session = ensureSession(
+        sessionKey,
+        sessionKey.startsWith('internal:cowork:') ? 'cowork' : 'chat',
+      );
+      const nextModel = resolveModelValue(modelValue && modelValue.trim() ? modelValue.trim() : defaultModel);
+      const previousModel = resolveModelValue(session.model);
+      session.model = nextModel;
+      if (previousModel !== nextModel) {
+        appendSystemMessage(session.messages, `Mode switched to ${getModelBehavior(nextModel).label}.`);
+        trimSessionHistory(session);
       }
-      ensureSession(sessionKey, 'chat').model = modelValue && modelValue.trim() ? modelValue.trim() : defaultModel;
+      session.updatedAt = now();
     },
     async setSessionTitle(sessionKey: string, title: string | null): Promise<void> {
-      if (!connected) {
-        throw unavailable();
-      }
-      ensureSession(sessionKey, 'chat').title = title && title.trim() ? title.trim() : undefined;
+      requireConnected();
+      const session = ensureSession(
+        sessionKey,
+        sessionKey.startsWith('internal:cowork:') ? 'cowork' : 'chat',
+      );
+      session.title = title && title.trim() ? normalizeSessionTitle(title) : undefined;
+      session.updatedAt = now();
     },
     async deleteSession(sessionKey: string): Promise<void> {
-      if (!connected) {
-        throw unavailable();
-      }
+      requireConnected();
       if (sessionKey === mainSessionKey) {
-        sessions.set(mainSessionKey, { ...ensureSession(mainSessionKey, 'main'), messages: [] });
+        const mainSession = ensureSession(mainSessionKey, 'main');
+        sessions.set(mainSessionKey, {
+          ...mainSession,
+          title: 'Main chat',
+          messages: [],
+          updatedAt: now(),
+        });
+        activeSessionKey = mainSessionKey;
         return;
       }
       sessions.delete(sessionKey);
+      if (activeSessionKey === sessionKey) {
+        activeSessionKey = mainSessionKey;
+      }
     },
     async getHistory(sessionKey: string, limit = 50): Promise<EngineChatMessage[]> {
-      if (!connected) {
-        throw unavailable();
-      }
-      return ensureSession(sessionKey, sessionKey === mainSessionKey ? 'main' : 'chat').messages.slice(-limit);
+      requireConnected();
+      return ensureSession(
+        sessionKey,
+        sessionKey === mainSessionKey ? 'main' : sessionKey.startsWith('internal:cowork:') ? 'cowork' : 'chat',
+      ).messages.slice(-limit);
     },
     async sendChat(sessionKey: string, text: string): Promise<InternalEngineSendChatResult> {
-      if (!connected) {
-        throw unavailable();
-      }
-      const session = ensureSession(sessionKey, sessionKey === mainSessionKey ? 'main' : 'chat');
+      requireConnected();
+      const session = ensureSession(
+        sessionKey,
+        sessionKey === mainSessionKey ? 'main' : sessionKey.startsWith('internal:cowork:') ? 'cowork' : 'chat',
+      );
+      const nextModel = resolveModelValue(session.model);
+      session.model = nextModel;
+      ensureModeBootstrap(session);
       const userMessage: EngineChatMessage = {
         id: crypto.randomUUID(),
         role: 'user',
@@ -189,22 +379,22 @@ function createInternalEngineMainService() {
       const assistantMessage: EngineChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        text: [
-          'Internal engine development path response.',
-          '',
-          `Session: ${session.key}`,
-          `Model: ${session.model ?? defaultModel}`,
-          '',
-          'Echo:',
-          text,
-        ].join('\n'),
+        text: formatInternalAssistantText(nextModel, text, session.key, session.messages.length + 2, session.kind),
       };
       session.messages.push(userMessage, assistantMessage);
+      trimSessionHistory(session);
+      session.updatedAt = now();
+      activeSessionKey = session.key;
+      if (!session.title) {
+        session.title = inferSessionTitle(session.key, text, nextModel);
+      }
       return {
         sessionKey: session.key,
         runId: crypto.randomUUID(),
         assistantMessage,
-        model: session.model ?? defaultModel,
+        model: nextModel,
+        historyLength: session.messages.length,
+        sessionTitle: session.title,
       };
     },
     isConnected() {
@@ -1143,6 +1333,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('internal-engine:disconnect', async () => internalEngineService.disconnect());
   ipcMain.handle('internal-engine:get-active-session-key', async () => internalEngineService.getActiveSessionKey());
   ipcMain.handle('internal-engine:create-chat-session', async () => internalEngineService.createChatSession());
+  ipcMain.handle('internal-engine:create-cowork-session', async () => internalEngineService.createCoworkSession());
   ipcMain.handle('internal-engine:resolve-session-key', async (_event, preferredKey?: string) => internalEngineService.resolveSessionKey(preferredKey));
   ipcMain.handle('internal-engine:list-sessions', async (_event, limit?: number) => internalEngineService.listSessions(limit));
   ipcMain.handle('internal-engine:list-models', async () => internalEngineService.listModels());

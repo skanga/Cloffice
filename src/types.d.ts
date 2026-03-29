@@ -28,6 +28,7 @@ type DesktopBridgeApi = {
   disconnectInternalEngine: () => Promise<void>;
   getInternalEngineActiveSessionKey: () => Promise<string>;
   createInternalChatSession: () => Promise<string>;
+  createInternalCoworkSession: () => Promise<string>;
   resolveInternalSessionKey: (preferredKey?: string) => Promise<string>;
   listInternalSessions: (limit?: number) => Promise<EngineSessionSummary[]>;
   listInternalModels: () => Promise<EngineModelChoice[]>;

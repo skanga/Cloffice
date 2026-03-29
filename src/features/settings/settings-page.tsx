@@ -272,7 +272,7 @@ export function SettingsPage({
             selectionEnabled: internalRuntimeInfo.status.availableInBuild,
             availabilityReason: internalRuntimeInfo.status.availableInBuild ? undefined : internalRuntimeInfo.status.unavailableReason,
             summary: internalRuntimeInfo.status.availableInBuild
-              ? 'Developer-only internal runtime available in this build.'
+              ? `Developer-only internal runtime ${internalRuntimeInfo.readiness === 'ready' ? 'ready for chat sessions' : 'available in this build'}.`
               : provider.summary,
           }
         : provider
@@ -605,12 +605,16 @@ export function SettingsPage({
                 <p className="font-sans text-xs text-muted-foreground">{t('Engine provider', 'Engine-Anbieter')}</p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {t(
-                    selectedEngineProviderCard.availableInBuild
-                      ? `${selectedEngineProviderCard.displayName} is available in this build.`
-                      : `${selectedEngineProviderCard.displayName} is registered, but not yet runnable in this build.`,
-                    selectedEngineProviderCard.availableInBuild
-                      ? `${selectedEngineProviderCard.displayName} ist in diesem Build verfuegbar.`
-                      : `${selectedEngineProviderCard.displayName} ist registriert, aber in diesem Build noch nicht lauffaehig.`,
+                    selectedEngineProviderCard.id === 'internal' && internalRuntimeInfo
+                      ? `Internal runtime is ${internalRuntimeInfo.readiness} in this build.`
+                      : selectedEngineProviderCard.availableInBuild
+                        ? `${selectedEngineProviderCard.displayName} is available in this build.`
+                        : `${selectedEngineProviderCard.displayName} is registered, but not yet runnable in this build.`,
+                    selectedEngineProviderCard.id === 'internal' && internalRuntimeInfo
+                      ? `Die interne Laufzeit ist in diesem Build ${internalRuntimeInfo.readiness === 'ready' ? 'bereit' : internalRuntimeInfo.readiness === 'idle' ? 'im Leerlauf' : 'nicht verfuegbar'}.`
+                      : selectedEngineProviderCard.availableInBuild
+                        ? `${selectedEngineProviderCard.displayName} ist in diesem Build verfuegbar.`
+                        : `${selectedEngineProviderCard.displayName} ist registriert, aber in diesem Build noch nicht lauffaehig.`,
                   )}
                 </p>
               </div>
@@ -648,11 +652,15 @@ export function SettingsPage({
                 <div className="rounded-lg border border-dashed border-border/70 bg-muted/20 px-3 py-3">
                   <p className="text-xs font-medium text-foreground">Internal runtime diagnostics</p>
                   <div className="mt-2 grid gap-1 text-[11px] text-muted-foreground">
+                    <p><span className="font-medium text-foreground">Readiness:</span> {internalRuntimeInfo.readiness}</p>
                     <p><span className="font-medium text-foreground">Service:</span> {internalRuntimeInfo.serviceName}</p>
                     <p><span className="font-medium text-foreground">Version:</span> {internalRuntimeInfo.serviceVersion}</p>
                     <p><span className="font-medium text-foreground">Home:</span> {internalRuntimeInfo.runtimeHome}</p>
                     <p><span className="font-medium text-foreground">Connected:</span> {internalRuntimeInfo.connected ? 'yes' : 'no'}</p>
-                    <p><span className="font-medium text-foreground">Status:</span> {internalRuntimeInfo.status.unavailableReason}</p>
+                    <p><span className="font-medium text-foreground">Sessions:</span> {internalRuntimeInfo.sessionCount}</p>
+                    <p><span className="font-medium text-foreground">Active session:</span> {internalRuntimeInfo.activeSessionKey ?? 'none'}</p>
+                    <p><span className="font-medium text-foreground">Default model:</span> {internalRuntimeInfo.defaultModel}</p>
+                    <p><span className="font-medium text-foreground">Status:</span> {internalRuntimeInfo.status.availableInBuild ? 'Internal development runtime available.' : internalRuntimeInfo.status.unavailableReason}</p>
                   </div>
                 </div>
               ) : null}

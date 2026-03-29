@@ -33,6 +33,10 @@ export type InternalEngineRuntimeInfo = {
   serviceVersion: string;
   serviceName: string;
   connected: boolean;
+  readiness: 'unavailable' | 'idle' | 'ready';
+  sessionCount: number;
+  activeSessionKey: string | null;
+  defaultModel: string;
 };
 
 export type InternalEngineSendChatResult = {
@@ -40,6 +44,8 @@ export type InternalEngineSendChatResult = {
   runId: string;
   assistantMessage: EngineChatMessage;
   model: string;
+  historyLength: number;
+  sessionTitle?: string;
 };
 
 export type InternalEngineLifecycleBridge = {
@@ -96,6 +102,7 @@ export type InternalEngineDesktopBridge = {
   disconnectInternalEngine(): Promise<void>;
   getInternalEngineActiveSessionKey(): Promise<string>;
   createInternalChatSession(): Promise<string>;
+  createInternalCoworkSession(): Promise<string>;
   resolveInternalSessionKey(preferredKey?: string): Promise<string>;
   listInternalSessions(limit?: number): Promise<EngineSessionSummary[]>;
   listInternalModels(): Promise<EngineModelChoice[]>;
@@ -157,18 +164,25 @@ export function createDesktopBackedInternalEngineBridge(
   status: InternalEngineShellStatus,
 ): InternalEngineBridge {
   const fail = <T>(): Promise<T> => Promise.reject(createUnavailableInternalEngineError(status.unavailableReason));
+  let connected = false;
 
   return {
     status,
     lifecycle: {
-      connect: (options) => desktopBridge.connectInternalEngine(options),
-      disconnect: () => desktopBridge.disconnectInternalEngine(),
-      isConnected: () => false,
+      connect: async (options) => {
+        await desktopBridge.connectInternalEngine(options);
+        connected = true;
+      },
+      disconnect: async () => {
+        connected = false;
+        await desktopBridge.disconnectInternalEngine();
+      },
+      isConnected: () => connected,
     },
     sessions: {
       getActiveSessionKey: () => desktopBridge.getInternalEngineActiveSessionKey(),
       createChatSession: () => desktopBridge.createInternalChatSession(),
-      createCoworkSession: () => fail<string>(),
+      createCoworkSession: () => desktopBridge.createInternalCoworkSession(),
       sendChat: (sessionKey, text) => desktopBridge.sendInternalChat(sessionKey, text),
       resolveSessionKey: (preferredKey) => desktopBridge.resolveInternalSessionKey(preferredKey),
       getHistory: (sessionKey, limit) => desktopBridge.getInternalHistory(sessionKey, limit),
