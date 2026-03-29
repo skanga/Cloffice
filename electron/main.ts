@@ -23,6 +23,7 @@ import type {
   LocalFileStatResult,
   GatewayDiscoveryResult,
 } from '../src/app-types.js';
+import { describeInternalEngineShell } from '../src/lib/internal-engine-placeholder.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -954,6 +955,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('config:get', async () => readConfig());
   ipcMain.handle('config:save', async (_event, config: AppConfig) => writeConfig(config));
+  ipcMain.handle('internal-engine:status', async () => describeInternalEngineShell());
   ipcMain.handle('backend:health-check', async (_event, baseUrl: string) => runHealthCheck(baseUrl));
   ipcMain.handle('gateway:discover', async () => discoverGateway());
   ipcMain.handle('plugin:check-workspace', async () => {

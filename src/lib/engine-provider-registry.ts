@@ -1,6 +1,6 @@
-import type { EngineProviderId, EngineRuntimeKind, EngineTransport } from '@/app-types';
-import { getProviderAwareEngineConfigMigrationPlan } from './engine-config-migration';
-import { describeInternalEngineShell } from './internal-engine-placeholder';
+import type { EngineProviderId, EngineRuntimeKind, EngineTransport } from '../app-types.js';
+import { getProviderAwareEngineConfigMigrationPlan } from './engine-config-migration.js';
+import { describeInternalEngineShell } from './internal-engine-placeholder.js';
 
 export type EngineProviderDefinition = {
   id: EngineProviderId;

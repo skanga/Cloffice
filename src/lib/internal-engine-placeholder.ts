@@ -13,6 +13,11 @@ import type {
   EngineWorkspaceReadResult,
   EngineWorkspaceStatResult,
 } from './engine-runtime-types.js';
+import {
+  createUnavailableInternalEngineBridge,
+  type InternalEngineBridge,
+  type InternalEngineShellCapabilities,
+} from './internal-engine-bridge.js';
 
 /**
  * Placeholder client for the future internal engine.
@@ -27,15 +32,6 @@ export const INTERNAL_ENGINE_RUNTIME_DESCRIPTOR: EngineRuntimeDescriptor = {
   transport: 'internal-ipc',
 };
 
-export type InternalEngineShellCapabilities = {
-  connection: false;
-  sessions: false;
-  models: false;
-  scheduling: false;
-  toolsCatalog: false;
-  workspaceRpc: false;
-};
-
 export const INTERNAL_ENGINE_SHELL_CAPABILITIES: InternalEngineShellCapabilities = {
   connection: false,
   sessions: false,
@@ -47,11 +43,8 @@ export const INTERNAL_ENGINE_SHELL_CAPABILITIES: InternalEngineShellCapabilities
 
 const INTERNAL_ENGINE_UNAVAILABLE_MESSAGE = 'The internal engine runtime is not available in this build yet.';
 
-function internalEngineUnavailable(): Error {
-  return new Error(INTERNAL_ENGINE_UNAVAILABLE_MESSAGE);
-}
-
 export class InternalEnginePlaceholderClient implements EngineRuntimeClient {
+  private readonly bridge: InternalEngineBridge;
   private connectionHandler: EngineConnectionHandler | null = null;
   private eventHandler: EngineEventHandler | null = null;
 
@@ -59,17 +52,31 @@ export class InternalEnginePlaceholderClient implements EngineRuntimeClient {
   readonly runtimeKind = INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind;
   readonly transport = INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.transport;
 
-  connect(_options: EngineConnectOptions): Promise<void> {
-    this.connectionHandler?.(false, INTERNAL_ENGINE_UNAVAILABLE_MESSAGE);
-    return Promise.reject(internalEngineUnavailable());
+  constructor(bridge: InternalEngineBridge = createUnavailableInternalEngineBridge(describeInternalEngineShell())) {
+    this.bridge = bridge;
+  }
+
+  connect(options: EngineConnectOptions): Promise<void> {
+    this.connectionHandler?.(false, this.bridge.status.unavailableReason);
+    this.eventHandler?.({
+      type: 'event',
+      event: 'engine.unavailable',
+      payload: {
+        runtimeKind: this.runtimeKind,
+        providerId: this.providerId,
+        reason: this.bridge.status.unavailableReason,
+      },
+    });
+    return this.bridge.lifecycle.connect(options);
   }
 
   disconnect(): void {
+    void this.bridge.lifecycle.disconnect();
     this.connectionHandler?.(false, 'Internal engine shell disconnected.');
   }
 
   isConnected(): boolean {
-    return false;
+    return this.bridge.lifecycle.isConnected();
   }
 
   setConnectionHandler(handler: EngineConnectionHandler): void {
@@ -81,83 +88,83 @@ export class InternalEnginePlaceholderClient implements EngineRuntimeClient {
   }
 
   getActiveSessionKey(): Promise<string> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.sessions.getActiveSessionKey();
   }
 
   createChatSession(): Promise<string> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.sessions.createChatSession();
   }
 
   createCoworkSession(): Promise<string> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.sessions.createCoworkSession();
   }
 
   sendChat(_sessionKey: string, _text: string): Promise<{ sessionKey: string }> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.sessions.sendChat(_sessionKey, _text);
   }
 
   resolveSessionKey(_preferredKey?: string): Promise<string> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.sessions.resolveSessionKey(_preferredKey);
   }
 
   getHistory(_sessionKey: string, _limit?: number): Promise<EngineChatMessage[]> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.sessions.getHistory(_sessionKey, _limit);
   }
 
   listModels(): Promise<EngineModelChoice[]> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.sessions.listModels();
   }
 
   getSessionModel(_sessionKey: string): Promise<string | null> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.sessions.getSessionModel(_sessionKey);
   }
 
   listSessions(_limit?: number): Promise<EngineSessionSummary[]> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.sessions.listSessions(_limit);
   }
 
   setSessionModel(_sessionKey: string, _modelValue: string | null): Promise<void> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.sessions.setSessionModel(_sessionKey, _modelValue);
   }
 
   setSessionTitle(_sessionKey: string, _title: string | null): Promise<void> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.sessions.setSessionTitle(_sessionKey, _title);
   }
 
   deleteSession(_sessionKey: string): Promise<void> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.sessions.deleteSession(_sessionKey);
   }
 
   listCronJobs(): Promise<EngineCronJob[]> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.scheduling.listCronJobs();
   }
 
   fetchToolsCatalog(): Promise<EngineToolsCatalog> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.tools.fetchToolsCatalog();
   }
 
   listWorkspaceFiles(_relativePath?: string): Promise<EngineWorkspaceListResult> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.workspace.listWorkspaceFiles(_relativePath);
   }
 
   readWorkspaceFile(_relativePath: string): Promise<EngineWorkspaceReadResult> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.workspace.readWorkspaceFile(_relativePath);
   }
 
   statWorkspaceFile(_relativePath: string): Promise<EngineWorkspaceStatResult> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.workspace.statWorkspaceFile(_relativePath);
   }
 
   renameWorkspaceFile(_oldPath: string, _newPath: string): Promise<void> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.workspace.renameWorkspaceFile(_oldPath, _newPath);
   }
 
   deleteWorkspaceFile(_path: string): Promise<void> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.workspace.deleteWorkspaceFile(_path);
   }
 
   writeWorkspaceFile(_path: string, _content: string): Promise<void> {
-    return Promise.reject(internalEngineUnavailable());
+    return this.bridge.workspace.writeWorkspaceFile(_path, _content);
   }
 }
 

@@ -12,6 +12,12 @@ export type EngineChatMessage = {
   text: string;
 };
 
+export type EngineErrorInfo = {
+  message: string;
+  code?: string;
+  requestId?: string;
+};
+
 export type EngineModelChoice = {
   value: string;
   label: string;

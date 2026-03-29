@@ -14,9 +14,10 @@ import type {
   LocalFilePlanAction,
   LocalFilePlanResult,
 } from '../src/app-types.js';
-import { appConfigFromEngineDraft, parseDesktopBridgeEngineConfig, type DesktopBridgeEngineConfig, type EngineDraftConfig } from '../src/lib/engine-config.js';
+import { parseDesktopBridgeEngineConfig, prepareEngineConfigWrite, type DesktopBridgeEngineConfig, type EngineDraftConfig } from '../src/lib/engine-config.js';
 import { normalizeEngineDiscoveryResult } from '../src/lib/engine-discovery.js';
 import { normalizeEngineRuntimeHealthResult, type EngineRuntimeHealthResult } from '../src/lib/engine-runtime-types.js';
+import type { InternalEngineShellStatus } from '../src/lib/internal-engine-bridge.js';
 import {
   OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR,
   type OpenClawCompatibilityDiscoveryResult,
@@ -27,13 +28,17 @@ const DEFAULT_COMPAT_ENGINE_ENDPOINT = 'ws://127.0.0.1:18789';
 const desktopBridgeApi = {
   getConfig: () => ipcRenderer.invoke('config:get') as Promise<AppConfig>,
   saveConfig: (config: AppConfig) => ipcRenderer.invoke('config:save', config) as Promise<AppConfig>,
+  getInternalEngineStatus: () =>
+    ipcRenderer.invoke('internal-engine:status') as Promise<InternalEngineShellStatus>,
   getEngineConfig: async () =>
     parseDesktopBridgeEngineConfig(await ipcRenderer.invoke('config:get') as AppConfig, DEFAULT_COMPAT_ENGINE_ENDPOINT) as DesktopBridgeEngineConfig,
-  saveEngineConfig: async (draft: EngineDraftConfig) =>
-    parseDesktopBridgeEngineConfig(
-      await ipcRenderer.invoke('config:save', appConfigFromEngineDraft(draft)) as AppConfig,
+  saveEngineConfig: async (draft: EngineDraftConfig) => {
+    const preparedWrite = prepareEngineConfigWrite(draft);
+    return parseDesktopBridgeEngineConfig(
+      await ipcRenderer.invoke('config:save', preparedWrite.legacyAppConfig) as AppConfig,
       draft.endpointUrl || DEFAULT_COMPAT_ENGINE_ENDPOINT,
-    ) as DesktopBridgeEngineConfig,
+    ) as DesktopBridgeEngineConfig;
+  },
   healthCheck: (baseUrl: string) =>
     ipcRenderer.invoke('backend:health-check', baseUrl) as Promise<HealthCheckResult>,
   checkRuntimeHealth: async (baseUrl: string) =>

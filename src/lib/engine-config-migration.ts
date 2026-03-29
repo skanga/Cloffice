@@ -2,6 +2,7 @@ import type { EngineProviderId, EngineRuntimeKind, EngineTransport } from '../ap
 
 export const CURRENT_ENGINE_CONFIG_STORAGE_VERSION = 1;
 export const NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION = 2;
+export const PROVIDER_AWARE_ENGINE_CONFIG_WRITE_ENABLED = false;
 
 export type ProviderAwareStoredEngineConfigV2 = {
   version: typeof NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION;

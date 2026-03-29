@@ -3,8 +3,10 @@ import type { EngineConnectOptions } from './engine-runtime-types.js';
 import {
   buildDeferredProviderAwareEngineConfigV2,
   NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION,
+  PROVIDER_AWARE_ENGINE_CONFIG_WRITE_ENABLED,
   type ProviderAwareStoredEngineConfigV2,
 } from './engine-config-migration.js';
+import { getEngineProvider } from './engine-provider-registry.js';
 
 export type EngineDraftConfig = {
   runtimeKind: EngineRuntimeKind;
@@ -21,6 +23,13 @@ export type ParsedStoredEngineConfig = {
 };
 
 export type DesktopBridgeEngineConfig = ParsedStoredEngineConfig;
+export type PreparedEngineConfigWrite = {
+  activeFormat: 'app-config-v1-compat' | 'provider-aware-v2';
+  legacyAppConfig: AppConfig;
+  providerAwareConfig: ProviderAwareStoredEngineConfigV2;
+  providerAwareWriteEligible: boolean;
+  providerAwareWriteEnabled: boolean;
+};
 
 export function buildEngineDraftConfig(params: {
   providerId: EngineProviderId;
@@ -116,6 +125,20 @@ export function buildDeferredProviderAwareEngineConfig(draft: EngineDraftConfig)
     endpointUrl: draft.endpointUrl,
     accessToken: draft.accessToken,
   });
+}
+
+export function prepareEngineConfigWrite(draft: EngineDraftConfig): PreparedEngineConfigWrite {
+  const provider = getEngineProvider(draft.providerId);
+  const providerAwareWriteEligible = provider.availableInBuild;
+  const providerAwareWriteEnabled = providerAwareWriteEligible && PROVIDER_AWARE_ENGINE_CONFIG_WRITE_ENABLED;
+
+  return {
+    activeFormat: providerAwareWriteEnabled ? 'provider-aware-v2' : 'app-config-v1-compat',
+    legacyAppConfig: appConfigFromEngineDraft(draft),
+    providerAwareConfig: buildDeferredProviderAwareEngineConfig(draft),
+    providerAwareWriteEligible,
+    providerAwareWriteEnabled,
+  };
 }
 
 export function engineConnectOptionsFromDraft(

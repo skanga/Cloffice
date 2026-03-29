@@ -1,23 +1,23 @@
 import { getPublicKeyAsync, signAsync, utils } from '@noble/ed25519';
 
-export type GatewayConnectOptions = {
+type GatewayConnectOptions = {
   gatewayUrl: string;
   token?: string;
   password?: string;
 };
 
-export type GatewayChatMessage = {
+type GatewayChatMessage = {
   id: string;
   role: 'user' | 'assistant' | 'system';
   text: string;
 };
 
-export type GatewayModelChoice = {
+type GatewayModelChoice = {
   value: string;
   label: string;
 };
 
-export type GatewayCronJob = {
+type GatewayCronJob = {
   id: string;
   name: string;
   schedule: string;
@@ -27,13 +27,13 @@ export type GatewayCronJob = {
   lastRunAt: string | null;
 };
 
-export type GatewaySessionSummary = {
+type GatewaySessionSummary = {
   key: string;
   kind: string;
   title?: string;
 };
 
-export type GatewayToolEntry = {
+type GatewayToolEntry = {
   name: string;
   group?: string;
   source: 'core' | 'plugin';
@@ -41,7 +41,7 @@ export type GatewayToolEntry = {
   optional?: boolean;
 };
 
-export type GatewayToolsCatalog = {
+type GatewayToolsCatalog = {
   tools: GatewayToolEntry[];
 };
 
@@ -63,7 +63,7 @@ type RpcPending = {
   timeoutId: ReturnType<typeof setTimeout>;
 };
 
-export type GatewayErrorDetails = {
+type GatewayErrorDetails = {
   code?: string;
   requestId?: string;
   canRetryWithDeviceToken?: boolean;

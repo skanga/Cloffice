@@ -3,7 +3,8 @@
  * No React imports — safe to use anywhere.
  */
 import type { ChatActivityItem, ChatMessage, EngineRequestedAction } from '@/app-types';
-import { getOpenClawCompatibilityRequestError } from './openclaw-compat-engine';
+import type { EngineErrorInfo } from './engine-runtime-types';
+import { readOpenClawCompatibilityError } from './openclaw-compat-engine';
 
 /* ── Exported types ──────────────────────────────────────────────────────── */
 
@@ -300,27 +301,16 @@ function extractUuidFromMessage(msg?: string): string | undefined {
   return match?.[0];
 }
 
-export type EngineErrorInfo = { message: string; code?: string; requestId?: string };
-
 export function readEngineError(error: unknown): EngineErrorInfo {
   if (!(error instanceof Error)) {
     return { message: 'Runtime connection failed.' };
   }
 
-  const compatibilityError = getOpenClawCompatibilityRequestError(error);
+  const compatibilityError = readOpenClawCompatibilityError(error);
   if (compatibilityError) {
-    console.log('[Cloffice] EngineRequestError details:', JSON.stringify(compatibilityError.details));
-    const d = compatibilityError.details as Record<string, unknown> | undefined;
-    const requestId =
-      (typeof d?.requestId === 'string' && d.requestId) ||
-      (typeof d?.request_id === 'string' && d.request_id) ||
-      (typeof d?.pairingRequestId === 'string' && d.pairingRequestId) ||
-      extractUuidFromMessage(error.message) ||
-      undefined;
     return {
-      message: compatibilityError.message,
-      code: compatibilityError.code,
-      requestId,
+      ...compatibilityError,
+      requestId: compatibilityError.requestId || extractUuidFromMessage(compatibilityError.message),
     };
   }
 

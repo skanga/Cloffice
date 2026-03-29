@@ -2,26 +2,19 @@ import type {
   EngineChatMessage,
   EngineConnectOptions,
   EngineCronJob,
+  EngineErrorInfo,
   EngineModelChoice,
   EngineRuntimeClient,
   EngineRuntimeDescriptor,
   EngineSessionSummary,
+  EngineToolEntry,
   EngineToolsCatalog,
   EngineWorkspaceListResult,
   EngineWorkspaceReadResult,
   EngineWorkspaceStatResult,
 } from './engine-runtime-types.js';
-import type { GatewayDiscoveryResult } from '../app-types.js';
 import {
   OpenClawGatewayClient,
-  type GatewayChatMessage,
-  type GatewayConnectOptions,
-  type GatewayCronJob,
-  type GatewayErrorDetails,
-  type GatewayModelChoice,
-  type GatewaySessionSummary,
-  type GatewayToolEntry,
-  type GatewayToolsCatalog,
   GatewayRequestError,
 } from './openclaw-gateway-client.js';
 
@@ -38,7 +31,13 @@ export const OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR: EngineRuntimeDescriptor 
   transport: 'websocket-gateway',
 };
 
-export type OpenClawCompatibilityDiscoveryResult = GatewayDiscoveryResult;
+export type OpenClawCompatibilityDiscoveryResult = {
+  found: boolean;
+  gatewayUrl: string | null;
+  binaryFound: boolean;
+  binaryPath: string | null;
+  message: string;
+};
 
 export class OpenClawCompatibilityEngineClient implements EngineRuntimeClient {
   private readonly gatewayClient = new OpenClawGatewayClient();
@@ -170,14 +169,20 @@ export class OpenClawCompatibilityEngineClient implements EngineRuntimeClient {
   }
 }
 
-export type OpenClawCompatibilityConnectOptions = GatewayConnectOptions;
-export type OpenClawCompatibilityChatMessage = GatewayChatMessage;
-export type OpenClawCompatibilityModelChoice = GatewayModelChoice;
-export type OpenClawCompatibilityCronJob = GatewayCronJob;
-export type OpenClawCompatibilitySessionSummary = GatewaySessionSummary;
-export type OpenClawCompatibilityToolEntry = GatewayToolEntry;
-export type OpenClawCompatibilityToolsCatalog = GatewayToolsCatalog;
-export type OpenClawCompatibilityErrorDetails = GatewayErrorDetails;
+export type OpenClawCompatibilityConnectOptions = EngineConnectOptions;
+export type OpenClawCompatibilityChatMessage = EngineChatMessage;
+export type OpenClawCompatibilityModelChoice = EngineModelChoice;
+export type OpenClawCompatibilityCronJob = EngineCronJob;
+export type OpenClawCompatibilitySessionSummary = EngineSessionSummary;
+export type OpenClawCompatibilityToolEntry = EngineToolEntry;
+export type OpenClawCompatibilityToolsCatalog = EngineToolsCatalog;
+export type OpenClawCompatibilityErrorDetails = {
+  code?: string;
+  requestId?: string;
+  canRetryWithDeviceToken?: boolean;
+  reason?: string;
+  [key: string]: unknown;
+};
 export type OpenClawCompatibilityEventFrame = {
   type: 'event';
   event: string;
@@ -188,6 +193,26 @@ export type OpenClawCompatibilityEventFrame = {
 
 export function getOpenClawCompatibilityRequestError(error: unknown): GatewayRequestError | null {
   return error instanceof GatewayRequestError ? error : null;
+}
+
+export function readOpenClawCompatibilityError(error: unknown): EngineErrorInfo | null {
+  const compatibilityError = getOpenClawCompatibilityRequestError(error);
+  if (!compatibilityError) {
+    return null;
+  }
+
+  const details = compatibilityError.details as Record<string, unknown> | undefined;
+  const requestId =
+    (typeof details?.requestId === 'string' && details.requestId) ||
+    (typeof details?.request_id === 'string' && details.request_id) ||
+    (typeof details?.pairingRequestId === 'string' && details.pairingRequestId) ||
+    undefined;
+
+  return {
+    message: compatibilityError.message,
+    code: compatibilityError.code,
+    requestId,
+  };
 }
 
 export { GatewayRequestError as OpenClawCompatibilityRequestError };
