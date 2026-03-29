@@ -16,12 +16,13 @@ import type {
   CoworkProjectTask,
   CoworkProjectTaskStatus,
   CoworkProject,
-  CoworkRunPhase,
-  EngineConnectionProfile,
-  EngineProviderId,
-  EngineActionExecutionResult,
-  HealthCheckResult,
-  LocalActionReceipt,
+   CoworkRunPhase,
+   EngineConnectionProfile,
+   EngineProviderId,
+   EngineActionExecutionResult,
+   EngineRequestedAction,
+   HealthCheckResult,
+   LocalActionReceipt,
   LocalFilePlanAction,
   PendingApprovalAction,
   ProjectPathReference,
@@ -55,7 +56,6 @@ import { SidebarProvider } from './components/ui/sidebar';
 import { ScrollArea } from './components/ui/scroll-area';
 import { createEngineClient, type EngineClientInstance } from './lib/engine-client';
 import { createFileService, LocalFileService } from './lib/file-service';
-import { executeEngineLocalActionPlan } from './lib/engine-local-action-orchestrator';
 import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
 import {
   buildOpenClawCompatibilityAdminPairingHint,
@@ -108,6 +108,7 @@ import {
 import {
   appendUniqueSystemMessage,
   deriveEngineActionRunKey,
+  executeEngineCoworkActionExecution,
   resolveEngineActionOutcome,
   resolveEngineActionTaskStatus,
 } from './lib/engine-run-coordinator';
@@ -115,11 +116,6 @@ import {
     buildInternalEngineActionInstruction,
     buildOpenClawCompatEngineActionInstruction,
   } from './lib/engine-action-protocol';
-  import {
-    runEngineReadOnlyApprovalLoop,
-    resolveEngineApprovalTaskTransition,
-    type EngineRejectedApprovalAction,
-  } from './lib/engine-approval-orchestrator';
 
 const ChatPage = lazy(() => import('./features/chat/chat-page').then((module) => ({ default: module.ChatPage })));
 const CoworkPage = lazy(() => import('./features/cowork/cowork-page').then((module) => ({ default: module.CoworkPage })));
@@ -2115,9 +2111,9 @@ export default function App() {
               });
             }
 
-            const actionRunKey = deriveEngineActionRunKey(eventSessionKey, runId);
-            const runContext = resolveCoworkRunContext(eventSessionKey || coworkSessionKeyRef.current, runId);
-            const taskEntry = resolveCoworkTaskForRun(eventSessionKey || coworkSessionKeyRef.current, runId);
+                const actionRunKey = deriveEngineActionRunKey(eventSessionKey, runId);
+                const runContext = resolveCoworkRunContext(eventSessionKey || coworkSessionKeyRef.current, runId);
+                const taskEntry = resolveCoworkTaskForRun(eventSessionKey || coworkSessionKeyRef.current, runId);
             const postCoworkActionReceipt = (result: ReturnType<typeof buildEngineActionExecutionResult>) => {
               setCoworkRunStatus(result.summary);
               setCoworkProgressStage('deliverables', {
@@ -2175,170 +2171,53 @@ export default function App() {
             ) {
               executedCoworkActionRunsRef.current.add(actionRunKey);
               void (async () => {
-                if (!bridge) {
-                  const noBridgeMessage = 'AI requested local file actions, but Electron desktop bridge is unavailable.';
-                  postCoworkActionReceipt(
-                    buildEngineActionExecutionResult({
-                      runId,
-                      receipts: [],
-                      previews: [],
-                      errors: [noBridgeMessage],
-                      projectTitle: runContext.projectTitle,
-                      rootPath: runContext.rootFolder || '(not set)',
-                    }),
-                  );
-                  return;
-                }
-
-                const rootPath = runContext.rootFolder.trim();
-                if (!rootPath) {
-                  const noFolderMessage = 'AI requested local file actions, but this run has no project root folder context.';
-                  postCoworkActionReceipt(
-                    buildEngineActionExecutionResult({
-                      runId,
-                      receipts: [],
-                      previews: [],
-                      errors: [noFolderMessage],
-                      projectTitle: runContext.projectTitle,
-                      rootPath: '(not set)',
-                    }),
-                  );
-                  return;
-                }
-
-                if (providerId === 'internal' && actionMode === 'read-only') {
-                  const internalClient = client as EngineClientInstance & {
-                    continueCoworkRun?: (payload: {
-                      sessionKey: string;
-                      runId: string;
-                      rootPath: string;
-                      approvedActions: typeof requestedActions;
-                      rejectedActions: EngineRejectedApprovalAction[];
-                    }) => Promise<{
-                      sessionKey: string;
-                      execution: {
-                        receipts: LocalActionReceipt[];
-                        previews: string[];
-                        errors: string[];
-                      };
-                    }>;
-                  };
-                  if (requestedActions.length > MAX_LOCAL_ACTIONS_PER_RUN) {
-                    console.warn(
-                      `[Cloffice] internal cowork action limit exceeded: received ${requestedActions.length}, executing ${MAX_LOCAL_ACTIONS_PER_RUN}.`,
-                    );
-                  }
-
-                  const { approvedActions, rejectedActions } = await runEngineReadOnlyApprovalLoop({
-                    actions: requestedActions,
-                    context: {
-                      runId,
-                      projectId: runContext.projectId || undefined,
-                      projectTitle: runContext.projectTitle || undefined,
-                      projectRootFolder: runContext.rootFolder || undefined,
-                      scopeId: 'workspace.read',
-                      scopeName: 'Workspace read',
-                      riskLevel: 'medium',
-                      maxActionsPerRun: MAX_LOCAL_ACTIONS_PER_RUN,
-                    },
-                    requestApproval: requestActionApproval,
-                    onPending: ({ action, actionPath, actionSummary }) => {
-                      setCoworkRunStatus(`Awaiting approval for ${actionSummary}...`);
-                      setCoworkProgressStage('executing_workstreams', {
-                        details: `Awaiting operator approval for internal read-only action on ${actionPath}.`,
-                      });
-                      if (taskEntry) {
-                        const taskTransition = resolveEngineApprovalTaskTransition('pending', action);
-                        setCoworkTaskStatus(taskEntry.taskId, taskTransition.status, {
-                          runId,
-                          summary: taskTransition.summary,
-                        });
-                      }
-                    },
-                    onRejected: ({ action, reason }) => {
-                      if (taskEntry) {
-                        const taskTransition = resolveEngineApprovalTaskTransition('rejected', action, reason);
-                        setCoworkTaskStatus(taskEntry.taskId, taskTransition.status, {
-                          runId,
-                          summary: taskTransition.summary,
-                          outcome: taskTransition.outcome,
-                        });
-                      }
-                    },
-                    onApproved: ({ action }) => {
-                      if (taskEntry) {
-                        const taskTransition = resolveEngineApprovalTaskTransition('approved', action);
-                        setCoworkTaskStatus(taskEntry.taskId, taskTransition.status, {
-                          runId,
-                          summary: taskTransition.summary,
-                        });
-                      }
-                    },
-                  });
-
-                  const continuationSessionKey = eventSessionKey || coworkSessionKeyRef.current;
-                  if (!continuationSessionKey) {
-                    throw new Error('Internal cowork continuation is missing a session key.');
-                  }
-                  if (typeof internalClient.continueCoworkRun !== 'function') {
-                    throw new Error('Internal runtime does not support cowork continuation in this build.');
-                  }
-
-                  setCoworkRunStatus('Submitting approval results to internal cowork...');
-                  setCoworkProgressStage('executing_workstreams', {
-                    details: 'Internal cowork is applying approved read-only workspace inspection actions.',
-                  });
-                  await internalClient.continueCoworkRun({
-                    sessionKey: continuationSessionKey,
-                    runId,
-                    rootPath,
-                    approvedActions,
-                    rejectedActions,
-                  });
-                  return;
-                }
-
-                setCoworkRunStatus('Applying AI file actions...');
-                setCoworkProgressStage('executing_workstreams', {
-                  details: 'Applying local actions in scoped workspace.',
-                });
-
-                const safetyScopes = loadSafetyScopes(runContext.projectId || undefined);
-                const actionResult = await executeEngineLocalActionPlan({
-                  actions: requestedActions,
-                  maxActionsPerRun: MAX_LOCAL_ACTIONS_PER_RUN,
-                  bridge,
-                  rootPath,
+                const executionOutcome = await executeEngineCoworkActionExecution({
+                  requestedActions,
+                  providerId,
+                  actionMode,
                   runId,
-                  projectId: runContext.projectId || undefined,
-                  projectTitle: runContext.projectTitle || undefined,
-                  safetyScopes,
-                  validateProjectRelativePath,
+                  eventSessionKey,
+                  currentCoworkSessionKey: coworkSessionKeyRef.current,
+                  runContext,
+                  continueCoworkRun: 'continueCoworkRun' in client
+                    ? (client as EngineClientInstance & {
+                        continueCoworkRun?: (payload: {
+                          sessionKey: string;
+                          runId: string;
+                          rootPath: string;
+                          approvedActions: EngineRequestedAction[];
+                          rejectedActions: { id: string; actionId: string; actionType: EngineRequestedAction['type']; path: string; approved: false; reason?: string }[];
+                        }) => Promise<unknown>;
+                      }).continueCoworkRun?.bind(client)
+                    : undefined,
+                  bridge,
+                  maxActionsPerRun: MAX_LOCAL_ACTIONS_PER_RUN,
+                  safetyScopes: loadSafetyScopes(runContext.projectId || undefined),
                   requestApproval: requestActionApproval,
-                  onRunStatus: (status, details) => {
-                    setCoworkRunStatus(status);
+                  validateProjectRelativePath,
+                  onRunStatus: setCoworkRunStatus,
+                  onProgress: (details) => {
                     setCoworkProgressStage('executing_workstreams', { details });
                   },
-                  onTaskStatus: (status, summary, outcome) => {
-                    if (!taskEntry) {
-                      return;
-                    }
-                    setCoworkTaskStatus(taskEntry.taskId, status, {
-                      runId,
-                      summary,
-                      outcome,
-                    });
-                  },
+                  onTaskStatus: taskEntry
+                    ? (status, summary, outcome) => {
+                        setCoworkTaskStatus(taskEntry.taskId, status, {
+                          runId,
+                          summary,
+                          outcome,
+                        });
+                      }
+                    : undefined,
                 });
-                postCoworkActionReceipt(actionResult);
+                if (executionOutcome.kind === 'continued') {
+                  return;
+                }
 
-                // Fire desktop notification when cowork task completes
-                if (bridge?.notify) {
-                  const title = actionResult.errorCount > 0 ? 'Cloffice task completed with errors' : 'Cloffice task completed';
-                  const body = runContext.projectTitle
-                    ? `${runContext.projectTitle}: ${actionResult.okCount} action${actionResult.okCount === 1 ? '' : 's'} executed`
-                    : `${actionResult.okCount} action${actionResult.okCount === 1 ? '' : 's'} executed`;
-                  bridge.notify(title, body).catch(() => { /* notification failure is non-critical */ });
+                postCoworkActionReceipt(executionOutcome.result);
+                if (executionOutcome.notification && bridge?.notify) {
+                  bridge.notify(executionOutcome.notification.title, executionOutcome.notification.body).catch(() => {
+                    /* notification failure is non-critical */
+                  });
                 }
               })();
             } else if (internalExecution) {
