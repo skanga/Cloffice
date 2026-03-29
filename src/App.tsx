@@ -106,7 +106,9 @@ import {
     resolveEngineCoworkStreamingTransition,
   } from './lib/engine-session-events';
 import {
+  appendEngineCoworkActivityMessage,
   appendUniqueSystemMessage,
+  applyEngineCoworkFinalMessageUpdate,
   deriveEngineActionRunKey,
   executeEngineCoworkActionExecution,
   resolveEngineActionOutcome,
@@ -2060,22 +2062,16 @@ export default function App() {
               setSessionUsage((prev) => addUsage(prev, coworkUsage));
             }
             setCoworkMessages((current) => {
-              const withoutStream = current.filter((entry) => {
-                if (entry.id === streamId) {
-                  return false;
-                }
-                if ((hasRequestedActions || hasStructuredActivity) && entry.id.startsWith('cowork-stream-')) {
-                  return false;
-                }
-                return true;
+              const next = applyEngineCoworkFinalMessageUpdate({
+                current,
+                streamId,
+                finalId,
+                role,
+                visibleText,
+                usage: coworkUsage,
+                hasRequestedActions,
+                hasStructuredActivity,
               });
-              if (withoutStream.some((entry) => entry.id === finalId)) {
-                return withoutStream;
-              }
-              const next =
-                visibleText
-                  ? [...withoutStream, { id: finalId, role, text: visibleText, ...(coworkUsage ? { usage: coworkUsage } : {}) }]
-                  : withoutStream;
               if (eventSessionKey) {
                 coworkMessageCache.current.set(eventSessionKey, next);
               }
@@ -2083,22 +2079,12 @@ export default function App() {
             });
 
             if (!hasRequestedActions && hasStructuredActivity) {
-              const activityMessage: ChatMessage = {
-                id: activityId,
-                role: 'system',
-                text: activityItems.map((item) => item.label).join('\n'),
-                meta: {
-                  kind: 'activity',
-                  items: activityItems,
-                },
-              };
-
               setCoworkMessages((current) => {
-                if (current.some((entry) => entry.id === activityMessage.id)) {
-                  return current;
-                }
-
-                const next = [...current, activityMessage];
+                const next = appendEngineCoworkActivityMessage({
+                  current,
+                  activityId,
+                  activityItems,
+                });
                 if (eventSessionKey) {
                   coworkMessageCache.current.set(eventSessionKey, next);
                 }

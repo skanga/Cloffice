@@ -1,9 +1,11 @@
 import type {
+  ChatActivityItem,
   ChatMessage,
   CoworkProjectTaskStatus,
   EngineActionExecutionResult,
   EngineRequestedAction,
   LocalActionReceipt,
+  MessageUsage,
   PendingApprovalAction,
   SafetyPermissionScope,
 } from '@/app-types';
@@ -35,6 +37,65 @@ export function resolveEngineActionOutcome(result: EngineActionExecutionResult):
 
 export function appendUniqueSystemMessage(current: ChatMessage[], message: ChatMessage): ChatMessage[] {
   return current.some((entry) => entry.id === message.id) ? current : [...current, message];
+}
+
+export function applyEngineCoworkFinalMessageUpdate(params: {
+  current: ChatMessage[];
+  streamId: string;
+  finalId: string;
+  role: ChatMessage['role'];
+  visibleText: string;
+  usage?: MessageUsage;
+  hasRequestedActions: boolean;
+  hasStructuredActivity: boolean;
+}): ChatMessage[] {
+  const withoutStream = params.current.filter((entry) => {
+    if (entry.id === params.streamId) {
+      return false;
+    }
+    if ((params.hasRequestedActions || params.hasStructuredActivity) && entry.id.startsWith('cowork-stream-')) {
+      return false;
+    }
+    return true;
+  });
+
+  if (withoutStream.some((entry) => entry.id === params.finalId)) {
+    return withoutStream;
+  }
+
+  return params.visibleText
+    ? [
+        ...withoutStream,
+        {
+          id: params.finalId,
+          role: params.role,
+          text: params.visibleText,
+          ...(params.usage ? { usage: params.usage } : {}),
+        },
+      ]
+    : withoutStream;
+}
+
+export function appendEngineCoworkActivityMessage(params: {
+  current: ChatMessage[];
+  activityId: string;
+  activityItems: ChatActivityItem[];
+}): ChatMessage[] {
+  const activityMessage: ChatMessage = {
+    id: params.activityId,
+    role: 'system',
+    text: params.activityItems.map((item) => item.label).join('\n'),
+    meta: {
+      kind: 'activity',
+      items: params.activityItems,
+    },
+  };
+
+  if (params.current.some((entry) => entry.id === activityMessage.id)) {
+    return params.current;
+  }
+
+  return [...params.current, activityMessage];
 }
 
 type ValidateProjectRelativePath = (
