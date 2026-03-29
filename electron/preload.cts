@@ -22,6 +22,7 @@ import type {
   InternalEngineCoworkContinuationResult,
   InternalEnginePendingApprovalDecision,
   InternalEnginePendingApprovalDecisionResult,
+  InternalEngineRunRecord,
   InternalEngineRuntimeInfo,
   InternalEngineSendChatResult,
   InternalEngineShellStatus,
@@ -105,6 +106,8 @@ const desktopBridgeApi = {
     ipcRenderer.invoke('internal-engine:status') as Promise<InternalEngineShellStatus>,
   getInternalEngineRuntimeInfo: () =>
     ipcRenderer.invoke('internal-engine:get-runtime-info') as Promise<InternalEngineRuntimeInfo>,
+  getInternalRunHistory: (limit?: number) =>
+    ipcRenderer.invoke('internal-engine:get-run-history', limit) as Promise<InternalEngineRunRecord[]>,
   connectInternalEngine: (options: EngineConnectOptions) =>
     ipcRenderer.invoke('internal-engine:connect', options) as Promise<void>,
   disconnectInternalEngine: () =>

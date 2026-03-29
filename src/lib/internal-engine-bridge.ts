@@ -50,6 +50,61 @@ export type InternalEngineRuntimeInfo = {
   latestRunTimelineMessage: string | null;
 };
 
+export type InternalEngineRunTimelineEntry = {
+  id: string;
+  at: number;
+  phase: 'submitted' | 'awaiting_approval' | 'approval_decision' | 'executing' | 'completed' | 'blocked' | 'interrupted';
+  message: string;
+  details?: string;
+  action?: {
+    actionId: string;
+    actionType: EngineRequestedAction['type'];
+    path: string;
+  };
+  decision?: {
+    approved: boolean;
+    reason?: string;
+  };
+  receipt?: {
+    status: LocalActionReceipt['status'];
+    message?: string;
+    errorCode?: string;
+  };
+};
+
+export type InternalEngineArtifactRecord = {
+  id: string;
+  runId: string;
+  sessionKey: string;
+  kind: 'cowork_execution';
+  createdAt: number;
+  receiptCount: number;
+  receipts: LocalActionReceipt[];
+  previews: string[];
+  errors: string[];
+  summary?: string;
+};
+
+export type InternalEngineRunRecord = {
+  runId: string;
+  sessionKey: string;
+  sessionKind: string;
+  model: string;
+  actionMode: 'none' | 'read-only';
+  status: 'running' | 'awaiting_approval' | 'executing' | 'completed' | 'blocked' | 'interrupted';
+  startedAt: number;
+  updatedAt: number;
+  promptPreview?: string;
+  summary?: string;
+  interruptedReason?: string;
+  artifactId?: string;
+  approvedActionCount?: number;
+  rejectedActionCount?: number;
+  resultSummary?: string;
+  artifact?: InternalEngineArtifactRecord;
+  timeline?: InternalEngineRunTimelineEntry[];
+};
+
 export type InternalEngineCoworkActionPhase =
   | 'none'
   | 'planning'
@@ -163,6 +218,7 @@ export type InternalEngineBridge = {
 export type InternalEngineDesktopBridge = {
   getInternalEngineStatus(): Promise<InternalEngineShellStatus>;
   getInternalEngineRuntimeInfo(): Promise<InternalEngineRuntimeInfo>;
+  getInternalRunHistory(limit?: number): Promise<InternalEngineRunRecord[]>;
   connectInternalEngine(options: EngineConnectOptions): Promise<void>;
   disconnectInternalEngine(): Promise<void>;
   getInternalEngineActiveSessionKey(): Promise<string>;

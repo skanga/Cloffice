@@ -9,6 +9,7 @@ interface Window {
     saveConfig: (config: { gatewayUrl: string; gatewayToken: string }) => Promise<any>;
     getInternalEngineStatus: () => Promise<any>;
     getInternalEngineRuntimeInfo: () => Promise<any>;
+    getInternalRunHistory: (limit?: number) => Promise<any[]>;
     connectInternalEngine: (options: any) => Promise<void>;
     disconnectInternalEngine: () => Promise<void>;
     getInternalEngineActiveSessionKey: () => Promise<string>;

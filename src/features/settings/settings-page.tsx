@@ -6,13 +6,14 @@ import type { EngineConnectionProfile, EngineProviderId, HealthCheckResult, User
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { getDesktopBridge } from '@/lib/desktop-bridge';
 import { listConnectors, persistConnectorConfig } from '@/lib/connectors';
 import { loadAllowedDomains, saveAllowedDomains } from '@/lib/connectors/web-fetch';
 import { getEngineProvider, listEngineProviders } from '@/lib/engine-provider-registry';
-import type { InternalEngineRuntimeInfo } from '@/lib/internal-engine-bridge';
+import type { InternalEngineRunRecord, InternalEngineRuntimeInfo } from '@/lib/internal-engine-bridge';
 import type { ConnectorDefinition } from '@/lib/connectors/connector-types';
 
 type AppLanguage = 'en' | 'de';
@@ -262,6 +263,7 @@ export function SettingsPage({
   const [prefersDarkSystem, setPrefersDarkSystem] = useState(false);
   const [connectionNameDraft, setConnectionNameDraft] = useState('');
   const [internalRuntimeInfo, setInternalRuntimeInfo] = useState<InternalEngineRuntimeInfo | null>(null);
+  const [internalRunHistory, setInternalRunHistory] = useState<InternalEngineRunRecord[]>([]);
   const engineProviders = useMemo(() => listEngineProviders(), []);
   const effectiveEngineProviders = useMemo(
     () => engineProviders.map((provider) => (
@@ -303,17 +305,23 @@ export function SettingsPage({
     const bridge = getDesktopBridge();
     if (!bridge?.getInternalEngineRuntimeInfo) {
       setInternalRuntimeInfo(null);
+      setInternalRunHistory([]);
       return;
     }
 
     let cancelled = false;
-    bridge.getInternalEngineRuntimeInfo().then((info) => {
+    Promise.all([
+      bridge.getInternalEngineRuntimeInfo(),
+      bridge.getInternalRunHistory?.(5) ?? Promise.resolve([]),
+    ]).then(([info, runs]) => {
       if (!cancelled) {
         setInternalRuntimeInfo(info);
+        setInternalRunHistory(runs);
       }
     }).catch(() => {
       if (!cancelled) {
         setInternalRuntimeInfo(null);
+        setInternalRunHistory([]);
       }
     });
 
@@ -681,6 +689,31 @@ export function SettingsPage({
                       <p><span className="font-medium text-foreground">Recovery:</span> {internalRuntimeInfo.lastRecoveryNote}</p>
                     ) : null}
                   </div>
+                  {internalRunHistory.length > 0 ? (
+                    <div className="mt-3 border-t border-border/40 pt-3">
+                      <p className="text-xs font-medium text-foreground">Recent runs</p>
+                      <div className="mt-2 grid gap-2">
+                        {internalRunHistory.map((run) => {
+                          const latestEntry = run.timeline?.[run.timeline.length - 1];
+                          return (
+                            <div key={run.runId} className="rounded-md border border-border/50 bg-background/40 px-2.5 py-2">
+                              <p className="text-[11px] font-medium text-foreground">
+                                {run.sessionKind} · {run.status} · {run.model}
+                              </p>
+                              <p className="text-[11px] text-muted-foreground">
+                                {run.summary ?? run.promptPreview ?? run.runId}
+                              </p>
+                              {latestEntry ? (
+                                <p className="text-[11px] text-muted-foreground/90">
+                                  Latest: {latestEntry.phase} - {latestEntry.message}
+                                </p>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -902,7 +935,260 @@ export function SettingsPage({
       {activeSection === 'Connectors' && <ConnectorsSection language={preferences.language ?? 'en'} />}
       {activeSection === 'Account' && renderPlaceholder(<KeyRound className="size-5" />, t('Email, password, and two-factor authentication.', 'E-Mail, Passwort und Zwei-Faktor-Authentifizierung.'))}
       {activeSection === 'Privacy' && renderPlaceholder(<Shield className="size-5" />, t('Data sharing, retention, and deletion policies.', 'Datenfreigaben, Aufbewahrung und Loeschrichtlinien.'))}
-      {activeSection === 'Developer' && renderPlaceholder(<Code2 className="size-5" />, t('API keys, logs, and debugging tools.', 'API-Schluessel, Logs und Debugging-Werkzeuge.'))}
+      {activeSection === 'Developer' && (
+        <div className="space-y-6">
+          <section>
+            <div className="mb-3">
+              <h2 className="text-base font-medium">{t('Internal runtime history', 'Interne Runtime-Historie')}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t(
+                  'Inspect recent internal engine runs, recovery state, and action-level approval/execution history.',
+                  'Pruefe aktuelle interne Engine-Laeufe, Wiederherstellungsstatus und die Genehmigungs-/Ausfuehrungshistorie auf Aktionsebene.',
+                )}
+              </p>
+            </div>
+
+            {!internalRuntimeInfo ? (
+              renderPlaceholder(
+                <Code2 className="size-5" />,
+                t(
+                  'Internal runtime diagnostics are unavailable in this build or desktop session.',
+                  'Interne Runtime-Diagnosen sind in diesem Build oder in dieser Desktop-Sitzung nicht verfuegbar.',
+                ),
+              )
+            ) : !internalRuntimeInfo.status.availableInBuild ? (
+              renderPlaceholder(
+                <Code2 className="size-5" />,
+                internalRuntimeInfo.status.unavailableReason,
+              )
+            ) : (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-border/60 bg-card p-4">
+                  <p className="text-sm font-medium text-foreground">{t('Runtime summary', 'Runtime-Zusammenfassung')}</p>
+                  <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                    <p><span className="font-medium text-foreground">{t('Readiness', 'Bereitschaft')}:</span> {internalRuntimeInfo.readiness}</p>
+                    <p><span className="font-medium text-foreground">{t('Restore', 'Wiederherstellung')}:</span> {internalRuntimeInfo.stateRestoreStatus}</p>
+                    <p><span className="font-medium text-foreground">{t('Runs', 'Laeufe')}:</span> {internalRuntimeInfo.runCount}</p>
+                    <p><span className="font-medium text-foreground">{t('Pending approvals', 'Ausstehende Freigaben')}:</span> {internalRuntimeInfo.pendingApprovalCount}</p>
+                    <p><span className="font-medium text-foreground">{t('Artifacts', 'Artefakte')}:</span> {internalRuntimeInfo.artifactCount}</p>
+                    <p><span className="font-medium text-foreground">{t('Interrupted runs', 'Unterbrochene Laeufe')}:</span> {internalRuntimeInfo.interruptedRunCount}</p>
+                    <p><span className="font-medium text-foreground">{t('Latest run event', 'Letztes Laufereignis')}:</span> {internalRuntimeInfo.latestRunTimelinePhase ?? t('none', 'keine')}</p>
+                    <p><span className="font-medium text-foreground">{t('Latest artifact', 'Letztes Artefakt')}:</span> {internalRuntimeInfo.latestArtifactSummary ?? t('none', 'keines')}</p>
+                  </div>
+                  {internalRuntimeInfo.lastRecoveryNote ? (
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">{t('Recovery note', 'Wiederherstellungshinweis')}:</span> {internalRuntimeInfo.lastRecoveryNote}
+                    </p>
+                  ) : null}
+                </div>
+
+                <section className="rounded-xl border border-border/60 bg-card p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{t('Recent internal runs', 'Aktuelle interne Laeufe')}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {t(
+                          'The most recent internal runtime history, including approval and execution timeline entries.',
+                          'Die aktuelle interne Runtime-Historie einschliesslich Genehmigungs- und Ausfuehrungsereignissen.',
+                        )}
+                      </p>
+                    </div>
+                    <Badge variant="outline" className="rounded-full font-sans text-[10px]">
+                      {internalRunHistory.length} {t('runs loaded', 'Laeufe geladen')}
+                    </Badge>
+                  </div>
+
+                  {internalRunHistory.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-border/70 px-3 py-6 text-center text-xs text-muted-foreground">
+                      {t('No internal runs recorded yet.', 'Noch keine internen Laeufe erfasst.')}
+                    </div>
+                  ) : (
+                    <ScrollArea className="max-h-[540px] pr-2">
+                      <div className="grid gap-3">
+                        {internalRunHistory.map((run) => {
+                          const artifact = run.artifact;
+                          return (
+                            <div key={run.runId} className="rounded-lg border border-border/60 bg-background/50 p-3">
+                              <div className="flex flex-wrap items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-foreground">
+                                    {run.sessionKind} · {run.status} · {run.model}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {run.summary ?? run.promptPreview ?? run.runId}
+                                  </p>
+                                </div>
+                                <div className="flex flex-wrap gap-1">
+                                  {run.actionMode === 'read-only' ? (
+                                    <Badge variant="outline" className="rounded-full font-sans text-[10px]">
+                                      {t('Read-only actions', 'Nur Leseaktionen')}
+                                    </Badge>
+                                  ) : null}
+                                  {typeof run.approvedActionCount === 'number' ? (
+                                    <Badge variant="outline" className="rounded-full font-sans text-[10px]">
+                                      {t('Approved', 'Genehmigt')}: {run.approvedActionCount}
+                                    </Badge>
+                                  ) : null}
+                                  {typeof run.rejectedActionCount === 'number' ? (
+                                    <Badge variant="outline" className="rounded-full font-sans text-[10px]">
+                                      {t('Rejected', 'Abgelehnt')}: {run.rejectedActionCount}
+                                    </Badge>
+                                  ) : null}
+                                </div>
+                              </div>
+
+                              <div className="mt-3 grid gap-1 text-[11px] text-muted-foreground sm:grid-cols-2">
+                                <p><span className="font-medium text-foreground">{t('Run ID', 'Lauf-ID')}:</span> <span className="font-mono">{run.runId}</span></p>
+                                <p><span className="font-medium text-foreground">{t('Session', 'Sitzung')}:</span> <span className="font-mono">{run.sessionKey}</span></p>
+                                <p><span className="font-medium text-foreground">{t('Started', 'Gestartet')}:</span> {new Date(run.startedAt).toLocaleString()}</p>
+                                <p><span className="font-medium text-foreground">{t('Updated', 'Aktualisiert')}:</span> {new Date(run.updatedAt).toLocaleString()}</p>
+                                {run.resultSummary ? (
+                                  <p className="sm:col-span-2"><span className="font-medium text-foreground">{t('Result', 'Ergebnis')}:</span> {run.resultSummary}</p>
+                                ) : null}
+                                {run.interruptedReason ? (
+                                  <p className="sm:col-span-2"><span className="font-medium text-foreground">{t('Interrupted', 'Unterbrochen')}:</span> {run.interruptedReason}</p>
+                                ) : null}
+                              </div>
+
+                              {run.timeline && run.timeline.length > 0 ? (
+                                <div className="mt-3 rounded-md border border-border/50 bg-card/60 p-2">
+                                  <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                    {t('Timeline', 'Zeitachse')}
+                                  </p>
+                                  <div className="grid gap-2">
+                                    {run.timeline.map((entry) => (
+                                      <div key={entry.id} className="rounded-md border border-border/40 bg-background/70 px-2.5 py-2">
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                          <p className="text-[11px] font-medium text-foreground">
+                                            {entry.phase}
+                                          </p>
+                                          <p className="text-[10px] text-muted-foreground">
+                                            {new Date(entry.at).toLocaleString()}
+                                          </p>
+                                        </div>
+                                        <p className="mt-1 text-[11px] text-muted-foreground">{entry.message}</p>
+                                        {entry.details ? (
+                                          <p className="mt-1 text-[11px] text-muted-foreground/90">{entry.details}</p>
+                                        ) : null}
+                                        {entry.action ? (
+                                          <p className="mt-1 text-[11px] text-muted-foreground/90">
+                                            <span className="font-medium text-foreground">{t('Action', 'Aktion')}:</span>{' '}
+                                            <span className="font-mono">{entry.action.actionType}</span> · <span className="font-mono">{entry.action.path}</span>
+                                          </p>
+                                        ) : null}
+                                        {entry.decision ? (
+                                          <p className="mt-1 text-[11px] text-muted-foreground/90">
+                                            <span className="font-medium text-foreground">{t('Decision', 'Entscheidung')}:</span>{' '}
+                                            {entry.decision.approved ? t('approved', 'genehmigt') : t('rejected', 'abgelehnt')}
+                                            {entry.decision.reason ? ` · ${entry.decision.reason}` : ''}
+                                          </p>
+                                        ) : null}
+                                        {entry.receipt ? (
+                                          <p className="mt-1 text-[11px] text-muted-foreground/90">
+                                            <span className="font-medium text-foreground">{t('Receipt', 'Beleg')}:</span>{' '}
+                                            {entry.receipt.status}
+                                            {entry.receipt.errorCode ? ` · ${entry.receipt.errorCode}` : ''}
+                                            {entry.receipt.message ? ` · ${entry.receipt.message}` : ''}
+                                          </p>
+                                        ) : null}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {artifact ? (
+                                <div className="mt-3 rounded-md border border-border/50 bg-card/60 p-2">
+                                  <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                    {t('Artifact details', 'Artefaktdetails')}
+                                  </p>
+                                  <div className="grid gap-1 text-[11px] text-muted-foreground">
+                                    <p>
+                                      <span className="font-medium text-foreground">{t('Artifact ID', 'Artefakt-ID')}:</span>{' '}
+                                      <span className="font-mono">{artifact.id}</span>
+                                    </p>
+                                    <p>
+                                      <span className="font-medium text-foreground">{t('Recorded', 'Erfasst')}:</span>{' '}
+                                      {new Date(artifact.createdAt).toLocaleString()}
+                                    </p>
+                                    <p>
+                                      <span className="font-medium text-foreground">{t('Receipt count', 'Anzahl Belege')}:</span>{' '}
+                                      {artifact.receiptCount}
+                                    </p>
+                                    {artifact.summary ? (
+                                      <p>
+                                        <span className="font-medium text-foreground">{t('Summary', 'Zusammenfassung')}:</span>{' '}
+                                        {artifact.summary}
+                                      </p>
+                                    ) : null}
+                                  </div>
+
+                                  {artifact.previews.length > 0 ? (
+                                    <div className="mt-3">
+                                      <p className="mb-1 text-[11px] font-medium text-foreground">{t('Previews', 'Vorschauen')}</p>
+                                      <div className="grid gap-2">
+                                        {artifact.previews.map((preview, index) => (
+                                          <pre
+                                            key={`${artifact.id}-preview-${index}`}
+                                            className="overflow-x-auto rounded-md border border-border/40 bg-background/70 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground whitespace-pre-wrap"
+                                          >
+                                            {preview}
+                                          </pre>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : null}
+
+                                  {artifact.receipts.length > 0 ? (
+                                    <div className="mt-3">
+                                      <p className="mb-1 text-[11px] font-medium text-foreground">{t('Receipts', 'Belege')}</p>
+                                      <div className="grid gap-2">
+                                        {artifact.receipts.map((receipt) => (
+                                          <div
+                                            key={`${artifact.id}-receipt-${receipt.id}`}
+                                            className="rounded-md border border-border/40 bg-background/70 px-2 py-1.5 text-[11px] text-muted-foreground"
+                                          >
+                                            <p>
+                                              <span className="font-medium text-foreground">{receipt.type}</span> ·{' '}
+                                              <span className="font-mono">{receipt.path}</span> · {receipt.status}
+                                            </p>
+                                            {receipt.message ? <p className="mt-0.5">{receipt.message}</p> : null}
+                                            {receipt.errorCode ? <p className="mt-0.5 font-mono">{receipt.errorCode}</p> : null}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : null}
+
+                                  {artifact.errors.length > 0 ? (
+                                    <div className="mt-3">
+                                      <p className="mb-1 text-[11px] font-medium text-foreground">{t('Errors', 'Fehler')}</p>
+                                      <div className="grid gap-1">
+                                        {artifact.errors.map((error, index) => (
+                                          <p
+                                            key={`${artifact.id}-error-${index}`}
+                                            className="rounded-md border border-border/40 bg-background/70 px-2 py-1.5 text-[11px] text-muted-foreground"
+                                          >
+                                            {error}
+                                          </p>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </ScrollArea>
+                  )}
+                </section>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
     </section>
   );
 }

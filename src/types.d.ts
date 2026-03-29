@@ -21,6 +21,7 @@ import type {
   InternalEngineCoworkContinuationResult,
   InternalEnginePendingApprovalDecision,
   InternalEnginePendingApprovalDecisionResult,
+  InternalEngineRunRecord,
   InternalEngineRuntimeInfo,
   InternalEngineSendChatResult,
   InternalEngineShellStatus,
@@ -33,6 +34,7 @@ type DesktopBridgeApi = {
   saveConfig: (config: AppConfig) => Promise<AppConfig>;
   getInternalEngineStatus: () => Promise<InternalEngineShellStatus>;
   getInternalEngineRuntimeInfo: () => Promise<InternalEngineRuntimeInfo>;
+  getInternalRunHistory: (limit?: number) => Promise<InternalEngineRunRecord[]>;
   connectInternalEngine: (options: EngineConnectOptions) => Promise<void>;
   disconnectInternalEngine: () => Promise<void>;
   getInternalEngineActiveSessionKey: () => Promise<string>;

@@ -87,7 +87,8 @@ async function connectInternalProviderFromOnboarding(page: Page) {
     await onboardingProviderButton.click();
     const connectButton = page.locator('form').getByRole('button', { name: 'Connect', exact: true });
     if (await connectButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await connectButton.click();
+      await connectButton.scrollIntoViewIfNeeded();
+      await connectButton.click({ force: true });
     }
     const readyHeading = page.getByRole('heading', { name: "You're all set" });
     if (await readyHeading.isVisible({ timeout: 5000 })) {

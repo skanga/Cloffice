@@ -31,6 +31,7 @@ import type {
   InternalEngineCoworkContinuationRequest,
   InternalEnginePendingApprovalDecision,
   InternalEnginePendingApprovalDecisionResult,
+  InternalEngineRunRecord,
   InternalEngineRuntimeInfo,
   InternalEngineSendChatResult,
 } from '../src/lib/internal-engine-bridge.js';
@@ -132,12 +133,29 @@ function createInternalEngineMainService() {
     | 'completed'
     | 'blocked'
     | 'interrupted';
+  type PersistedInternalRunTimelineActionRef = {
+    actionId: string;
+    actionType: EngineRequestedAction['type'];
+    path: string;
+  };
+  type PersistedInternalRunTimelineDecisionRef = {
+    approved: boolean;
+    reason?: string;
+  };
+  type PersistedInternalRunTimelineReceiptRef = {
+    status: LocalActionReceipt['status'];
+    message?: string;
+    errorCode?: string;
+  };
   type PersistedInternalRunTimelineEntry = {
     id: string;
     at: number;
     phase: PersistedInternalRunTimelinePhase;
     message: string;
     details?: string;
+    action?: PersistedInternalRunTimelineActionRef;
+    decision?: PersistedInternalRunTimelineDecisionRef;
+    receipt?: PersistedInternalRunTimelineReceiptRef;
   };
   type PersistedInternalRunRecord = {
     runId: string;
@@ -579,6 +597,64 @@ function createInternalEngineMainService() {
             ...(typeof timelineEntry.details === 'string' && timelineEntry.details.trim()
               ? { details: timelineEntry.details.trim() }
               : {}),
+            ...(
+              timelineEntry.action
+              && typeof timelineEntry.action === 'object'
+              && typeof (timelineEntry.action as Record<string, unknown>).actionId === 'string'
+              && typeof (timelineEntry.action as Record<string, unknown>).actionType === 'string'
+              && typeof (timelineEntry.action as Record<string, unknown>).path === 'string'
+                ? {
+                    action: {
+                      actionId: ((timelineEntry.action as Record<string, unknown>).actionId as string).trim(),
+                      actionType: (timelineEntry.action as Record<string, unknown>).actionType as EngineRequestedAction['type'],
+                      path: ((timelineEntry.action as Record<string, unknown>).path as string).trim(),
+                    } satisfies PersistedInternalRunTimelineActionRef,
+                  }
+                : {}
+            ),
+            ...(
+              timelineEntry.decision
+              && typeof timelineEntry.decision === 'object'
+              && typeof (timelineEntry.decision as Record<string, unknown>).approved === 'boolean'
+                ? {
+                    decision: {
+                      approved: (timelineEntry.decision as Record<string, unknown>).approved as boolean,
+                      ...(
+                        typeof (timelineEntry.decision as Record<string, unknown>).reason === 'string'
+                        && ((timelineEntry.decision as Record<string, unknown>).reason as string).trim()
+                          ? { reason: ((timelineEntry.decision as Record<string, unknown>).reason as string).trim() }
+                          : {}
+                      ),
+                    } satisfies PersistedInternalRunTimelineDecisionRef,
+                  }
+                : {}
+            ),
+            ...(
+              timelineEntry.receipt
+              && typeof timelineEntry.receipt === 'object'
+              && (
+                (timelineEntry.receipt as Record<string, unknown>).status === 'ok'
+                || (timelineEntry.receipt as Record<string, unknown>).status === 'error'
+              )
+                ? {
+                    receipt: {
+                      status: (timelineEntry.receipt as Record<string, unknown>).status as LocalActionReceipt['status'],
+                      ...(
+                        typeof (timelineEntry.receipt as Record<string, unknown>).message === 'string'
+                        && ((timelineEntry.receipt as Record<string, unknown>).message as string).trim()
+                          ? { message: ((timelineEntry.receipt as Record<string, unknown>).message as string).trim() }
+                          : {}
+                      ),
+                      ...(
+                        typeof (timelineEntry.receipt as Record<string, unknown>).errorCode === 'string'
+                        && ((timelineEntry.receipt as Record<string, unknown>).errorCode as string).trim()
+                          ? { errorCode: ((timelineEntry.receipt as Record<string, unknown>).errorCode as string).trim() }
+                          : {}
+                      ),
+                    } satisfies PersistedInternalRunTimelineReceiptRef,
+                  }
+                : {}
+            ),
           } satisfies PersistedInternalRunTimelineEntry];
         })
       : undefined;
@@ -757,6 +833,9 @@ function createInternalEngineMainService() {
         phase: entry.phase,
         message: entry.message,
         ...(entry.details ? { details: entry.details } : {}),
+        ...(entry.action ? { action: entry.action } : {}),
+        ...(entry.decision ? { decision: entry.decision } : {}),
+        ...(entry.receipt ? { receipt: entry.receipt } : {}),
       },
     ].slice(-24);
   };
@@ -952,6 +1031,23 @@ function createInternalEngineMainService() {
         latestRunTimelinePhase: latestTimelineEntry?.phase ?? null,
         latestRunTimelineMessage: latestTimelineEntry?.message ?? null,
       };
+    },
+    async getRunHistory(limit = 10): Promise<InternalEngineRunRecord[]> {
+      if (!shellStatus.availableInBuild) {
+        return [];
+      }
+      await loadPersistedState();
+      const artifactById = new Map(artifacts.map((artifact) => [artifact.id, artifact]));
+      return Array.from(runs.values())
+        .sort((left, right) => right.updatedAt - left.updatedAt)
+        .slice(0, limit)
+        .map((run) => ({
+          ...run,
+          ...(run.artifactId && artifactById.has(run.artifactId)
+            ? { artifact: artifactById.get(run.artifactId)! }
+            : {}),
+          ...(run.timeline ? { timeline: [...run.timeline].sort((left, right) => left.at - right.at) } : {}),
+        }));
     },
     async createChatSession(): Promise<string> {
       requireConnected();
@@ -1187,6 +1283,25 @@ function createInternalEngineMainService() {
         previews: approvedExecution.previews,
         errors: [...rejectedErrors, ...approvedExecution.errors],
       };
+      for (const receipt of execution.receipts) {
+        appendRunTimelineEntry(payload.runId, {
+          phase: receipt.status === 'error' ? 'blocked' : 'completed',
+          message:
+            receipt.status === 'error'
+              ? `Action ${receipt.type} on ${receipt.path} completed with an error.`
+              : `Action ${receipt.type} on ${receipt.path} completed successfully.`,
+          action: {
+            actionId: receipt.id,
+            actionType: receipt.type,
+            path: receipt.path,
+          },
+          receipt: {
+            status: receipt.status,
+            ...(receipt.message ? { message: receipt.message } : {}),
+            ...(receipt.errorCode ? { errorCode: receipt.errorCode } : {}),
+          },
+        });
+      }
       const assistantMessage: EngineChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -1315,6 +1430,15 @@ function createInternalEngineMainService() {
           ? `Approved ${flow.currentApproval.summary}.`
           : `Rejected ${flow.currentApproval.summary}.`,
         ...(decision.approved ? {} : { details: decision.reason || 'Rejected by operator.' }),
+        action: {
+          actionId: flow.currentApproval.actionId,
+          actionType: flow.currentApproval.actionType,
+          path: flow.currentApproval.path,
+        },
+        decision: {
+          approved: decision.approved,
+          ...(decision.reason ? { reason: decision.reason } : {}),
+        },
       });
       if (next.kind === 'next') {
         pendingApprovalFlows = [
@@ -2271,6 +2395,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('config:save', async (_event, config: AppConfig) => writeConfig(config));
   ipcMain.handle('internal-engine:status', async () => internalEngineService.getStatus());
   ipcMain.handle('internal-engine:get-runtime-info', async () => internalEngineService.getRuntimeInfo());
+  ipcMain.handle('internal-engine:get-run-history', async (_event, limit?: number) => internalEngineService.getRunHistory(limit));
   ipcMain.handle('internal-engine:connect', async (_event, options: EngineConnectOptions) => internalEngineService.connect(options));
   ipcMain.handle('internal-engine:disconnect', async () => internalEngineService.disconnect());
   ipcMain.handle('internal-engine:get-active-session-key', async () => internalEngineService.getActiveSessionKey());
