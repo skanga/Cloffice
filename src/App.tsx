@@ -106,13 +106,13 @@ import {
     resolveEngineCoworkStreamingTransition,
   } from './lib/engine-session-events';
 import {
+  appendEngineCoworkReceiptMessage,
   appendEngineCoworkActivityMessage,
   appendUniqueSystemMessage,
   applyEngineCoworkFinalMessageUpdate,
   deriveEngineActionRunKey,
   executeEngineCoworkActionExecution,
-  resolveEngineActionOutcome,
-  resolveEngineActionTaskStatus,
+  resolveEngineCoworkReceiptApplication,
 } from './lib/engine-run-coordinator';
   import {
     buildInternalEngineActionInstruction,
@@ -2098,30 +2098,33 @@ export default function App() {
             }
 
                 const actionRunKey = deriveEngineActionRunKey(eventSessionKey, runId);
-                const runContext = resolveCoworkRunContext(eventSessionKey || coworkSessionKeyRef.current, runId);
-                const taskEntry = resolveCoworkTaskForRun(eventSessionKey || coworkSessionKeyRef.current, runId);
+            const runContext = resolveCoworkRunContext(eventSessionKey || coworkSessionKeyRef.current, runId);
+            const taskEntry = resolveCoworkTaskForRun(eventSessionKey || coworkSessionKeyRef.current, runId);
             const postCoworkActionReceipt = (result: ReturnType<typeof buildEngineActionExecutionResult>) => {
-              setCoworkRunStatus(result.summary);
+              const receiptApplication = resolveEngineCoworkReceiptApplication(result);
+              setCoworkRunStatus(receiptApplication.runStatus);
               setCoworkProgressStage('deliverables', {
                 completeThrough: true,
-                details: result.errors.length > 0 ? 'Deliverables generated with action errors.' : 'Deliverables generated successfully.',
+                details: receiptApplication.progressDetails,
               });
-              setStatus(result.summary);
+              setStatus(receiptApplication.runStatus);
               pushLocalActionReceipts(result.receipts);
               recordCoworkArtifactsFromReceipts(result.receipts, runId);
 
               if (taskEntry) {
-                const nextStatus = resolveEngineActionTaskStatus(result);
-                setCoworkTaskStatus(taskEntry.taskId, nextStatus, {
+                setCoworkTaskStatus(taskEntry.taskId, receiptApplication.taskStatus, {
                   runId,
-                  summary: result.summary,
-                  outcome: resolveEngineActionOutcome(result),
+                  summary: receiptApplication.taskSummary,
+                  outcome: receiptApplication.taskOutcome,
                 });
                 finalizeCoworkTaskRun(eventSessionKey || coworkSessionKeyRef.current, taskEntry.taskId);
               }
 
               setCoworkMessages((current) => {
-                const next = appendUniqueSystemMessage(current, result.receiptMessage);
+                const next = appendEngineCoworkReceiptMessage({
+                  current,
+                  result,
+                });
                 if (eventSessionKey) {
                   coworkMessageCache.current.set(eventSessionKey, next);
                 }

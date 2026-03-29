@@ -39,6 +39,14 @@ export function appendUniqueSystemMessage(current: ChatMessage[], message: ChatM
   return current.some((entry) => entry.id === message.id) ? current : [...current, message];
 }
 
+export type EngineCoworkReceiptApplication = {
+  runStatus: string;
+  progressDetails: string;
+  taskStatus: CoworkProjectTaskStatus;
+  taskSummary: string;
+  taskOutcome: string;
+};
+
 export function applyEngineCoworkFinalMessageUpdate(params: {
   current: ChatMessage[];
   streamId: string;
@@ -96,6 +104,27 @@ export function appendEngineCoworkActivityMessage(params: {
   }
 
   return [...params.current, activityMessage];
+}
+
+export function resolveEngineCoworkReceiptApplication(
+  result: EngineActionExecutionResult,
+): EngineCoworkReceiptApplication {
+  return {
+    runStatus: result.summary,
+    progressDetails: result.errors.length > 0
+      ? 'Deliverables generated with action errors.'
+      : 'Deliverables generated successfully.',
+    taskStatus: resolveEngineActionTaskStatus(result),
+    taskSummary: result.summary,
+    taskOutcome: resolveEngineActionOutcome(result),
+  };
+}
+
+export function appendEngineCoworkReceiptMessage(params: {
+  current: ChatMessage[];
+  result: EngineActionExecutionResult;
+}): ChatMessage[] {
+  return appendUniqueSystemMessage(params.current, params.result.receiptMessage);
 }
 
 type ValidateProjectRelativePath = (
