@@ -626,6 +626,7 @@ export function SettingsPage({
                       key={provider.id}
                       type="button"
                       disabled={!provider.selectionEnabled}
+                      data-testid={`settings-provider-${provider.id}`}
                       className={`rounded-lg border px-3 py-3 text-left transition ${
                         isSelected
                           ? 'border-primary/45 bg-primary/10'

@@ -30,6 +30,7 @@
     "test:e2e:runner:real:headed": "set RELAY_E2E_REAL_GATEWAY=1&& playwright test -c playwright.electron.config.ts --headed --workers=1",
     "test:e2e:mock-gateway": "node tests/e2e/mock-gateway.mjs",
     "test:e2e:internal-engine": "kill-port 5173 && concurrently -k -s first \"wait-on http-get://localhost:5173/ && node scripts/internal-engine-smoke.mjs\" \"npm run dev:e2e\"",
+    "test:e2e:internal-engine-ui": "kill-port 5173 && concurrently -k -s first \"wait-on http-get://localhost:5173/ && playwright test -c playwright.electron.config.ts tests/e2e/internal-engine-ui.spec.ts --workers=1\" \"npm run dev:e2e\"",
     "preview": "vite preview",
     "package": "npm run build && electron-builder"
   },

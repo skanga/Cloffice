@@ -436,6 +436,7 @@ export function OnboardingPage({
                         key={provider.id}
                         type="button"
                         disabled={!provider.selectionEnabled}
+                        data-testid={`onboarding-provider-${provider.id}`}
                         className={`rounded-xl border px-3 py-3 text-left transition ${
                           isSelected
                             ? 'border-primary/45 bg-primary/10'

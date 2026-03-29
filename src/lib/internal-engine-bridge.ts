@@ -10,6 +10,7 @@ import type {
   EngineWorkspaceReadResult,
   EngineWorkspaceStatResult,
 } from './engine-runtime-types.js';
+import type { ChatActivityItem, EngineRequestedAction } from '../app-types.js';
 
 export type InternalEngineShellCapabilities = {
   connection: boolean;
@@ -46,6 +47,13 @@ export type InternalEngineSendChatResult = {
   model: string;
   historyLength: number;
   sessionTitle?: string;
+  providerId?: 'internal';
+  runtimeKind?: 'internal';
+  sessionKind?: string;
+  requestedActions?: EngineRequestedAction[];
+  activityItems?: ChatActivityItem[];
+  engineActionPhase?: 'none' | 'approval_required';
+  engineActionMode?: 'none' | 'read-only';
 };
 
 export type InternalEngineLifecycleBridge = {

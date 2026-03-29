@@ -100,11 +100,20 @@ try {
     if (!cowork.assistantMessage.text.includes('Internal cowork foundation response.')) {
       throw new Error(`cowork response missing foundation marker: ${cowork.assistantMessage.text}`);
     }
-    if (!cowork.assistantMessage.text.includes('Current limitation: internal cowork foundations do not execute workspace actions yet.')) {
+    if (!cowork.assistantMessage.text.includes('Current limitation: internal cowork foundations only emit read-only inspection actions in this phase.')) {
       throw new Error(`cowork response missing limitation note: ${cowork.assistantMessage.text}`);
     }
     if (!cowork.sessionTitle?.startsWith('Task:')) {
       throw new Error(`cowork session title not normalized: ${cowork.sessionTitle}`);
+    }
+    if (cowork.engineActionPhase !== 'approval_required') {
+      throw new Error(`cowork action phase not normalized: ${JSON.stringify(cowork)}`);
+    }
+    if (cowork.engineActionMode !== 'read-only') {
+      throw new Error(`cowork action mode not normalized: ${JSON.stringify(cowork)}`);
+    }
+    if (cowork.requestedActions?.[0]?.type !== 'list_dir') {
+      throw new Error(`cowork requested action not emitted: ${JSON.stringify(cowork.requestedActions)}`);
     }
 
     const after = await callBridge(`(async () => {
@@ -128,6 +137,9 @@ try {
       coworkSessionKey,
       plannerModel: planner.model,
       coworkTitle: cowork.sessionTitle,
+      coworkActionPhase: cowork.engineActionPhase,
+      coworkActionMode: cowork.engineActionMode,
+      coworkActionType: cowork.requestedActions?.[0]?.type ?? null,
       sessionCount: after.sessionCount,
       activeSessionKey: after.activeSessionKey,
     };

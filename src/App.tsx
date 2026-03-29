@@ -1,8 +1,9 @@
 import { appConfigFromEngineDraft, buildEngineDraftConfig, engineConnectOptionsFromDraft, engineDraftFromAppConfig, parseStoredEngineConfig } from './lib/engine-config';
 import { engineConnectionMatchesAppConfig, parseStoredEngineConnectionProfile, serializeEngineConnectionProfile } from './lib/engine-connection-profiles';
 import { getDesktopBridge } from './lib/desktop-bridge';
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import { flushSync } from 'react-dom';
 
 import type {
   AppConfig,
@@ -95,13 +96,17 @@ import {
   isEngineSessionStreaming,
   parseEngineChatEvent,
 } from './lib/engine-session-events';
+import { executeInternalReadOnlyEngineActions } from './lib/internal-engine-action-runner';
 import {
   appendUniqueSystemMessage,
   deriveEngineActionRunKey,
   resolveEngineActionOutcome,
   resolveEngineActionTaskStatus,
 } from './lib/engine-run-coordinator';
-import { buildOpenClawCompatEngineActionInstruction } from './lib/engine-action-protocol';
+import {
+  buildInternalEngineActionInstruction,
+  buildOpenClawCompatEngineActionInstruction,
+} from './lib/engine-action-protocol';
 
 const ChatPage = lazy(() => import('./features/chat/chat-page').then((module) => ({ default: module.ChatPage })));
 const CoworkPage = lazy(() => import('./features/cowork/cowork-page').then((module) => ({ default: module.CoworkPage })));
@@ -1942,13 +1947,19 @@ export default function App() {
     workingFolderRef.current = workingFolder.trim();
   }, [workingFolder]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const client = createEngineClient(draftEngineProviderId);
     client.setConnectionHandler((connected, message) => {
+      if (engineClientRef.current !== client) {
+        return;
+      }
       setStatus(message);
       setEngineConnected(connected);
     });
     client.setEventHandler((event) => {
+      if (engineClientRef.current !== client) {
+        return;
+      }
       const chatEvent = parseEngineChatEvent(event, `evt-${Date.now()}`);
       if (chatEvent) {
         const { payload, sessionKey: eventSessionKey, runId, text, visibleText, role } = chatEvent;
@@ -2032,6 +2043,9 @@ export default function App() {
               activityItems,
               hasRequestedActions,
               hasStructuredActivity,
+              actionPhase,
+              actionMode,
+              providerId,
             } = deriveEngineSessionArtifacts(chatEvent);
             if (coworkUsage) {
               accumulateTodayUsage(coworkUsage);
@@ -2092,7 +2106,29 @@ export default function App() {
             const actionRunKey = deriveEngineActionRunKey(eventSessionKey, runId);
             const runContext = resolveCoworkRunContext(eventSessionKey || coworkSessionKeyRef.current, runId);
             const taskEntry = resolveCoworkTaskForRun(eventSessionKey || coworkSessionKeyRef.current, runId);
-            if (taskEntry) {
+            if (providerId === 'internal' && actionPhase === 'approval_required' && hasRequestedActions) {
+              setCoworkRunStatus(
+                actionMode === 'read-only'
+                  ? 'Internal cowork is requesting approval for read-only actions.'
+                  : 'Internal cowork is requesting action approval.',
+              );
+              setCoworkProgressStage('executing_workstreams', {
+                details:
+                  actionMode === 'read-only'
+                    ? 'Internal cowork requested scoped inspection actions and is awaiting approval handling.'
+                    : 'Internal cowork requested governed actions and is awaiting approval handling.',
+              });
+              if (taskEntry) {
+                setCoworkTaskStatus(taskEntry.taskId, 'needs_approval', {
+                  runId,
+                  summary:
+                    actionMode === 'read-only'
+                      ? 'Awaiting approval for internal read-only actions.'
+                      : 'Awaiting approval for internal engine actions.',
+                });
+              }
+            }
+            if (taskEntry && requestedActions.length === 0) {
               setCoworkTaskStatus(taskEntry.taskId, 'completed', {
                 runId,
                 summary: sessionResult.status === 'aborted' ? 'Run ended early.' : 'Run completed.',
@@ -2159,6 +2195,152 @@ export default function App() {
                       errors: [noFolderMessage],
                       projectTitle: runContext.projectTitle,
                       rootPath: '(not set)',
+                    }),
+                  );
+                  return;
+                }
+
+                if (providerId === 'internal' && actionMode === 'read-only') {
+                  const boundedActions = requestedActions.slice(0, MAX_LOCAL_ACTIONS_PER_RUN);
+                  const approvedActions: typeof boundedActions = [];
+                  const approvalReceipts: LocalActionReceipt[] = [];
+                  const approvalPreviews: string[] = [];
+                  const approvalErrors: string[] = [];
+
+                  const summarizeInternalReadOnlyAction = (action: (typeof boundedActions)[number]) => {
+                    if (action.type === 'list_dir') {
+                      return `List directory ${action.path || '.'}`;
+                    }
+                    if (action.type === 'read_file') {
+                      return `Read ${action.path}`;
+                    }
+                    return `Check exists ${action.path}`;
+                  };
+
+                  const buildInternalReadOnlyApprovalPreview = (action: (typeof boundedActions)[number]) => {
+                    const actionPath = action.path || '.';
+                    if (action.type === 'list_dir') {
+                      return [
+                        'Internal cowork requested a read-only directory listing.',
+                        `Path: ${actionPath}`,
+                      ].join('\n');
+                    }
+                    if (action.type === 'read_file') {
+                      return [
+                        'Internal cowork requested a read-only file read.',
+                        `Path: ${actionPath}`,
+                      ].join('\n');
+                    }
+                    return [
+                      'Internal cowork requested a read-only existence check.',
+                      `Path: ${actionPath}`,
+                    ].join('\n');
+                  };
+
+                  if (requestedActions.length > MAX_LOCAL_ACTIONS_PER_RUN) {
+                    approvalErrors.push(
+                      `Action limit exceeded: received ${requestedActions.length}, executed ${MAX_LOCAL_ACTIONS_PER_RUN}.`,
+                    );
+                  }
+
+                  for (let index = 0; index < boundedActions.length; index += 1) {
+                    const action = boundedActions[index];
+                    const actionId = action.id || `action-${index + 1}`;
+                    const actionPath = action.path || '.';
+                    const approvalId = `${runId}-${actionId}-${index + 1}`;
+                    const actionSummary = summarizeInternalReadOnlyAction(action);
+
+                    setCoworkRunStatus(`Awaiting approval for ${actionSummary}...`);
+                    setCoworkProgressStage('executing_workstreams', {
+                      details: `Awaiting operator approval for internal read-only action on ${actionPath}.`,
+                    });
+                    if (taskEntry) {
+                      setCoworkTaskStatus(taskEntry.taskId, 'needs_approval', {
+                        runId,
+                        summary: `Needs approval: ${actionSummary}`,
+                      });
+                    }
+
+                    const decision = await requestActionApproval({
+                      id: approvalId,
+                      runId,
+                      actionId,
+                      actionType: action.type,
+                      projectId: runContext.projectId || undefined,
+                      projectTitle: runContext.projectTitle || undefined,
+                      projectRootFolder: runContext.rootFolder || undefined,
+                      path: actionPath,
+                      scopeId: 'workspace.read',
+                      scopeName: 'Workspace read',
+                      riskLevel: 'medium',
+                      summary: `${runContext.projectTitle ? `[${runContext.projectTitle}] ` : ''}${actionSummary}`,
+                      preview: buildInternalReadOnlyApprovalPreview(action),
+                      createdAt: Date.now(),
+                    });
+
+                    if (!decision.approved) {
+                      const reason = decision.reason || 'Internal read-only action rejected by operator.';
+                      const code = decision.expired ? 'APPROVAL_TIMEOUT' : 'REJECTED_BY_OPERATOR';
+                      approvalErrors.push(`${actionPath}: ${reason}`);
+                      approvalReceipts.push({
+                        id: actionId,
+                        type: action.type,
+                        path: actionPath,
+                        status: 'error',
+                        errorCode: code,
+                        message: reason,
+                      });
+                      if (taskEntry) {
+                        setCoworkTaskStatus(taskEntry.taskId, 'rejected', {
+                          runId,
+                          summary: `Rejected: ${actionSummary}`,
+                          outcome: reason,
+                        });
+                      }
+                      continue;
+                    }
+
+                    approvedActions.push(action);
+                    approvalPreviews.push(`Approved internal read-only action -> ${actionSummary}`);
+                    if (taskEntry) {
+                      setCoworkTaskStatus(taskEntry.taskId, 'approved', {
+                        runId,
+                        summary: `Approved: ${actionSummary}`,
+                      });
+                    }
+                  }
+
+                  if (approvedActions.length === 0) {
+                    postActionReceipt(
+                      buildEngineActionExecutionResult({
+                        runId,
+                        receipts: approvalReceipts,
+                        previews: approvalPreviews,
+                        errors: approvalErrors.length > 0 ? approvalErrors : ['No internal read-only actions were approved.'],
+                        projectTitle: runContext.projectTitle,
+                        rootPath,
+                      }),
+                    );
+                    return;
+                  }
+
+                  setCoworkRunStatus('Applying approved internal read-only actions...');
+                  setCoworkProgressStage('executing_workstreams', {
+                    details: 'Applying approved internal read-only workspace inspection actions.',
+                  });
+                  const result = await executeInternalReadOnlyEngineActions({
+                    bridge,
+                    rootPath,
+                    actions: approvedActions,
+                  });
+                  postActionReceipt(
+                    buildEngineActionExecutionResult({
+                      runId,
+                      receipts: [...approvalReceipts, ...result.receipts],
+                      previews: [...approvalPreviews, ...result.previews],
+                      errors: [...approvalErrors, ...result.errors],
+                      projectTitle: runContext.projectTitle,
+                      rootPath,
                     }),
                   );
                   return;
@@ -2913,9 +3095,9 @@ export default function App() {
       return;
     }
 
-    const engineConfig = engineDraftFromAppConfig(config);
-    const runtimeEndpointUrl = engineConfig.endpointUrl?.trim() || DEFAULT_GATEWAY_URL;
-    const runtimeAccessToken = engineConfig.accessToken ?? '';
+    let cancelled = false;
+    const runtimeEndpointUrl = (config.gatewayUrl || DEFAULT_GATEWAY_URL).trim() || DEFAULT_GATEWAY_URL;
+    const runtimeAccessToken = config.gatewayToken ?? '';
 
     void client
       .connect({
@@ -2923,14 +3105,30 @@ export default function App() {
         accessToken: runtimeAccessToken,
       })
       .then(async () => {
+        if (cancelled) {
+          return;
+        }
+        setEngineConnected(true);
         setHealth({ ok: true, message: `Connected to runtime at ${runtimeEndpointUrl}` });
         markEngineConnectionLastUsed({ gatewayUrl: runtimeEndpointUrl, gatewayToken: runtimeAccessToken });
         if (!onboardingComplete) {
           completeOnboarding();
         }
-        await loadRecentChatsFromBackend(client);
+        try {
+          await loadRecentChatsFromBackend(client);
+        } catch (error) {
+          if (cancelled) {
+            return;
+          }
+          const message = error instanceof Error ? error.message : 'Connected to runtime, but failed to refresh recent chats.';
+          setStatus(message);
+        }
       })
       .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        setEngineConnected(false);
         const info = readEngineError(error);
         const isPairing =
           info.code === 'PAIRING_REQUIRED' ||
@@ -2948,7 +3146,11 @@ export default function App() {
           setStatus(offlineMessage);
         }
       });
-  }, [config.gatewayToken, config.gatewayUrl, onboardingComplete, configReady, markEngineConnectionLastUsed]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [draftEngineProviderId, config.gatewayToken, config.gatewayUrl, onboardingComplete, configReady, markEngineConnectionLastUsed]);
 
   useEffect(() => {
     if (activePage !== 'chat') {
@@ -2992,10 +3194,12 @@ export default function App() {
               engineDraft: nextEngineDraft,
               storageVersion: 1 as const,
             };
-        setConfig(savedEngineConfig.appConfig);
-        setDraftEngineUrl(savedEngineConfig.engineDraft.endpointUrl);
-        setDraftEngineToken(savedEngineConfig.engineDraft.accessToken);
-        setDraftEngineProviderId(savedEngineConfig.engineDraft.providerId);
+        flushSync(() => {
+          setConfig(savedEngineConfig.appConfig);
+          setDraftEngineUrl(savedEngineConfig.engineDraft.endpointUrl);
+          setDraftEngineToken(savedEngineConfig.engineDraft.accessToken);
+          setDraftEngineProviderId(savedEngineConfig.engineDraft.providerId);
+        });
         persistLocalConfig(savedEngineConfig.appConfig);
       } catch {
         setStatus('Failed to save configuration.');
@@ -3003,7 +3207,12 @@ export default function App() {
         return;
       }
     } else {
-      setConfig(nextConfig);
+      flushSync(() => {
+        setConfig(nextConfig);
+        setDraftEngineUrl(nextEngineDraft.endpointUrl);
+        setDraftEngineToken(nextEngineDraft.accessToken);
+        setDraftEngineProviderId(nextEngineDraft.providerId);
+      });
       persistLocalConfig(nextConfig);
     }
 
@@ -3015,22 +3224,29 @@ export default function App() {
       }
 
       await client.connect(engineConnectOptionsFromDraft(nextEngineDraft));
-
-      await loadRecentChatsFromBackend(client);
-
-      const sessionKey = normalizeSessionKey(activeSessionKeyRef.current);
-      if (sessionKey) {
-        void loadModelsForSession(client, sessionKey);
-      } else {
-        setChatModels([]);
-        setSelectedModel('');
-      }
-
+      setEngineConnected(true);
       setHealth({ ok: true, message: `Connected to runtime at ${nextEngineDraft.endpointUrl}` });
-      setStatus('Configuration saved. Connected to runtime.');
       markEngineConnectionLastUsed(nextConfig);
+
+      try {
+        await loadRecentChatsFromBackend(client);
+
+        const sessionKey = normalizeSessionKey(activeSessionKeyRef.current);
+        if (sessionKey) {
+          void loadModelsForSession(client, sessionKey);
+        } else {
+          setChatModels([]);
+          setSelectedModel('');
+        }
+        setStatus('Configuration saved. Connected to runtime.');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Connected to runtime, but failed to refresh workspace state.';
+        console.warn('[Cloffice] post-connect refresh error:', error);
+        setStatus(`Configuration saved. Connected to runtime. ${message}`);
+      }
     } catch (error) {
       console.error('[Cloffice] connect error:', error);
+      setEngineConnected(false);
       const info = readEngineError(error);
       const isPairing =
         info.code === 'PAIRING_REQUIRED' ||
@@ -3079,10 +3295,12 @@ export default function App() {
       if (sessionKey) {
         commitActiveSessionKey(sessionKey);
       }
+      setEngineConnected(true);
       setHealth({ ok: true, message: `Re-paired and connected to ${getCurrentEngineDraft().endpointUrl}` });
       setStatus('Re-pair complete. If operator.admin is still missing, approve the new request with admin scope on the runtime host.');
     } catch (error) {
       console.error('[Cloffice] reset pairing error:', error);
+      setEngineConnected(false);
       const info = readEngineError(error);
       const isPairing =
         info.code === 'PAIRING_REQUIRED' ||
@@ -3121,7 +3339,7 @@ export default function App() {
     setCoworkRunStatus('Sending cowork task...');
     resetCoworkProgress('Interpreting goal and building a task plan.');
 
-    const text = chatDraftPrompt.trim();
+    const text = coworkDraftPrompt.trim();
     if (!text) {
       setStatus('Describe the outcome first so Cloffice can plan the work.');
       setCoworkSending(false);
@@ -3129,7 +3347,7 @@ export default function App() {
     }
 
     // Clear the composer immediately so submit feedback matches user expectation.
-    handleChatPromptChange('');
+    handleCoworkPromptChange('');
 
     const client = engineClientRef.current;
     if (!client) {
@@ -3263,7 +3481,9 @@ export default function App() {
         rootFolder: folderContext,
         startedAt: Date.now(),
       });
-      const relayFileInstruction = buildOpenClawCompatEngineActionInstruction();
+      const relayFileInstruction = client.providerId === 'internal'
+        ? buildInternalEngineActionInstruction()
+        : buildOpenClawCompatEngineActionInstruction();
       const projectKnowledgeContext = activeCoworkProject
         ? projectKnowledgeItems
             .filter((item) => item.projectId === activeCoworkProject.id)

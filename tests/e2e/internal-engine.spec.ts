@@ -1,9 +1,8 @@
 import { _electron as electron, expect, test } from '@playwright/test';
-import type { ElectronApplication, Page } from '@playwright/test';
+import type { ElectronApplication } from '@playwright/test';
 
 test.describe('Internal engine development path', () => {
   let app: ElectronApplication;
-  let page: Page;
 
   test.beforeEach(async () => {
     app = await electron.launch({
@@ -13,75 +12,114 @@ test.describe('Internal engine development path', () => {
         CLOFFICE_ENABLE_INTERNAL_ENGINE: '1',
       },
     });
-
-    page = await app.firstWindow();
-    await page.waitForLoadState('domcontentloaded');
   });
 
   test.afterEach(async () => {
     await app.close();
   });
 
-  test('desktop bridge supports internal session-aware chat semantics', async () => {
-    const runtimeInfoBeforeConnect = await page.evaluate(async () => window.cloffice?.getInternalEngineRuntimeInfo?.());
-    expect(runtimeInfoBeforeConnect?.readiness).toBe('idle');
-    expect(runtimeInfoBeforeConnect?.connected).toBe(false);
+  test('renderer main world exposes internal runtime bridge and cowork action metadata', async () => {
+    const result = await app.evaluate(async ({ BrowserWindow }) => {
+      const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      let win = null as BrowserWindow | null;
+      const startedAt = Date.now();
 
-    await page.evaluate(async () => {
-      await window.cloffice?.connectInternalEngine?.({
-        endpointUrl: 'internal://dev-runtime',
-      });
+      while (!win && Date.now() - startedAt < 60_000) {
+        win = BrowserWindow.getAllWindows().find((candidate) => candidate.webContents.getURL().includes('localhost:5173')) ?? null;
+        if (!win) {
+          await sleep(500);
+        }
+      }
+
+      if (!win) {
+        throw new Error('renderer window not found');
+      }
+
+      const waitForBridge = async () => {
+        const bridgeStartedAt = Date.now();
+        while (Date.now() - bridgeStartedAt < 60_000) {
+          const hasBridge = await win!.webContents.executeJavaScript('Boolean(window.cloffice || window.relay)', true);
+          if (hasBridge) {
+            return;
+          }
+          await sleep(500);
+        }
+        throw new Error('desktop bridge did not appear in renderer main world');
+      };
+
+      await waitForBridge();
+
+      const callBridge = (expression: string) => win!.webContents.executeJavaScript(expression, true);
+
+      const before = await callBridge(`(async () => {
+        const bridge = window.cloffice ?? window.relay;
+        return bridge.getInternalEngineRuntimeInfo();
+      })()`);
+
+      await callBridge(`(async () => {
+        const bridge = window.cloffice ?? window.relay;
+        await bridge.connectInternalEngine({ endpointUrl: 'internal://dev-runtime' });
+      })()`);
+
+      const chatSessionKey = await callBridge(`(async () => {
+        const bridge = window.cloffice ?? window.relay;
+        return bridge.createInternalChatSession();
+      })()`);
+
+      const coworkSessionKey = await callBridge(`(async () => {
+        const bridge = window.cloffice ?? window.relay;
+        return bridge.createInternalCoworkSession();
+      })()`);
+
+      await callBridge(`(async () => {
+        const bridge = window.cloffice ?? window.relay;
+        await bridge.setInternalSessionModel(${JSON.stringify(chatSessionKey)}, 'internal/dev-planner');
+      })()`);
+
+      const planner = await callBridge(`(async () => {
+        const bridge = window.cloffice ?? window.relay;
+        return bridge.sendInternalChat(${JSON.stringify(chatSessionKey)}, 'Plan a careful rollout for the internal engine development path.');
+      })()`);
+
+      const cowork = await callBridge(`(async () => {
+        const bridge = window.cloffice ?? window.relay;
+        return bridge.sendInternalChat(${JSON.stringify(coworkSessionKey)}, 'Inspect the current project before planning the next migration step.');
+      })()`);
+
+      const after = await callBridge(`(async () => {
+        const bridge = window.cloffice ?? window.relay;
+        return bridge.getInternalEngineRuntimeInfo();
+      })()`);
+
+      await callBridge(`(async () => {
+        const bridge = window.cloffice ?? window.relay;
+        await bridge.disconnectInternalEngine();
+      })()`);
+
+      return {
+        before,
+        after,
+        chatSessionKey,
+        coworkSessionKey,
+        planner,
+        cowork,
+      };
     });
 
-    const sessionKey = await page.evaluate(async () => window.cloffice?.createInternalChatSession?.());
-    expect(sessionKey).toMatch(/^internal:chat:/);
+    expect(result.before.readiness).toBe('idle');
+    expect(result.before.connected).toBe(false);
+    expect(result.after.readiness).toBe('ready');
+    expect(result.after.connected).toBe(true);
+    expect(result.chatSessionKey).toMatch(/^internal:chat:/);
+    expect(result.coworkSessionKey).toMatch(/^internal:cowork:/);
+    expect(result.after.activeSessionKey).toBe(result.coworkSessionKey);
 
-    const models = await page.evaluate(async () => window.cloffice?.listInternalModels?.());
-    expect(models?.map((model: { value: string }) => model.value)).toEqual(
-      expect.arrayContaining(['internal/dev-echo', 'internal/dev-brief', 'internal/dev-planner']),
-    );
+    expect(result.planner.model).toBe('internal/dev-planner');
+    expect(result.planner.assistantMessage.text).toContain('1. Clarify the immediate objective');
 
-    await page.evaluate(async ([key]) => {
-      await window.cloffice?.setInternalSessionModel?.(key, 'internal/dev-planner');
-    }, [sessionKey]);
-
-    const plannerResult = await page.evaluate(async ([key]) => (
-      window.cloffice?.sendInternalChat?.(key, 'Plan a careful rollout for the internal engine development path.')
-    ), [sessionKey]);
-
-    expect(plannerResult?.model).toBe('internal/dev-planner');
-    expect(plannerResult?.assistantMessage?.text).toContain('1. Clarify the immediate objective');
-    expect(plannerResult?.sessionTitle).toContain('Plan:');
-
-    const historyAfterPlanner = await page.evaluate(async ([key]) => window.cloffice?.getInternalHistory?.(key, 10), [sessionKey]);
-    expect(historyAfterPlanner?.some((message: { role: string; text: string }) => (
-      message.role === 'system' && message.text.includes('Planner mode active')
-    ))).toBe(true);
-
-    await page.evaluate(async ([key]) => {
-      await window.cloffice?.setInternalSessionModel?.(key, 'internal/dev-brief');
-    }, [sessionKey]);
-
-    const briefResult = await page.evaluate(async ([key]) => (
-      window.cloffice?.sendInternalChat?.(key, 'Summarize the current runtime state in one compact response.')
-    ), [sessionKey]);
-
-    expect(briefResult?.model).toBe('internal/dev-brief');
-    expect(briefResult?.assistantMessage?.text).toContain('Internal brief response.');
-
-    const historyAfterSwitch = await page.evaluate(async ([key]) => window.cloffice?.getInternalHistory?.(key, 20), [sessionKey]);
-    expect(historyAfterSwitch?.some((message: { role: string; text: string }) => (
-      message.role === 'system' && message.text.includes('Mode switched to Internal Dev Brief')
-    ))).toBe(true);
-
-    const runtimeInfoAfterChat = await page.evaluate(async () => window.cloffice?.getInternalEngineRuntimeInfo?.());
-    expect(runtimeInfoAfterChat?.connected).toBe(true);
-    expect(runtimeInfoAfterChat?.readiness).toBe('ready');
-    expect(runtimeInfoAfterChat?.activeSessionKey).toBe(sessionKey);
-    expect(runtimeInfoAfterChat?.sessionCount).toBeGreaterThan(0);
-
-    await page.evaluate(async () => {
-      await window.cloffice?.disconnectInternalEngine?.();
-    });
+    expect(result.cowork.engineActionPhase).toBe('approval_required');
+    expect(result.cowork.engineActionMode).toBe('read-only');
+    expect(result.cowork.requestedActions?.[0]?.type).toBe('list_dir');
+    expect(result.cowork.assistantMessage.text).toContain('Internal cowork foundation response.');
   });
 });

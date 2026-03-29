@@ -27,6 +27,7 @@ import type {
 import { describeInternalEngineShell } from '../src/lib/internal-engine-placeholder.js';
 import type { EngineChatMessage, EngineConnectOptions, EngineModelChoice, EngineSessionSummary } from '../src/lib/engine-runtime-types.js';
 import type { InternalEngineRuntimeInfo, InternalEngineSendChatResult } from '../src/lib/internal-engine-bridge.js';
+import type { ChatActivityItem, EngineRequestedAction } from '../src/app-types.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -137,6 +138,15 @@ function createInternalEngineMainService() {
   };
   const formatCoworkFoundationResponse = (text: string, sessionKey: string) => {
     const normalized = text.replace(/\s+/g, ' ').trim() || 'the current cowork task';
+    const proposedActions = {
+      engine_actions: [
+        {
+          id: 'inspect-project',
+          type: 'list_dir',
+          path: '.',
+        },
+      ],
+    };
     return [
       'Internal cowork foundation response.',
       '',
@@ -148,9 +158,27 @@ function createInternalEngineMainService() {
       '2. Break the task into a small execution plan.',
       '3. Identify which engine actions would be needed once the internal action runner exists.',
       '',
-      'Current limitation: internal cowork foundations do not execute workspace actions yet.',
+      'Current limitation: internal cowork foundations only emit read-only inspection actions in this phase.',
+      '```json',
+      JSON.stringify(proposedActions, null, 2),
+      '```',
     ].join('\n');
   };
+  const buildCoworkFoundationActions = (): EngineRequestedAction[] => [
+    {
+      id: 'inspect-project',
+      type: 'list_dir',
+      path: '.',
+    },
+  ];
+  const buildCoworkFoundationActivityItems = (): ChatActivityItem[] => [
+    {
+      id: 'internal-cowork-approval',
+      label: 'Internal cowork requested approval for read-only project inspection.',
+      details: 'The internal engine is requesting a scoped directory listing before attempting deeper task execution.',
+      tone: 'neutral',
+    },
+  ];
   const formatInternalAssistantText = (
     model: string,
     text: string,
@@ -376,6 +404,8 @@ function createInternalEngineMainService() {
         role: 'user',
         text,
       };
+      const requestedActions = session.kind === 'cowork' ? buildCoworkFoundationActions() : [];
+      const activityItems = session.kind === 'cowork' ? buildCoworkFoundationActivityItems() : [];
       const assistantMessage: EngineChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -395,6 +425,13 @@ function createInternalEngineMainService() {
         model: nextModel,
         historyLength: session.messages.length,
         sessionTitle: session.title,
+        providerId: 'internal',
+        runtimeKind: 'internal',
+        sessionKind: session.kind,
+        requestedActions,
+        activityItems,
+        engineActionPhase: requestedActions.length > 0 ? 'approval_required' : 'none',
+        engineActionMode: requestedActions.length > 0 ? 'read-only' : 'none',
       };
     },
     isConnected() {

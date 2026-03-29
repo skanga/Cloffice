@@ -88,6 +88,9 @@ export type EngineSessionArtifacts = {
   activityItems: ChatActivityItem[];
   hasRequestedActions: boolean;
   hasStructuredActivity: boolean;
+  actionPhase: 'none' | 'approval_required';
+  actionMode: 'none' | 'read-only';
+  providerId?: string;
 };
 
 export type EngineSessionScope = 'chat' | 'cowork';
@@ -99,6 +102,7 @@ export type EngineSessionMessageIds = {
 };
 
 export function deriveEngineSessionArtifacts(event: EngineSessionEvent): EngineSessionArtifacts {
+  const payload = event.payload;
   const message = event.payload.message ?? event.payload;
   const requestedActions = parseEngineRequestedActions({
     text: event.text,
@@ -119,6 +123,9 @@ export function deriveEngineSessionArtifacts(event: EngineSessionEvent): EngineS
     activityItems,
     hasRequestedActions: requestedActions.length > 0,
     hasStructuredActivity: activityItems.length > 0,
+    actionPhase: payload.engineActionPhase === 'approval_required' ? 'approval_required' : 'none',
+    actionMode: payload.engineActionMode === 'read-only' ? 'read-only' : 'none',
+    providerId: typeof payload.providerId === 'string' ? payload.providerId : undefined,
   };
 }
 

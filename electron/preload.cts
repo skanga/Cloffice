@@ -26,23 +26,31 @@ const OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR = {
   runtimeKind: 'openclaw-compat',
   transport: 'websocket-gateway',
 } as const;
+const INTERNAL_ENGINE_RUNTIME_DESCRIPTOR = {
+  providerId: 'internal',
+  runtimeKind: 'internal',
+  transport: 'internal-ipc',
+} as const;
 
 function parseDesktopBridgeEngineConfig(
   config: AppConfig,
   fallbackEndpoint: string,
+  engineDraftOverride?: EngineDraftConfig,
 ): DesktopBridgeEngineConfig {
+  const engineDraft = engineDraftOverride ?? {
+    providerId: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.providerId,
+    runtimeKind: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind,
+    transport: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.transport,
+    endpointUrl: config.gatewayUrl?.trim() || fallbackEndpoint,
+    accessToken: config.gatewayToken ?? '',
+  };
+
   return {
     appConfig: {
       gatewayUrl: config.gatewayUrl?.trim() || fallbackEndpoint,
       gatewayToken: config.gatewayToken ?? '',
     },
-    engineDraft: {
-      providerId: 'openclaw-compat',
-      runtimeKind: 'openclaw-compat',
-      transport: 'websocket-gateway',
-      endpointUrl: config.gatewayUrl?.trim() || fallbackEndpoint,
-      accessToken: config.gatewayToken ?? '',
-    },
+    engineDraft,
     storageVersion: 1,
   };
 }
@@ -123,6 +131,19 @@ const desktopBridgeApi = {
     return parseDesktopBridgeEngineConfig(
       await ipcRenderer.invoke('config:save', preparedWrite.legacyAppConfig) as AppConfig,
       draft.endpointUrl || DEFAULT_COMPAT_ENGINE_ENDPOINT,
+      {
+        providerId: draft.providerId,
+        runtimeKind:
+          draft.providerId === INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.providerId
+            ? INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind
+            : OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind,
+        transport:
+          draft.providerId === INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.providerId
+            ? INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.transport
+            : OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.transport,
+        endpointUrl: draft.endpointUrl || DEFAULT_COMPAT_ENGINE_ENDPOINT,
+        accessToken: draft.accessToken ?? '',
+      },
     ) as DesktopBridgeEngineConfig;
   },
   healthCheck: (baseUrl: string) =>

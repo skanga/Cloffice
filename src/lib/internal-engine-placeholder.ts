@@ -122,11 +122,18 @@ export class InternalEnginePlaceholderClient implements EngineRuntimeClient {
             historyLength: internalResult.historyLength,
           },
           payload: {
+            providerId: internalResult.providerId ?? this.providerId,
+            runtimeKind: internalResult.runtimeKind ?? this.runtimeKind,
+            sessionKind: internalResult.sessionKind,
             sessionKey: internalResult.sessionKey,
             runId: internalResult.runId,
             model: internalResult.model,
             state: 'completed',
             message: internalResult.assistantMessage,
+            requestedActions: internalResult.requestedActions,
+            activityItems: internalResult.activityItems,
+            engineActionPhase: internalResult.engineActionPhase ?? 'none',
+            engineActionMode: internalResult.engineActionMode ?? 'none',
           },
         });
       }
