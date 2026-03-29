@@ -106,12 +106,14 @@ import {
   resolveEngineActionTaskStatus,
 } from './lib/engine-run-coordinator';
   import {
-    buildEngineApprovalPreview,
     buildInternalEngineActionInstruction,
     buildOpenClawCompatEngineActionInstruction,
-    resolveEngineApprovalTaskTransition,
-    summarizeEngineRequestedAction,
   } from './lib/engine-action-protocol';
+  import {
+    runEngineReadOnlyApprovalLoop,
+    resolveEngineApprovalTaskTransition,
+    type EngineRejectedApprovalAction,
+  } from './lib/engine-approval-orchestrator';
 
 const ChatPage = lazy(() => import('./features/chat/chat-page').then((module) => ({ default: module.ChatPage })));
 const CoworkPage = lazy(() => import('./features/cowork/cowork-page').then((module) => ({ default: module.CoworkPage })));
@@ -2222,14 +2224,7 @@ export default function App() {
                       runId: string;
                       rootPath: string;
                       approvedActions: typeof requestedActions;
-                      rejectedActions: Array<{
-                        id: string;
-                        actionId: string;
-                        actionType: (typeof requestedActions)[number]['type'];
-                        path: string;
-                        approved: boolean;
-                        reason?: string;
-                      }>;
+                      rejectedActions: EngineRejectedApprovalAction[];
                     }) => Promise<{
                       sessionKey: string;
                       execution: {
@@ -2239,69 +2234,39 @@ export default function App() {
                       };
                     }>;
                   };
-                  const boundedActions = requestedActions.slice(0, MAX_LOCAL_ACTIONS_PER_RUN);
-                  const approvedActions: typeof boundedActions = [];
-                  const rejectedActions: Array<{
-                    id: string;
-                    actionId: string;
-                    actionType: (typeof boundedActions)[number]['type'];
-                    path: string;
-                    approved: boolean;
-                    reason?: string;
-                  }> = [];
-
                   if (requestedActions.length > MAX_LOCAL_ACTIONS_PER_RUN) {
                     console.warn(
                       `[Cloffice] internal cowork action limit exceeded: received ${requestedActions.length}, executing ${MAX_LOCAL_ACTIONS_PER_RUN}.`,
                     );
                   }
 
-                  for (let index = 0; index < boundedActions.length; index += 1) {
-                    const action = boundedActions[index];
-                    const actionId = action.id || `action-${index + 1}`;
-                    const actionPath = action.path || '.';
-                    const approvalId = `${runId}-${actionId}-${index + 1}`;
-                    const actionSummary = summarizeEngineRequestedAction(action);
-
-                    setCoworkRunStatus(`Awaiting approval for ${actionSummary}...`);
-                    setCoworkProgressStage('executing_workstreams', {
-                      details: `Awaiting operator approval for internal read-only action on ${actionPath}.`,
-                    });
-                    if (taskEntry) {
-                      const taskTransition = resolveEngineApprovalTaskTransition('pending', action);
-                      setCoworkTaskStatus(taskEntry.taskId, taskTransition.status, {
-                        runId,
-                        summary: taskTransition.summary,
-                      });
-                    }
-
-                    const decision = await requestActionApproval({
-                      id: approvalId,
+                  const { approvedActions, rejectedActions } = await runEngineReadOnlyApprovalLoop({
+                    actions: requestedActions,
+                    context: {
                       runId,
-                      actionId,
-                      actionType: action.type,
                       projectId: runContext.projectId || undefined,
                       projectTitle: runContext.projectTitle || undefined,
                       projectRootFolder: runContext.rootFolder || undefined,
-                      path: actionPath,
                       scopeId: 'workspace.read',
                       scopeName: 'Workspace read',
                       riskLevel: 'medium',
-                      summary: `${runContext.projectTitle ? `[${runContext.projectTitle}] ` : ''}${actionSummary}`,
-                      preview: buildEngineApprovalPreview(action),
-                      createdAt: Date.now(),
-                    });
-
-                    if (!decision.approved) {
-                      const reason = decision.reason || 'Internal read-only action rejected by operator.';
-                      rejectedActions.push({
-                        id: actionId,
-                        actionId,
-                        actionType: action.type,
-                        path: actionPath,
-                        approved: false,
-                        reason,
+                      maxActionsPerRun: MAX_LOCAL_ACTIONS_PER_RUN,
+                    },
+                    requestApproval: requestActionApproval,
+                    onPending: ({ action, actionPath, actionSummary }) => {
+                      setCoworkRunStatus(`Awaiting approval for ${actionSummary}...`);
+                      setCoworkProgressStage('executing_workstreams', {
+                        details: `Awaiting operator approval for internal read-only action on ${actionPath}.`,
                       });
+                      if (taskEntry) {
+                        const taskTransition = resolveEngineApprovalTaskTransition('pending', action);
+                        setCoworkTaskStatus(taskEntry.taskId, taskTransition.status, {
+                          runId,
+                          summary: taskTransition.summary,
+                        });
+                      }
+                    },
+                    onRejected: ({ action, reason }) => {
                       if (taskEntry) {
                         const taskTransition = resolveEngineApprovalTaskTransition('rejected', action, reason);
                         setCoworkTaskStatus(taskEntry.taskId, taskTransition.status, {
@@ -2310,18 +2275,17 @@ export default function App() {
                           outcome: taskTransition.outcome,
                         });
                       }
-                      continue;
-                    }
-
-                    approvedActions.push(action);
-                    if (taskEntry) {
-                      const taskTransition = resolveEngineApprovalTaskTransition('approved', action);
-                      setCoworkTaskStatus(taskEntry.taskId, taskTransition.status, {
-                        runId,
-                        summary: taskTransition.summary,
-                      });
-                    }
-                  }
+                    },
+                    onApproved: ({ action }) => {
+                      if (taskEntry) {
+                        const taskTransition = resolveEngineApprovalTaskTransition('approved', action);
+                        setCoworkTaskStatus(taskEntry.taskId, taskTransition.status, {
+                          runId,
+                          summary: taskTransition.summary,
+                        });
+                      }
+                    },
+                  });
 
                   const continuationSessionKey = eventSessionKey || coworkSessionKeyRef.current;
                   if (!continuationSessionKey) {
