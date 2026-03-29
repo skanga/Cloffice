@@ -114,11 +114,38 @@ function createInternalEngineMainService() {
     lastPersistedAt: number;
     sessions: PersistedInternalEngineSession[];
   };
+  type PersistedInternalRunStatus =
+    | 'running'
+    | 'awaiting_approval'
+    | 'executing'
+    | 'completed'
+    | 'blocked'
+    | 'interrupted';
+  type PersistedInternalRunRecord = {
+    runId: string;
+    sessionKey: string;
+    sessionKind: string;
+    model: string;
+    actionMode: 'none' | 'read-only';
+    status: PersistedInternalRunStatus;
+    startedAt: number;
+    updatedAt: number;
+    promptPreview?: string;
+    summary?: string;
+    interruptedReason?: string;
+  };
+  type PersistedInternalRunJournal = {
+    version: 1;
+    runs: PersistedInternalRunRecord[];
+  };
   const stateFilePath = path.join(runtimeHome, 'state.v1.json');
+  const runJournalFilePath = path.join(runtimeHome, 'runs.v1.json');
   let stateLoaded = false;
   let stateWriteChain: Promise<void> = Promise.resolve();
   let stateRestoreStatus: 'fresh' | 'restored' | 'recovered_after_interruption' | 'load_failed' = 'fresh';
   let lastRecoveryNote: string | null = null;
+  let interruptedRunCount = 0;
+  const runs = new Map<string, PersistedInternalRunRecord>();
 
   const unavailable = () => new Error(shellStatus.unavailableReason);
   const requireConnected = () => {
@@ -454,6 +481,47 @@ function createInternalEngineMainService() {
       updatedAt,
     };
   };
+  const parsePersistedRun = (value: unknown): PersistedInternalRunRecord | null => {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+    const candidate = value as Record<string, unknown>;
+    const runId = typeof candidate.runId === 'string' && candidate.runId.trim() ? candidate.runId.trim() : null;
+    const sessionKey =
+      typeof candidate.sessionKey === 'string' && candidate.sessionKey.trim() ? candidate.sessionKey.trim() : null;
+    if (!runId || !sessionKey) {
+      return null;
+    }
+    const status = candidate.status === 'running'
+      || candidate.status === 'awaiting_approval'
+      || candidate.status === 'executing'
+      || candidate.status === 'completed'
+      || candidate.status === 'blocked'
+      || candidate.status === 'interrupted'
+      ? candidate.status
+      : 'completed';
+    return {
+      runId,
+      sessionKey,
+      sessionKind: typeof candidate.sessionKind === 'string' && candidate.sessionKind.trim()
+        ? candidate.sessionKind.trim()
+        : (sessionKey.startsWith('internal:cowork:') ? 'cowork' : 'chat'),
+      model: resolveModelValue(typeof candidate.model === 'string' ? candidate.model : defaultModel),
+      actionMode: candidate.actionMode === 'read-only' ? 'read-only' : 'none',
+      status,
+      startedAt: Number.isFinite(candidate.startedAt) ? Number(candidate.startedAt) : now(),
+      updatedAt: Number.isFinite(candidate.updatedAt) ? Number(candidate.updatedAt) : now(),
+      ...(typeof candidate.promptPreview === 'string' && candidate.promptPreview.trim()
+        ? { promptPreview: candidate.promptPreview.trim() }
+        : {}),
+      ...(typeof candidate.summary === 'string' && candidate.summary.trim()
+        ? { summary: candidate.summary.trim() }
+        : {}),
+      ...(typeof candidate.interruptedReason === 'string' && candidate.interruptedReason.trim()
+        ? { interruptedReason: candidate.interruptedReason.trim() }
+        : {}),
+    };
+  };
   const buildPersistedState = (): PersistedInternalEngineState => ({
     version: 1,
     activeSessionKey,
@@ -463,12 +531,18 @@ function createInternalEngineMainService() {
       .sort((left, right) => left.updatedAt - right.updatedAt)
       .map((session) => serializeSession(session)),
   });
+  const buildPersistedRunJournal = (): PersistedInternalRunJournal => ({
+    version: 1,
+    runs: Array.from(runs.values())
+      .sort((left, right) => left.updatedAt - right.updatedAt),
+  });
   const writePersistedState = async (override?: Partial<Pick<PersistedInternalEngineState, 'cleanShutdown'>>): Promise<void> => {
     await fs.mkdir(runtimeHome, { recursive: true });
     await fs.writeFile(stateFilePath, JSON.stringify({
       ...buildPersistedState(),
       ...override,
     }, null, 2), 'utf8');
+    await fs.writeFile(runJournalFilePath, JSON.stringify(buildPersistedRunJournal(), null, 2), 'utf8');
   };
   const persistState = async (override?: Partial<Pick<PersistedInternalEngineState, 'cleanShutdown'>>): Promise<void> => {
     stateWriteChain = stateWriteChain.then(() => writePersistedState(override));
@@ -486,6 +560,31 @@ function createInternalEngineMainService() {
       appendSystemMessage(session.messages, note);
       trimSessionHistory(session);
       session.updatedAt = now();
+    }
+  };
+  const previewPrompt = (text: string) => {
+    const normalized = text.replace(/\s+/g, ' ').trim();
+    if (!normalized) {
+      return undefined;
+    }
+    return normalized.length > 140 ? `${normalized.slice(0, 137).trimEnd()}...` : normalized;
+  };
+  const upsertRunRecord = (record: PersistedInternalRunRecord) => {
+    runs.set(record.runId, record);
+  };
+  const markInterruptedRuns = () => {
+    const recoveryReason = 'Recovered after interrupted shutdown before the run completed.';
+    interruptedRunCount = 0;
+    for (const run of runs.values()) {
+      if (run.status === 'running' || run.status === 'awaiting_approval' || run.status === 'executing') {
+        run.status = 'interrupted';
+        run.updatedAt = now();
+        run.interruptedReason = recoveryReason;
+        interruptedRunCount += 1;
+      }
+    }
+    if (interruptedRunCount > 0) {
+      lastRecoveryNote = `Recovered internal runtime state after an interrupted shutdown. ${interruptedRunCount} in-flight run${interruptedRunCount === 1 ? ' was' : 's were'} marked interrupted.`;
     }
   };
   const loadPersistedState = async (): Promise<void> => {
@@ -533,9 +632,32 @@ function createInternalEngineMainService() {
       sessions.clear();
       activeSessionKey = null;
     }
+    try {
+      const rawRuns = await fs.readFile(runJournalFilePath, 'utf8');
+      const parsedRuns = JSON.parse(rawRuns) as Record<string, unknown>;
+      runs.clear();
+      const restoredRuns = Array.isArray(parsedRuns.runs)
+        ? parsedRuns.runs
+            .map((entry) => parsePersistedRun(entry))
+            .filter((entry): entry is PersistedInternalRunRecord => Boolean(entry))
+        : [];
+      for (const run of restoredRuns) {
+        runs.set(run.runId, run);
+      }
+    } catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || (error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.warn('[Cloffice] Failed to load internal run journal, starting with an empty run journal.', error);
+      }
+      runs.clear();
+    }
 
     ensureSession(mainSessionKey, 'main');
     activeSessionKey = activeSessionKey && sessions.has(activeSessionKey) ? activeSessionKey : mainSessionKey;
+    if (stateRestoreStatus === 'recovered_after_interruption') {
+      markInterruptedRuns();
+    } else {
+      interruptedRunCount = Array.from(runs.values()).filter((run) => run.status === 'interrupted').length;
+    }
     if (lastRecoveryNote) {
       appendRecoveryNote(activeSessionKey || mainSessionKey, lastRecoveryNote);
     }
@@ -595,6 +717,8 @@ function createInternalEngineMainService() {
         connected,
         readiness: !shellStatus.availableInBuild ? 'unavailable' : connected ? 'ready' : 'idle',
         sessionCount: sessions.size,
+        runCount: runs.size,
+        interruptedRunCount,
         activeSessionKey,
         defaultModel,
         stateRestoreStatus,
@@ -676,6 +800,11 @@ function createInternalEngineMainService() {
       requireConnected();
       if (sessionKey === mainSessionKey) {
         const mainSession = ensureSession(mainSessionKey, 'main');
+        for (const [runId, run] of runs.entries()) {
+          if (run.sessionKey === mainSessionKey) {
+            runs.delete(runId);
+          }
+        }
         sessions.set(mainSessionKey, {
           ...mainSession,
           title: 'Main chat',
@@ -687,6 +816,11 @@ function createInternalEngineMainService() {
         return;
       }
       sessions.delete(sessionKey);
+      for (const [runId, run] of runs.entries()) {
+        if (run.sessionKey === sessionKey) {
+          runs.delete(runId);
+        }
+      }
       if (activeSessionKey === sessionKey) {
         activeSessionKey = mainSessionKey;
       }
@@ -721,6 +855,7 @@ function createInternalEngineMainService() {
         role: 'assistant',
         text: formatInternalAssistantText(nextModel, text, session.key, session.messages.length + 2, session.kind),
       };
+      const runId = crypto.randomUUID();
       session.messages.push(userMessage, assistantMessage);
       trimSessionHistory(session);
       session.updatedAt = now();
@@ -728,10 +863,23 @@ function createInternalEngineMainService() {
       if (!session.title) {
         session.title = inferSessionTitle(session.key, text, nextModel);
       }
+      upsertRunRecord({
+        runId,
+        sessionKey: session.key,
+        sessionKind: session.kind,
+        model: nextModel,
+        actionMode: requestedActions.length > 0 ? 'read-only' : 'none',
+        status: requestedActions.length > 0 ? 'awaiting_approval' : 'completed',
+        startedAt: now(),
+        updatedAt: now(),
+        ...(previewPrompt(text) ? { promptPreview: previewPrompt(text) } : {}),
+        summary: requestedActions.length > 0 ? 'Awaiting operator approval for internal read-only actions.' : 'Internal chat run completed.',
+      });
+      interruptedRunCount = Array.from(runs.values()).filter((run) => run.status === 'interrupted').length;
       await persistState();
       return {
         sessionKey: session.key,
-        runId: crypto.randomUUID(),
+        runId,
         assistantMessage,
         model: nextModel,
         historyLength: session.messages.length,
@@ -760,6 +908,13 @@ function createInternalEngineMainService() {
       const nextModel = resolveModelValue(session.model);
       session.model = nextModel;
       ensureModeBootstrap(session);
+      const existingRun = runs.get(payload.runId);
+      if (existingRun) {
+        existingRun.status = 'executing';
+        existingRun.updatedAt = now();
+        existingRun.summary = 'Executing approved internal read-only actions.';
+      }
+      await persistState();
 
       await delay(250);
 
@@ -793,6 +948,25 @@ function createInternalEngineMainService() {
       trimSessionHistory(session);
       session.updatedAt = now();
       activeSessionKey = session.key;
+      upsertRunRecord({
+        runId: payload.runId,
+        sessionKey: session.key,
+        sessionKind: session.kind,
+        model: nextModel,
+        actionMode: 'none',
+        status:
+          execution.errors.length > 0 && approvedExecution.receipts.every((receipt) => receipt.status === 'error')
+            ? 'blocked'
+            : 'completed',
+        startedAt: existingRun?.startedAt ?? now(),
+        updatedAt: now(),
+        ...(existingRun?.promptPreview ? { promptPreview: existingRun.promptPreview } : {}),
+        summary:
+          execution.errors.length > 0 && approvedExecution.receipts.every((receipt) => receipt.status === 'error')
+            ? 'Internal cowork continuation completed with blocking errors.'
+            : 'Internal cowork continuation completed.',
+      });
+      interruptedRunCount = Array.from(runs.values()).filter((run) => run.status === 'interrupted').length;
       await persistState();
 
       return {

@@ -36,6 +36,8 @@ export type InternalEngineRuntimeInfo = {
   connected: boolean;
   readiness: 'unavailable' | 'idle' | 'ready';
   sessionCount: number;
+  runCount: number;
+  interruptedRunCount: number;
   activeSessionKey: string | null;
   defaultModel: string;
   stateRestoreStatus: 'fresh' | 'restored' | 'recovered_after_interruption' | 'load_failed';
