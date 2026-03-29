@@ -1,9 +1,9 @@
-import type { AppConfig, EngineProviderId, EngineRuntimeKind, EngineTransport } from '@/app-types';
-import type { OpenClawCompatibilityConnectOptions } from './openclaw-compat-engine';
+import type { AppConfig, EngineProviderId, EngineRuntimeKind, EngineTransport } from '../app-types.js';
+import type { OpenClawCompatibilityConnectOptions } from './openclaw-compat-engine.js';
 import {
   NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION,
   type ProviderAwareStoredEngineConfigV2,
-} from './engine-config-migration';
+} from './engine-config-migration.js';
 
 export type EngineDraftConfig = {
   runtimeKind: EngineRuntimeKind;
@@ -18,6 +18,8 @@ export type ParsedStoredEngineConfig = {
   engineDraft: EngineDraftConfig;
   storageVersion: 1 | typeof NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION;
 };
+
+export type DesktopBridgeEngineConfig = ParsedStoredEngineConfig;
 
 export function buildEngineDraftConfig(params: {
   providerId: EngineProviderId;
@@ -71,6 +73,23 @@ export function parseStoredEngineConfig(entry: unknown, fallbackEndpointUrl: str
     engineDraft: engineDraftFromAppConfig(legacyConfig),
     storageVersion: 1,
   };
+}
+
+export function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpointUrl: string): DesktopBridgeEngineConfig {
+  return (
+    parseStoredEngineConfig(entry, fallbackEndpointUrl) ?? {
+      appConfig: {
+        gatewayUrl: fallbackEndpointUrl,
+        gatewayToken: '',
+      },
+      engineDraft: buildEngineDraftConfig({
+        providerId: 'openclaw-compat',
+        endpointUrl: fallbackEndpointUrl,
+        accessToken: '',
+      }),
+      storageVersion: 1,
+    }
+  );
 }
 
 export function engineDraftFromAppConfig(config: AppConfig): EngineDraftConfig {

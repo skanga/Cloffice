@@ -2,7 +2,7 @@
  * Pure utility functions and shared types for chat, cowork, and thread management.
  * No React imports — safe to use anywhere.
  */
-import type { ChatActivityItem, ChatMessage } from '@/app-types';
+import type { ChatActivityItem, ChatMessage, EngineRequestedAction } from '@/app-types';
 import { OpenClawCompatibilityRequestError as EngineRequestError } from './openclaw-compat-engine';
 
 /* ── Exported types ──────────────────────────────────────────────────────── */
@@ -26,62 +26,7 @@ export type RecentWorkspaceEntry = {
   kind: 'chat' | 'cowork';
 };
 
-export type RelayFileAction =
-  | {
-      id: string | undefined;
-      type: 'create_file';
-      path: string;
-      content: string;
-      overwrite?: boolean;
-    }
-  | {
-      id: string | undefined;
-      type: 'append_file';
-      path: string;
-      content: string;
-    }
-  | {
-      id: string | undefined;
-      type: 'read_file';
-      path: string;
-    }
-  | {
-      id: string | undefined;
-      type: 'list_dir';
-      path: string | undefined;
-    }
-  | {
-      id: string | undefined;
-      type: 'exists';
-      path: string;
-    }
-  | {
-      id: string | undefined;
-      type: 'rename';
-      path: string;
-      newPath: string;
-    }
-  | {
-      id: string | undefined;
-      type: 'delete';
-      path: string;
-    }
-  | {
-      id: string | undefined;
-      type: 'shell_exec';
-      path: string;
-      command: string;
-      timeoutMs?: number;
-    }
-  | {
-      id: string | undefined;
-      type: 'web_fetch';
-      path: string;
-      url: string;
-      method?: string;
-      body?: string;
-      contentType?: string;
-    };
+export type RelayFileAction = EngineRequestedAction;
 
 /* ── Constants ───────────────────────────────────────────────────────────── */
 

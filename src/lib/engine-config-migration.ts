@@ -1,4 +1,4 @@
-import type { EngineProviderId, EngineRuntimeKind, EngineTransport } from '@/app-types';
+import type { EngineProviderId, EngineRuntimeKind, EngineTransport } from '../app-types.js';
 
 export const CURRENT_ENGINE_CONFIG_STORAGE_VERSION = 1;
 export const NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION = 2;

@@ -14,11 +14,14 @@ import type {
   LocalFilePlanAction,
   LocalFilePlanResult,
 } from './app-types';
+import type { DesktopBridgeEngineConfig, EngineDraftConfig } from './lib/engine-config';
 import type { EngineDiscoveryResult } from './lib/engine-discovery';
 
 type DesktopBridgeApi = {
   getConfig: () => Promise<AppConfig>;
   saveConfig: (config: AppConfig) => Promise<AppConfig>;
+  getEngineConfig: () => Promise<DesktopBridgeEngineConfig>;
+  saveEngineConfig: (draft: EngineDraftConfig) => Promise<DesktopBridgeEngineConfig>;
   healthCheck: (baseUrl: string) => Promise<HealthCheckResult>;
   checkRuntimeHealth: (baseUrl: string) => Promise<HealthCheckResult>;
   discoverGateway: () => Promise<GatewayDiscoveryResult>;

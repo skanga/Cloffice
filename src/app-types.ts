@@ -43,6 +43,74 @@ export type EngineSessionResult = {
   payload: Record<string, unknown>;
 };
 
+export type EngineRequestedAction =
+  | {
+      id: string | undefined;
+      type: 'create_file';
+      path: string;
+      content: string;
+      overwrite?: boolean;
+    }
+  | {
+      id: string | undefined;
+      type: 'append_file';
+      path: string;
+      content: string;
+    }
+  | {
+      id: string | undefined;
+      type: 'read_file';
+      path: string;
+    }
+  | {
+      id: string | undefined;
+      type: 'list_dir';
+      path: string | undefined;
+    }
+  | {
+      id: string | undefined;
+      type: 'exists';
+      path: string;
+    }
+  | {
+      id: string | undefined;
+      type: 'rename';
+      path: string;
+      newPath: string;
+    }
+  | {
+      id: string | undefined;
+      type: 'delete';
+      path: string;
+    }
+  | {
+      id: string | undefined;
+      type: 'shell_exec';
+      path: string;
+      command: string;
+      timeoutMs?: number;
+    }
+  | {
+      id: string | undefined;
+      type: 'web_fetch';
+      path: string;
+      url: string;
+      method?: string;
+      body?: string;
+      contentType?: string;
+    };
+
+export type EngineActionExecutionResult = {
+  summary: string;
+  okCount: number;
+  errorCount: number;
+  receipts: LocalActionReceipt[];
+  previews: string[];
+  errors: string[];
+  activityItems: ChatActivityItem[];
+  receiptMessage: ChatMessage;
+};
+
 export type HealthCheckResult = {
   ok: boolean;
   status?: number;

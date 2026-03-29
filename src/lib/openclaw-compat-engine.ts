@@ -1,4 +1,4 @@
-import type { EngineRuntimeKind, EngineTransport } from '@/app-types';
+import type { EngineRuntimeKind, EngineTransport } from '../app-types.js';
 import {
   OpenClawGatewayClient,
   type GatewayChatMessage,
@@ -10,7 +10,7 @@ import {
   type GatewayToolEntry,
   type GatewayToolsCatalog,
   GatewayRequestError,
-} from './openclaw-gateway-client';
+} from './openclaw-gateway-client.js';
 
 /**
  * Transitional app-boundary adapter for the current OpenClaw runtime path.
@@ -23,8 +23,13 @@ export class OpenClawCompatibilityEngineClient extends OpenClawGatewayClient {
   readonly runtimeKind: EngineRuntimeKind = 'openclaw-compat';
   readonly transport: EngineTransport = 'websocket-gateway';
 
-  override setEventHandler(handler: (event: OpenClawCompatibilityEventFrame) => void) {
-    super.setEventHandler((event) => handler(event as OpenClawCompatibilityEventFrame));
+  setEventHandler(handler: (event: OpenClawCompatibilityEventFrame) => void) {
+    super.setEventHandler((event: unknown) => {
+      if (!event || typeof event !== 'object' || (event as { type?: unknown }).type !== 'event') {
+        return;
+      }
+      handler(event as OpenClawCompatibilityEventFrame);
+    });
   }
 }
 
