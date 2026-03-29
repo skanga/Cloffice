@@ -233,12 +233,25 @@ test.describe('Internal engine UI flow', () => {
     await openProjectCowork(page, 'Internal UI Project');
     await selectCoworkPlannerModel(page);
 
-    await sendCoworkPrompt(page, 'UI-READ-ONLY-1: Inspect the current project root before planning the next migration step.');
+    await sendCoworkPrompt(page, 'UI-READ-ONLY-1: Inspect the current project root and capture root metadata before planning the next migration step.');
 
-    const { approvalCard, approvalId } = await waitForFirstApproval(page);
+    const { approvalCard } = await waitForFirstApproval(page);
     await expect(approvalCard).toContainText('List directory .');
-    await page.getByTestId(`pending-approval-approve-${approvalId}`).click();
-    await expect(approvalCard).toHaveCount(0);
+
+    let resolvedApprovals = 0;
+    while ((await pendingApprovalCards(page).count()) > 0) {
+      const nextApprovalCard = pendingApprovalCards(page).first();
+      const approvalTestIdAttr = (await nextApprovalCard.getAttribute('data-testid')) || '';
+      const nextApprovalId = approvalTestIdAttr.replace('pending-approval-', '');
+      expect(nextApprovalId).not.toBe('');
+      await page.getByTestId(`pending-approval-approve-${nextApprovalId}`).click();
+      await expect(page.getByTestId(`pending-approval-${nextApprovalId}`)).toHaveCount(0);
+      resolvedApprovals += 1;
+      if (resolvedApprovals > 4) {
+        throw new Error('Unexpected number of internal cowork approvals.');
+      }
+    }
+    expect(resolvedApprovals).toBeGreaterThanOrEqual(2);
 
     await expect(page.getByText('Listed: .')).toBeVisible({ timeout: 30000 });
     await waitForPromptStatus(page, 'UI-READ-ONLY-1', 'completed');

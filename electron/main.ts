@@ -11,6 +11,7 @@ const execAsync = promisify(exec);
 import type {
   AppConfig,
   HealthCheckResult,
+  LocalActionReceipt,
   LocalFileApplyResult,
   LocalFileAppendResult,
   LocalFileCreateResult,
@@ -26,7 +27,11 @@ import type {
 } from '../src/app-types.js';
 import { describeInternalEngineShell } from '../src/lib/internal-engine-placeholder.js';
 import type { EngineChatMessage, EngineConnectOptions, EngineModelChoice, EngineSessionSummary } from '../src/lib/engine-runtime-types.js';
-import type { InternalEngineRuntimeInfo, InternalEngineSendChatResult } from '../src/lib/internal-engine-bridge.js';
+import type {
+  InternalEngineCoworkContinuationRequest,
+  InternalEngineRuntimeInfo,
+  InternalEngineSendChatResult,
+} from '../src/lib/internal-engine-bridge.js';
 import type { ChatActivityItem, EngineRequestedAction } from '../src/app-types.js';
 
 const execFileAsync = promisify(execFile);
@@ -136,16 +141,28 @@ function createInternalEngineMainService() {
       '3. Identify the next validation or integration step after the change lands.',
     ].join('\n');
   };
-  const formatCoworkFoundationResponse = (text: string, sessionKey: string) => {
+  const buildCoworkFoundationActions = (text: string): EngineRequestedAction[] => {
+    const normalized = text.replace(/\s+/g, ' ').trim() || 'the current cowork task';
+    const wantsMetadata = /\b(metadata|details|timestamps?|size|stat)\b/i.test(normalized);
+    return [
+      {
+        id: 'inspect-project',
+        type: 'list_dir',
+        path: '.',
+      },
+      ...(wantsMetadata
+        ? [{
+            id: 'inspect-root-metadata',
+            type: 'stat' as const,
+            path: '.',
+          }]
+        : []),
+    ];
+  };
+  const formatCoworkFoundationResponse = (text: string, sessionKey: string, actions: EngineRequestedAction[]) => {
     const normalized = text.replace(/\s+/g, ' ').trim() || 'the current cowork task';
     const proposedActions = {
-      engine_actions: [
-        {
-          id: 'inspect-project',
-          type: 'list_dir',
-          path: '.',
-        },
-      ],
+      engine_actions: actions,
     };
     return [
       'Internal cowork foundation response.',
@@ -158,27 +175,143 @@ function createInternalEngineMainService() {
       '2. Break the task into a small execution plan.',
       '3. Identify which engine actions would be needed once the internal action runner exists.',
       '',
-      'Current limitation: internal cowork foundations only emit read-only inspection actions in this phase.',
+      'Current limitation: internal cowork foundations only emit safe read-only inspection and metadata actions in this phase.',
       '```json',
       JSON.stringify(proposedActions, null, 2),
       '```',
     ].join('\n');
   };
-  const buildCoworkFoundationActions = (): EngineRequestedAction[] => [
-    {
-      id: 'inspect-project',
-      type: 'list_dir',
-      path: '.',
-    },
-  ];
-  const buildCoworkFoundationActivityItems = (): ChatActivityItem[] => [
+  const buildCoworkFoundationActivityItems = (actions: EngineRequestedAction[]): ChatActivityItem[] => [
     {
       id: 'internal-cowork-approval',
       label: 'Internal cowork requested approval for read-only project inspection.',
       details: 'The internal engine is requesting a scoped directory listing before attempting deeper task execution.',
       tone: 'neutral',
     },
+    ...(actions.some((action) => action.type === 'stat')
+      ? [{
+          id: 'internal-cowork-metadata',
+          label: 'Internal cowork also requested read-only metadata inspection.',
+          details: 'The internal engine wants a stat check for the project root before refining the next step.',
+          tone: 'neutral' as const,
+        }]
+      : []),
   ];
+  const toInternalActionErrorCode = (message: string): string => {
+    const normalized = message.toLowerCase();
+    if (normalized.includes('not found') || normalized.includes('enoent')) {
+      return 'NOT_FOUND';
+    }
+    if (normalized.includes('blocked') || normalized.includes('outside') || normalized.includes('traversal')) {
+      return 'PROJECT_BOUNDARY_BLOCK';
+    }
+    if (normalized.includes('permission') || normalized.includes('eacces') || normalized.includes('eperm')) {
+      return 'PERMISSION_DENIED';
+    }
+    return 'ACTION_FAILED';
+  };
+  const executeApprovedReadOnlyActions = async (
+    rootPath: string,
+    actions: EngineRequestedAction[],
+  ): Promise<{ receipts: LocalActionReceipt[]; previews: string[]; errors: string[] }> => {
+    const receipts: LocalActionReceipt[] = [];
+    const previews: string[] = [];
+    const errors: string[] = [];
+
+    for (let index = 0; index < actions.length; index += 1) {
+      const action = actions[index];
+      const actionId = action.id || `internal-action-${index + 1}`;
+      const actionPath = action.type === 'list_dir' ? (action.path || '.') : action.path;
+
+        try {
+          if (action.type === 'list_dir') {
+            const result = await listDirInFolder(rootPath, action.path || '');
+            const listed = result.items
+              .slice(0, 12)
+              .map((item) => `${item.kind === 'directory' ? '[dir]' : '[file]'} ${item.path}`);
+            previews.push(`Listed: ${action.path || '.'}\n${listed.join('\n') || '(empty directory)'}`);
+          } else if (action.type === 'read_file') {
+            const result = await readFileInFolder(rootPath, action.path);
+            const snippet = result.content.trim();
+            previews.push(
+              `Read: ${action.path}\n${snippet.length <= 1200 ? (snippet || '(empty)') : `${snippet.slice(0, 1200)}\n... (truncated)`}`,
+            );
+          } else if (action.type === 'exists') {
+            const result = await existsInFolder(rootPath, action.path);
+            previews.push(`Exists: ${action.path} -> ${result.exists ? 'yes' : 'no'}`);
+          } else if (action.type === 'stat') {
+            const result = await statInFolder(rootPath, action.path);
+            previews.push(
+              [
+                `Stat: ${action.path}`,
+                `Kind: ${result.kind}`,
+                `Size: ${result.size}`,
+                `ModifiedMs: ${Math.round(result.modifiedMs)}`,
+              ].join('\n'),
+            );
+          } else {
+            throw new Error('Internal action runner currently supports read-only actions only.');
+          }
+
+        receipts.push({
+          id: actionId,
+          type: action.type,
+          path: actionPath,
+          status: 'ok',
+          message: 'Executed through internal runtime read-only action runner.',
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Internal read-only action failed.';
+        receipts.push({
+          id: actionId,
+          type: action.type,
+          path: actionPath,
+          status: 'error',
+          errorCode: toInternalActionErrorCode(message),
+          message,
+        });
+        errors.push(`${actionPath}: ${message}`);
+      }
+    }
+
+    return {
+      receipts,
+      previews,
+      errors,
+    };
+  };
+  const formatCoworkContinuationResponse = (params: {
+    sessionKey: string;
+    approvedCount: number;
+    rejectedCount: number;
+    previews: string[];
+    errors: string[];
+  }) => {
+    const sections: string[] = [
+      'Internal cowork continuation response.',
+      '',
+      `Task session: ${params.sessionKey}`,
+      params.approvedCount > 0
+        ? `Approved read-only actions executed: ${params.approvedCount}`
+        : 'No approved read-only actions were executed.',
+    ];
+
+    if (params.rejectedCount > 0) {
+      sections.push(`Rejected actions: ${params.rejectedCount}`);
+    }
+
+    if (params.previews.length > 0) {
+      sections.push('', 'Action results:', ...params.previews);
+    }
+
+    if (params.errors.length > 0) {
+      sections.push('', 'Errors:', ...params.errors.map((error) => `- ${error}`));
+    } else {
+      sections.push('', 'Status: cowork continuation completed.');
+    }
+
+    return sections.join('\n');
+  };
   const formatInternalAssistantText = (
     model: string,
     text: string,
@@ -188,7 +321,7 @@ function createInternalEngineMainService() {
   ) => {
     const normalized = text.trim() || 'No prompt text supplied.';
     if (kind === 'cowork') {
-      return formatCoworkFoundationResponse(normalized, sessionKey);
+      return formatCoworkFoundationResponse(normalized, sessionKey, buildCoworkFoundationActions(normalized));
     }
     if (model === 'internal/dev-brief') {
       return [
@@ -404,8 +537,8 @@ function createInternalEngineMainService() {
         role: 'user',
         text,
       };
-      const requestedActions = session.kind === 'cowork' ? buildCoworkFoundationActions() : [];
-      const activityItems = session.kind === 'cowork' ? buildCoworkFoundationActivityItems() : [];
+      const requestedActions = session.kind === 'cowork' ? buildCoworkFoundationActions(text) : [];
+      const activityItems = session.kind === 'cowork' ? buildCoworkFoundationActivityItems(requestedActions) : [];
       const assistantMessage: EngineChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -430,8 +563,75 @@ function createInternalEngineMainService() {
         sessionKind: session.kind,
         requestedActions,
         activityItems,
-        engineActionPhase: requestedActions.length > 0 ? 'approval_required' : 'none',
+        engineActionPhase: requestedActions.length > 0 ? 'awaiting_approval' : 'completed',
         engineActionMode: requestedActions.length > 0 ? 'read-only' : 'none',
+      };
+    },
+    async continueCoworkRun(payload: InternalEngineCoworkContinuationRequest): Promise<InternalEngineSendChatResult & {
+      execution: {
+        receipts: LocalActionReceipt[];
+        previews: string[];
+        errors: string[];
+      };
+    }> {
+      requireConnected();
+      const session = ensureSession(
+        payload.sessionKey,
+        payload.sessionKey === mainSessionKey ? 'main' : payload.sessionKey.startsWith('internal:cowork:') ? 'cowork' : 'chat',
+      );
+      const nextModel = resolveModelValue(session.model);
+      session.model = nextModel;
+      ensureModeBootstrap(session);
+
+      const approvedExecution = await executeApprovedReadOnlyActions(payload.rootPath, payload.approvedActions);
+      const rejectedReceipts: LocalActionReceipt[] = payload.rejectedActions.map((action) => ({
+        id: action.actionId || action.id,
+        type: action.actionType,
+        path: action.path,
+        status: 'error',
+        errorCode: 'REJECTED_BY_OPERATOR',
+        message: action.reason || 'Rejected by operator.',
+      }));
+      const rejectedErrors = payload.rejectedActions.map((action) => `${action.path}: ${action.reason || 'Rejected by operator.'}`);
+      const execution = {
+        receipts: [...rejectedReceipts, ...approvedExecution.receipts],
+        previews: approvedExecution.previews,
+        errors: [...rejectedErrors, ...approvedExecution.errors],
+      };
+      const assistantMessage: EngineChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: formatCoworkContinuationResponse({
+          sessionKey: session.key,
+          approvedCount: payload.approvedActions.length,
+          rejectedCount: payload.rejectedActions.length,
+          previews: execution.previews,
+          errors: execution.errors,
+        }),
+      };
+      session.messages.push(assistantMessage);
+      trimSessionHistory(session);
+      session.updatedAt = now();
+      activeSessionKey = session.key;
+
+      return {
+        sessionKey: session.key,
+        runId: payload.runId,
+        assistantMessage,
+        model: nextModel,
+        historyLength: session.messages.length,
+        sessionTitle: session.title,
+        providerId: 'internal',
+        runtimeKind: 'internal',
+        sessionKind: session.kind,
+        requestedActions: [],
+        activityItems: [],
+        engineActionPhase:
+          execution.errors.length > 0 && approvedExecution.receipts.every((receipt) => receipt.status === 'error')
+            ? 'blocked'
+            : 'completed',
+        engineActionMode: 'none',
+        execution,
       };
     },
     isConnected() {
@@ -655,16 +855,20 @@ async function resolveNearestExistingAncestorPath(startPath: string): Promise<st
 
 async function assertTargetPathAllowed(rootPath: string, targetPath: string, message: string): Promise<void> {
   const rootRealPath = await fs.realpath(rootPath);
-  const parentDir = path.dirname(targetPath);
-  const nearestExistingParent = await resolveNearestExistingAncestorPath(parentDir);
+  const normalizedTargetPath = path.resolve(targetPath);
+  const parentDir = path.dirname(normalizedTargetPath);
+  const nearestExistingParent =
+    normalizedTargetPath === path.resolve(rootPath)
+      ? rootRealPath
+      : await resolveNearestExistingAncestorPath(parentDir);
   await assertRealPathInsideRoot(rootRealPath, nearestExistingParent, message);
 
   try {
-    const stat = await fs.lstat(targetPath);
+    const stat = await fs.lstat(normalizedTargetPath);
     if (stat.isSymbolicLink()) {
       throw new Error('Symbolic links are blocked for local file actions.');
     }
-    await assertRealPathInsideRoot(rootRealPath, targetPath, message);
+    await assertRealPathInsideRoot(rootRealPath, normalizedTargetPath, message);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException)?.code;
     if (code === 'ENOENT') {
@@ -1102,16 +1306,18 @@ async function deleteInFolder(rootPath: string, relativePath: string): Promise<L
 
 async function statInFolder(rootPath: string, relativePath: string): Promise<LocalFileStatResult> {
   const root = await ensurePathAllowed(rootPath);
+  const requestedPath = typeof relativePath === 'string' ? relativePath.trim() : '';
   const normalized = normalizeRelativePath(relativePath);
-  if (!normalized) throw new Error('A path is required.');
+  const rootMetadataRequested = requestedPath === '.' || requestedPath === './' || requestedPath === '';
+  if (!normalized && !rootMetadataRequested) throw new Error('A path is required.');
   if (path.isAbsolute(normalized)) throw new Error('Use a relative path.');
-  if (isHiddenOrBlockedPath(normalized)) throw new Error('Path blocked by safety rules.');
-  const resolved = path.resolve(root, normalized);
-  if (!isPathInside(root, resolved)) throw new Error('Path must remain inside working folder.');
+  if (normalized && isHiddenOrBlockedPath(normalized)) throw new Error('Path blocked by safety rules.');
+  const resolved = rootMetadataRequested ? root : path.resolve(root, normalized);
+  if (resolved !== root && !isPathInside(root, resolved)) throw new Error('Path must remain inside working folder.');
   await assertTargetPathAllowed(root, resolved, 'Path must remain inside working folder.');
   const stat = await fs.stat(resolved);
   return {
-    path: resolved,
+    path: rootMetadataRequested ? '.' : resolved,
     kind: stat.isDirectory() ? 'directory' : 'file',
     size: stat.size,
     createdMs: stat.birthtimeMs,
@@ -1380,6 +1586,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('internal-engine:delete-session', async (_event, sessionKey: string) => internalEngineService.deleteSession(sessionKey));
   ipcMain.handle('internal-engine:get-history', async (_event, sessionKey: string, limit?: number) => internalEngineService.getHistory(sessionKey, limit));
   ipcMain.handle('internal-engine:send-chat', async (_event, sessionKey: string, text: string) => internalEngineService.sendChat(sessionKey, text));
+  ipcMain.handle('internal-engine:continue-cowork-run', async (_event, payload: InternalEngineCoworkContinuationRequest) => internalEngineService.continueCoworkRun(payload));
   ipcMain.handle('backend:health-check', async (_event, baseUrl: string) => runHealthCheck(baseUrl));
   ipcMain.handle('gateway:discover', async () => discoverGateway());
   ipcMain.handle('plugin:check-workspace', async () => {

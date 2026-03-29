@@ -345,17 +345,18 @@ export function parseRelayFileActions(rawInput: unknown): RelayFileAction[] {
 
         const record = action as Record<string, unknown>;
         const type = record.type;
-        if (
-          type !== 'create_file' &&
-          type !== 'append_file' &&
-          type !== 'read_file' &&
-          type !== 'list_dir' &&
-          type !== 'exists' &&
-          type !== 'rename' &&
-          type !== 'delete'
-        ) {
-          return acc;
-        }
+          if (
+            type !== 'create_file' &&
+            type !== 'append_file' &&
+            type !== 'read_file' &&
+            type !== 'list_dir' &&
+            type !== 'exists' &&
+            type !== 'stat' &&
+            type !== 'rename' &&
+            type !== 'delete'
+          ) {
+            return acc;
+          }
 
         const id = typeof record.id === 'string' && record.id.trim() ? record.id.trim() : undefined;
 
@@ -520,6 +521,10 @@ export function parseRelayFileActions(rawInput: unknown): RelayFileAction[] {
     seen.add(current);
 
     if (Array.isArray(current)) {
+      const direct = normalizeRelayActions(current);
+      if (direct.length > 0) {
+        return direct;
+      }
       for (const item of current) {
         queue.push(item);
       }

@@ -45,7 +45,56 @@ function normalizeEngineActionPayload(rawInput: unknown): unknown {
 }
 
 export function parseEngineRequestedActions(rawInput: unknown): EngineRequestedAction[] {
-  return parseRelayFileActions(normalizeEngineActionPayload(rawInput));
+  const normalizedInput = normalizeEngineActionPayload(rawInput);
+  const queue: unknown[] = [normalizedInput];
+  const seen = new Set<unknown>();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (current === undefined || current === null) {
+      continue;
+    }
+
+    const direct = parseRelayFileActions(current);
+    if (direct.length > 0) {
+      return direct;
+    }
+
+    if (typeof current !== 'object') {
+      continue;
+    }
+
+    if (seen.has(current)) {
+      continue;
+    }
+    seen.add(current);
+
+    if (Array.isArray(current)) {
+      for (const item of current) {
+        queue.push(item);
+      }
+      continue;
+    }
+
+    const record = current as Record<string, unknown>;
+    const preferred = parseRelayFileActions(
+      record.requestedActions
+      ?? record.requested_actions
+      ?? record[INTERNAL_ENGINE_ACTION_FIELD]
+      ?? record.engineActions
+      ?? record[OPENCLAW_COMPAT_ENGINE_ACTION_FIELD]
+      ?? record.relayActions,
+    );
+    if (preferred.length > 0) {
+      return preferred;
+    }
+
+    for (const value of Object.values(record)) {
+      queue.push(value);
+    }
+  }
+
+  return [];
 }
 
 export function parseEngineActivityItems(rawInput: unknown): ChatActivityItem[] {
@@ -75,6 +124,6 @@ export function buildInternalEngineActionInstruction(): string {
   return [
     `If the task requires inspecting local project files, include ONE JSON code block with ${INTERNAL_ENGINE_ACTION_FIELD}.`,
     'Prefer read-only actions first while the internal cowork action runner is still being developed.',
-    'Start with list_dir, read_file, or exists when you need more context before planning further work.',
+    'Start with list_dir, read_file, exists, or stat when you need more context before planning further work.',
   ].join('\n');
 }

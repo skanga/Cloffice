@@ -16,6 +16,8 @@ import type {
 import {
   createUnavailableInternalEngineBridge,
   type InternalEngineBridge,
+  type InternalEngineCoworkContinuationResult,
+  type InternalEngineCoworkContinuationRequest,
   type InternalEngineShellCapabilities,
   type InternalEngineSendChatResult,
 } from './internal-engine-bridge.js';
@@ -55,6 +57,39 @@ export class InternalEnginePlaceholderClient implements EngineRuntimeClient {
 
   constructor(bridge: InternalEngineBridge = createUnavailableInternalEngineBridge(describeInternalEngineShell())) {
     this.bridge = bridge;
+  }
+
+  private emitInternalResult(internalResult: InternalEngineSendChatResult): void {
+    if (!internalResult.assistantMessage) {
+      return;
+    }
+
+    const payload: Record<string, unknown> = {
+      providerId: internalResult.providerId ?? this.providerId,
+      runtimeKind: internalResult.runtimeKind ?? this.runtimeKind,
+      sessionKind: internalResult.sessionKind,
+      sessionKey: internalResult.sessionKey,
+      runId: internalResult.runId,
+      model: internalResult.model,
+      state: 'completed',
+      message: internalResult.assistantMessage,
+      requestedActions: internalResult.requestedActions,
+      activityItems: internalResult.activityItems,
+      engineActionPhase: internalResult.engineActionPhase ?? 'none',
+      engineActionMode: internalResult.engineActionMode ?? 'none',
+    };
+    if ('execution' in internalResult) {
+      payload.execution = (internalResult as InternalEngineCoworkContinuationResult).execution;
+    }
+
+    this.eventHandler?.({
+      type: 'event',
+      event: 'chat',
+      stateVersion: {
+        historyLength: internalResult.historyLength,
+      },
+      payload,
+    });
   }
 
   connect(options: EngineConnectOptions): Promise<void> {
@@ -114,30 +149,15 @@ export class InternalEnginePlaceholderClient implements EngineRuntimeClient {
   sendChat(_sessionKey: string, _text: string): Promise<{ sessionKey: string }> {
     return this.bridge.sessions.sendChat(_sessionKey, _text).then((result) => {
       const internalResult = result as InternalEngineSendChatResult;
-      if (internalResult.assistantMessage) {
-        this.eventHandler?.({
-          type: 'event',
-          event: 'chat',
-          stateVersion: {
-            historyLength: internalResult.historyLength,
-          },
-          payload: {
-            providerId: internalResult.providerId ?? this.providerId,
-            runtimeKind: internalResult.runtimeKind ?? this.runtimeKind,
-            sessionKind: internalResult.sessionKind,
-            sessionKey: internalResult.sessionKey,
-            runId: internalResult.runId,
-            model: internalResult.model,
-            state: 'completed',
-            message: internalResult.assistantMessage,
-            requestedActions: internalResult.requestedActions,
-            activityItems: internalResult.activityItems,
-            engineActionPhase: internalResult.engineActionPhase ?? 'none',
-            engineActionMode: internalResult.engineActionMode ?? 'none',
-          },
-        });
-      }
+      this.emitInternalResult(internalResult);
       return { sessionKey: internalResult.sessionKey };
+    });
+  }
+
+  continueCoworkRun(payload: InternalEngineCoworkContinuationRequest): Promise<{ sessionKey: string }> {
+    return this.bridge.sessions.continueCoworkRun(payload).then((result) => {
+      this.emitInternalResult(result);
+      return { sessionKey: result.sessionKey };
     });
   }
 

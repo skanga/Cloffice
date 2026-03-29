@@ -83,7 +83,21 @@ test.describe('Internal engine development path', () => {
 
       const cowork = await callBridge(`(async () => {
         const bridge = window.cloffice ?? window.relay;
-        return bridge.sendInternalChat(${JSON.stringify(coworkSessionKey)}, 'Inspect the current project before planning the next migration step.');
+        return bridge.sendInternalChat(${JSON.stringify(coworkSessionKey)}, 'Inspect the current project and capture root metadata before planning the next migration step.');
+      })()`);
+
+      const continuation = await callBridge(`(async () => {
+        const bridge = window.cloffice ?? window.relay;
+        return bridge.continueInternalCoworkRun({
+          sessionKey: ${JSON.stringify(coworkSessionKey)},
+          runId: ${JSON.stringify('bridge-test-run-1')},
+          rootPath: ${JSON.stringify(process.cwd())},
+          approvedActions: [
+            { id: 'inspect-project', type: 'list_dir', path: '.' },
+            { id: 'inspect-root-metadata', type: 'stat', path: '.' },
+          ],
+          rejectedActions: [],
+        });
       })()`);
 
       const after = await callBridge(`(async () => {
@@ -103,6 +117,7 @@ test.describe('Internal engine development path', () => {
         coworkSessionKey,
         planner,
         cowork,
+        continuation,
       };
     });
 
@@ -117,9 +132,14 @@ test.describe('Internal engine development path', () => {
     expect(result.planner.model).toBe('internal/dev-planner');
     expect(result.planner.assistantMessage.text).toContain('1. Clarify the immediate objective');
 
-    expect(result.cowork.engineActionPhase).toBe('approval_required');
+    expect(result.cowork.engineActionPhase).toBe('awaiting_approval');
     expect(result.cowork.engineActionMode).toBe('read-only');
     expect(result.cowork.requestedActions?.[0]?.type).toBe('list_dir');
+    expect(result.cowork.requestedActions?.[1]?.type).toBe('stat');
     expect(result.cowork.assistantMessage.text).toContain('Internal cowork foundation response.');
+
+    expect(result.continuation.engineActionPhase).toBe('completed');
+    expect(result.continuation.execution.previews.some((entry: string) => entry.includes('Listed: .'))).toBe(true);
+    expect(result.continuation.execution.previews.some((entry: string) => entry.includes('Stat: .'))).toBe(true);
   });
 });

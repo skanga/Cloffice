@@ -67,16 +67,21 @@ export type EngineRequestedAction =
       type: 'list_dir';
       path: string | undefined;
     }
-  | {
-      id: string | undefined;
-      type: 'exists';
-      path: string;
-    }
-  | {
-      id: string | undefined;
-      type: 'rename';
-      path: string;
-      newPath: string;
+    | {
+        id: string | undefined;
+        type: 'exists';
+        path: string;
+      }
+    | {
+        id: string | undefined;
+        type: 'stat';
+        path: string;
+      }
+    | {
+        id: string | undefined;
+        type: 'rename';
+        path: string;
+        newPath: string;
     }
   | {
       id: string | undefined;
@@ -253,7 +258,7 @@ export type EngineRuntimeKind = 'openclaw-compat' | 'internal';
 export type EngineTransport = 'websocket-gateway' | 'internal-ipc';
 export type EngineProviderId = 'openclaw-compat' | 'internal';
 
-export type LocalActionType = 'create_file' | 'append_file' | 'read_file' | 'list_dir' | 'exists' | 'rename' | 'delete' | 'shell_exec' | 'web_fetch';
+export type LocalActionType = 'create_file' | 'append_file' | 'read_file' | 'list_dir' | 'exists' | 'stat' | 'rename' | 'delete' | 'shell_exec' | 'web_fetch';
 
 export type LocalActionReceipt = {
   id: string;

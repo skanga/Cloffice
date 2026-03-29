@@ -84,7 +84,7 @@ try {
 
     const cowork = await callBridge(`(async () => {
       const bridge = window.cloffice ?? window.relay;
-      return bridge.sendInternalChat(${JSON.stringify(coworkSessionKey)}, 'Draft an internal cowork plan for organizing the next migration task.');
+      return bridge.sendInternalChat(${JSON.stringify(coworkSessionKey)}, 'Draft an internal cowork plan for organizing the next migration task and inspect root metadata before refining the plan.');
     })()`);
 
     if (planner.model !== 'internal/dev-planner') {
@@ -100,13 +100,13 @@ try {
     if (!cowork.assistantMessage.text.includes('Internal cowork foundation response.')) {
       throw new Error(`cowork response missing foundation marker: ${cowork.assistantMessage.text}`);
     }
-    if (!cowork.assistantMessage.text.includes('Current limitation: internal cowork foundations only emit read-only inspection actions in this phase.')) {
+    if (!cowork.assistantMessage.text.includes('Current limitation: internal cowork foundations only emit safe read-only inspection and metadata actions in this phase.')) {
       throw new Error(`cowork response missing limitation note: ${cowork.assistantMessage.text}`);
     }
     if (!cowork.sessionTitle?.startsWith('Task:')) {
       throw new Error(`cowork session title not normalized: ${cowork.sessionTitle}`);
     }
-    if (cowork.engineActionPhase !== 'approval_required') {
+    if (cowork.engineActionPhase !== 'awaiting_approval') {
       throw new Error(`cowork action phase not normalized: ${JSON.stringify(cowork)}`);
     }
     if (cowork.engineActionMode !== 'read-only') {
@@ -114,6 +114,29 @@ try {
     }
     if (cowork.requestedActions?.[0]?.type !== 'list_dir') {
       throw new Error(`cowork requested action not emitted: ${JSON.stringify(cowork.requestedActions)}`);
+    }
+    if (cowork.requestedActions?.[1]?.type !== 'stat') {
+      throw new Error(`cowork metadata action not emitted: ${JSON.stringify(cowork.requestedActions)}`);
+    }
+
+    const continuation = await callBridge(`(async () => {
+      const bridge = window.cloffice ?? window.relay;
+      return bridge.continueInternalCoworkRun({
+        sessionKey: ${JSON.stringify(coworkSessionKey)},
+        runId: ${JSON.stringify('smoke-run-1')},
+        rootPath: ${JSON.stringify(process.cwd())},
+        approvedActions: ${JSON.stringify([
+          { id: 'inspect-project', type: 'list_dir', path: '.' },
+          { id: 'inspect-root-metadata', type: 'stat', path: '.' },
+        ])},
+        rejectedActions: [],
+      });
+    })()`);
+    if (continuation.engineActionPhase !== 'completed') {
+      throw new Error(`cowork continuation phase not normalized: ${JSON.stringify(continuation)}`);
+    }
+    if (!continuation.execution?.previews?.some((entry) => typeof entry === 'string' && entry.includes('Stat: .'))) {
+      throw new Error(`cowork continuation missing stat preview: ${JSON.stringify(continuation.execution)}`);
     }
 
     const after = await callBridge(`(async () => {
@@ -139,7 +162,8 @@ try {
       coworkTitle: cowork.sessionTitle,
       coworkActionPhase: cowork.engineActionPhase,
       coworkActionMode: cowork.engineActionMode,
-      coworkActionType: cowork.requestedActions?.[0]?.type ?? null,
+      coworkActionTypes: cowork.requestedActions?.map((action) => action.type) ?? [],
+      continuationPhase: continuation.engineActionPhase,
       sessionCount: after.sessionCount,
       activeSessionKey: after.activeSessionKey,
     };

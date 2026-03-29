@@ -100,6 +100,7 @@ const localActionScopeMap: Record<LocalActionType, string> = {
   read_file: 'file-read',
   list_dir: 'file-list',
   exists: 'file-read',
+  stat: 'file-read',
   rename: 'file-move',
   delete: 'file-delete',
   shell_exec: 'shell-execute',

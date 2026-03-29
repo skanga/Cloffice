@@ -88,7 +88,7 @@ export type EngineSessionArtifacts = {
   activityItems: ChatActivityItem[];
   hasRequestedActions: boolean;
   hasStructuredActivity: boolean;
-  actionPhase: 'none' | 'approval_required';
+  actionPhase: 'none' | 'planning' | 'approval_required' | 'awaiting_approval' | 'executing' | 'completed' | 'blocked';
   actionMode: 'none' | 'read-only';
   providerId?: string;
 };
@@ -104,16 +104,28 @@ export type EngineSessionMessageIds = {
 export function deriveEngineSessionArtifacts(event: EngineSessionEvent): EngineSessionArtifacts {
   const payload = event.payload;
   const message = event.payload.message ?? event.payload;
-  const requestedActions = parseEngineRequestedActions({
-    text: event.text,
-    message,
-    payload: event.payload,
-  });
-  const structuredActivityItems = parseEngineActivityItems({
-    text: event.text,
-    message,
-    payload: event.payload,
-  });
+  const rawPayloadRequestedActions = (payload as Record<string, unknown>).requestedActions;
+  const payloadRequestedActions = Array.isArray(rawPayloadRequestedActions)
+    ? rawPayloadRequestedActions.filter((entry): entry is EngineRequestedAction => !!entry && typeof entry === 'object' && typeof (entry as { type?: unknown }).type === 'string')
+    : parseEngineRequestedActions(rawPayloadRequestedActions);
+  const requestedActions = payloadRequestedActions.length > 0
+    ? payloadRequestedActions
+    : parseEngineRequestedActions({
+        text: event.text,
+        message,
+        payload: event.payload,
+      });
+  const rawPayloadActivityItems = (payload as Record<string, unknown>).activityItems;
+  const payloadActivityItems = Array.isArray(rawPayloadActivityItems)
+    ? rawPayloadActivityItems.filter((entry): entry is ChatActivityItem => !!entry && typeof entry === 'object' && typeof (entry as { label?: unknown }).label === 'string')
+    : parseEngineActivityItems(rawPayloadActivityItems);
+  const structuredActivityItems = payloadActivityItems.length > 0
+    ? payloadActivityItems
+    : parseEngineActivityItems({
+        text: event.text,
+        message,
+        payload: event.payload,
+      });
   const fallbackActivityItems = deriveActivityItemsFromAssistantText(event.visibleText, event.runId);
   const activityItems = structuredActivityItems.length > 0 ? structuredActivityItems : fallbackActivityItems;
 
@@ -123,7 +135,7 @@ export function deriveEngineSessionArtifacts(event: EngineSessionEvent): EngineS
     activityItems,
     hasRequestedActions: requestedActions.length > 0,
     hasStructuredActivity: activityItems.length > 0,
-    actionPhase: payload.engineActionPhase === 'approval_required' ? 'approval_required' : 'none',
+    actionPhase: normalizeEngineActionPhase(payload.engineActionPhase),
     actionMode: payload.engineActionMode === 'read-only' ? 'read-only' : 'none',
     providerId: typeof payload.providerId === 'string' ? payload.providerId : undefined,
   };
@@ -172,6 +184,7 @@ export function buildEngineActionExecutionResult(params: {
           receipt.type === 'read_file' ? 'Read' :
           receipt.type === 'list_dir' ? 'Listed' :
           receipt.type === 'exists' ? 'Checked' :
+          receipt.type === 'stat' ? 'Inspected' :
           receipt.type === 'rename' ? 'Renamed' :
           receipt.type === 'delete' ? 'Deleted' :
           receipt.type === 'shell_exec' ? 'Executed' :
@@ -259,4 +272,15 @@ export function buildMissingEngineRequestedActionsMessage(params: {
 
 function normalizeEngineChatEventState(value: unknown): EngineChatEventState {
   return value === 'delta' || value === 'aborted' || value === 'error' ? value : 'final';
+}
+
+function normalizeEngineActionPhase(value: unknown): EngineSessionArtifacts['actionPhase'] {
+  return value === 'planning'
+    || value === 'approval_required'
+    || value === 'awaiting_approval'
+    || value === 'executing'
+    || value === 'completed'
+    || value === 'blocked'
+    ? value
+    : 'none';
 }

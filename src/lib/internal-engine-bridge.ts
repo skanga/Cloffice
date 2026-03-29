@@ -10,7 +10,7 @@ import type {
   EngineWorkspaceReadResult,
   EngineWorkspaceStatResult,
 } from './engine-runtime-types.js';
-import type { ChatActivityItem, EngineRequestedAction } from '../app-types.js';
+import type { ChatActivityItem, EngineRequestedAction, LocalActionReceipt } from '../app-types.js';
 
 export type InternalEngineShellCapabilities = {
   connection: boolean;
@@ -40,6 +40,15 @@ export type InternalEngineRuntimeInfo = {
   defaultModel: string;
 };
 
+export type InternalEngineCoworkActionPhase =
+  | 'none'
+  | 'planning'
+  | 'approval_required'
+  | 'awaiting_approval'
+  | 'executing'
+  | 'completed'
+  | 'blocked';
+
 export type InternalEngineSendChatResult = {
   sessionKey: string;
   runId: string;
@@ -52,8 +61,35 @@ export type InternalEngineSendChatResult = {
   sessionKind?: string;
   requestedActions?: EngineRequestedAction[];
   activityItems?: ChatActivityItem[];
-  engineActionPhase?: 'none' | 'approval_required';
+  engineActionPhase?: InternalEngineCoworkActionPhase;
   engineActionMode?: 'none' | 'read-only';
+};
+
+export type InternalEngineCoworkActionDecision = {
+  id: string;
+  actionId: string;
+  actionType: EngineRequestedAction['type'];
+  path: string;
+  approved: boolean;
+  reason?: string;
+};
+
+export type InternalEngineCoworkContinuationRequest = {
+  sessionKey: string;
+  runId: string;
+  rootPath: string;
+  approvedActions: EngineRequestedAction[];
+  rejectedActions: InternalEngineCoworkActionDecision[];
+};
+
+export type InternalEngineActionExecutionResult = {
+  receipts: LocalActionReceipt[];
+  previews: string[];
+  errors: string[];
+};
+
+export type InternalEngineCoworkContinuationResult = InternalEngineSendChatResult & {
+  execution: InternalEngineActionExecutionResult;
 };
 
 export type InternalEngineLifecycleBridge = {
@@ -69,6 +105,7 @@ export type InternalEngineSessionBridge = {
   sendChat(sessionKey: string, text: string): Promise<{ sessionKey: string } | InternalEngineSendChatResult>;
   resolveSessionKey(preferredKey?: string): Promise<string>;
   getHistory(sessionKey: string, limit?: number): Promise<EngineChatMessage[]>;
+  continueCoworkRun(payload: InternalEngineCoworkContinuationRequest): Promise<InternalEngineCoworkContinuationResult>;
   listModels(): Promise<EngineModelChoice[]>;
   getSessionModel(sessionKey: string): Promise<string | null>;
   listSessions(limit?: number): Promise<EngineSessionSummary[]>;
@@ -120,6 +157,7 @@ export type InternalEngineDesktopBridge = {
   deleteInternalSession(sessionKey: string): Promise<void>;
   getInternalHistory(sessionKey: string, limit?: number): Promise<EngineChatMessage[]>;
   sendInternalChat(sessionKey: string, text: string): Promise<InternalEngineSendChatResult>;
+  continueInternalCoworkRun(payload: InternalEngineCoworkContinuationRequest): Promise<InternalEngineCoworkContinuationResult>;
 };
 
 function createUnavailableInternalEngineError(message: string): Error {
@@ -143,6 +181,7 @@ export function createUnavailableInternalEngineBridge(status: InternalEngineShel
       sendChat: (_sessionKey, _text) => fail<{ sessionKey: string }>(),
       resolveSessionKey: (_preferredKey) => fail<string>(),
       getHistory: (_sessionKey, _limit) => fail<EngineChatMessage[]>(),
+      continueCoworkRun: (_payload) => fail<InternalEngineCoworkContinuationResult>(),
       listModels: () => fail<EngineModelChoice[]>(),
       getSessionModel: (_sessionKey) => fail<string | null>(),
       listSessions: (_limit) => fail<EngineSessionSummary[]>(),
@@ -194,6 +233,7 @@ export function createDesktopBackedInternalEngineBridge(
       sendChat: (sessionKey, text) => desktopBridge.sendInternalChat(sessionKey, text),
       resolveSessionKey: (preferredKey) => desktopBridge.resolveInternalSessionKey(preferredKey),
       getHistory: (sessionKey, limit) => desktopBridge.getInternalHistory(sessionKey, limit),
+      continueCoworkRun: (payload) => desktopBridge.continueInternalCoworkRun(payload),
       listModels: () => desktopBridge.listInternalModels(),
       getSessionModel: (sessionKey) => desktopBridge.getInternalSessionModel(sessionKey),
       listSessions: (limit) => desktopBridge.listInternalSessions(limit),
