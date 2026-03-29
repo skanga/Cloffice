@@ -112,6 +112,8 @@ import {
   applyEngineCoworkFinalMessageUpdate,
   deriveEngineActionRunKey,
   executeEngineCoworkActionExecution,
+  resolveEngineCoworkApprovalApplication,
+  resolveEngineCoworkNoActionApplication,
   resolveEngineCoworkReceiptApplication,
 } from './lib/engine-run-coordinator';
   import {
@@ -2137,21 +2139,27 @@ export default function App() {
               actionMode,
             });
             if (approvalTransition) {
-              setCoworkRunStatus(approvalTransition.runStatus);
+              const approvalApplication = resolveEngineCoworkApprovalApplication(approvalTransition);
+              setCoworkRunStatus(approvalApplication.runStatus);
               setCoworkProgressStage('executing_workstreams', {
-                details: approvalTransition.progressDetails,
+                details: approvalApplication.progressDetails,
               });
               if (taskEntry) {
-                setCoworkTaskStatus(taskEntry.taskId, approvalTransition.taskStatus, {
+                setCoworkTaskStatus(taskEntry.taskId, approvalApplication.taskStatus, {
                   runId,
-                  summary: approvalTransition.taskSummary,
+                  summary: approvalApplication.taskSummary,
                 });
               }
             }
             if (taskEntry && requestedActions.length === 0 && !internalExecution) {
-              setCoworkTaskStatus(taskEntry.taskId, 'completed', {
+              const noActionApplication = resolveEngineCoworkNoActionApplication({
+                visibleText,
+                projectTitle: runContext.projectTitle,
+              });
+              setCoworkTaskStatus(taskEntry.taskId, noActionApplication.taskStatus, {
                 runId,
-                summary: sessionResult.status === 'aborted' ? 'Run ended early.' : 'Run completed.',
+                summary: noActionApplication.taskSummary,
+                outcome: noActionApplication.taskOutcome,
               });
             }
             if (
@@ -2221,20 +2229,24 @@ export default function App() {
                 }),
               );
             } else if (requestedActions.length === 0) {
+              const noActionApplication = resolveEngineCoworkNoActionApplication({
+                visibleText,
+                projectTitle: runContext.projectTitle,
+              });
               setCoworkProgressStage('deliverables', {
                 completeThrough: true,
-                details: 'Delivered conversational result without local file actions.',
+                details: noActionApplication.progressDetails,
               });
               if (taskEntry) {
-                setCoworkTaskStatus(taskEntry.taskId, 'completed', {
+                setCoworkTaskStatus(taskEntry.taskId, noActionApplication.taskStatus, {
                   runId,
-                  summary: 'No engine actions requested; assistant response completed.',
-                  outcome: visibleText,
+                  summary: noActionApplication.taskSummary,
+                  outcome: noActionApplication.taskOutcome,
                 });
                 finalizeCoworkTaskRun(eventSessionKey || coworkSessionKeyRef.current, taskEntry.taskId);
 
                 if (bridge?.notify) {
-                  bridge.notify('Cloffice task completed', runContext.projectTitle || 'Cowork run finished.').catch(() => {});
+                  bridge.notify(noActionApplication.notificationTitle, noActionApplication.notificationBody).catch(() => {});
                 }
               }
 

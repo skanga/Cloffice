@@ -106,6 +106,13 @@ export function appendEngineCoworkActivityMessage(params: {
   return [...params.current, activityMessage];
 }
 
+export type EngineCoworkApprovalApplication = {
+  runStatus: string;
+  progressDetails: string;
+  taskStatus: CoworkProjectTaskStatus;
+  taskSummary: string;
+};
+
 export function resolveEngineCoworkReceiptApplication(
   result: EngineActionExecutionResult,
 ): EngineCoworkReceiptApplication {
@@ -125,6 +132,43 @@ export function appendEngineCoworkReceiptMessage(params: {
   result: EngineActionExecutionResult;
 }): ChatMessage[] {
   return appendUniqueSystemMessage(params.current, params.result.receiptMessage);
+}
+
+export function resolveEngineCoworkApprovalApplication(params: {
+  runStatus: string;
+  progressDetails: string;
+  taskStatus: CoworkProjectTaskStatus;
+  taskSummary: string;
+}): EngineCoworkApprovalApplication {
+  return {
+    runStatus: params.runStatus,
+    progressDetails: params.progressDetails,
+    taskStatus: params.taskStatus,
+    taskSummary: params.taskSummary,
+  };
+}
+
+export type EngineCoworkNoActionApplication = {
+  progressDetails: string;
+  taskStatus: CoworkProjectTaskStatus;
+  taskSummary: string;
+  taskOutcome: string;
+  notificationTitle: string;
+  notificationBody: string;
+};
+
+export function resolveEngineCoworkNoActionApplication(params: {
+  visibleText: string;
+  projectTitle?: string;
+}): EngineCoworkNoActionApplication {
+  return {
+    progressDetails: 'Delivered conversational result without local file actions.',
+    taskStatus: 'completed',
+    taskSummary: 'No engine actions requested; assistant response completed.',
+    taskOutcome: params.visibleText,
+    notificationTitle: 'Cloffice task completed',
+    notificationBody: params.projectTitle || 'Cowork run finished.',
+  };
 }
 
 type ValidateProjectRelativePath = (
