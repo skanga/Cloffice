@@ -24,6 +24,8 @@ import type {
   GatewayDiscoveryResult,
 } from '../src/app-types.js';
 import { describeInternalEngineShell } from '../src/lib/internal-engine-placeholder.js';
+import type { EngineConnectOptions } from '../src/lib/engine-runtime-types.js';
+import type { InternalEngineRuntimeInfo } from '../src/lib/internal-engine-bridge.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -31,6 +33,43 @@ const defaultConfig: AppConfig = {
   gatewayUrl: 'ws://127.0.0.1:18789',
   gatewayToken: '',
 };
+
+function createInternalEngineMainService() {
+  const shellStatus = describeInternalEngineShell();
+  let connected = false;
+  const runtimeHome = path.join(app.getPath('userData'), 'internal-engine');
+  const serviceName = 'cloffice-internal-engine-shell';
+
+  const unavailable = () => new Error(shellStatus.unavailableReason);
+
+  return {
+    getStatus() {
+      return shellStatus;
+    },
+    async connect(_options: EngineConnectOptions): Promise<void> {
+      connected = false;
+      throw unavailable();
+    },
+    async disconnect(): Promise<void> {
+      connected = false;
+    },
+    async getActiveSessionKey(): Promise<string> {
+      throw unavailable();
+    },
+    async getRuntimeInfo(): Promise<InternalEngineRuntimeInfo> {
+      return {
+        status: shellStatus,
+        runtimeHome,
+        serviceVersion: app.getVersion(),
+        serviceName,
+        connected,
+      };
+    },
+    isConnected() {
+      return connected;
+    },
+  };
+}
 
 const extensionCategories: Record<string, string> = {
   '.pdf': 'Documents',
@@ -952,10 +991,15 @@ app.whenReady().then(async () => {
   registerWebSocketOriginRewrite();
   registerDevContentSecurityPolicy();
   registerProdContentSecurityPolicy();
+  const internalEngineService = createInternalEngineMainService();
 
   ipcMain.handle('config:get', async () => readConfig());
   ipcMain.handle('config:save', async (_event, config: AppConfig) => writeConfig(config));
-  ipcMain.handle('internal-engine:status', async () => describeInternalEngineShell());
+  ipcMain.handle('internal-engine:status', async () => internalEngineService.getStatus());
+  ipcMain.handle('internal-engine:get-runtime-info', async () => internalEngineService.getRuntimeInfo());
+  ipcMain.handle('internal-engine:connect', async (_event, options: EngineConnectOptions) => internalEngineService.connect(options));
+  ipcMain.handle('internal-engine:disconnect', async () => internalEngineService.disconnect());
+  ipcMain.handle('internal-engine:get-active-session-key', async () => internalEngineService.getActiveSessionKey());
   ipcMain.handle('backend:health-check', async (_event, baseUrl: string) => runHealthCheck(baseUrl));
   ipcMain.handle('gateway:discover', async () => discoverGateway());
   ipcMain.handle('plugin:check-workspace', async () => {

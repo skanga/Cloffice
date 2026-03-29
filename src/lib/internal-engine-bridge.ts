@@ -27,6 +27,14 @@ export type InternalEngineShellStatus = {
   unavailableReason: string;
 };
 
+export type InternalEngineRuntimeInfo = {
+  status: InternalEngineShellStatus;
+  runtimeHome: string;
+  serviceVersion: string;
+  serviceName: string;
+  connected: boolean;
+};
+
 export type InternalEngineLifecycleBridge = {
   connect(options: EngineConnectOptions): Promise<void>;
   disconnect(): Promise<void> | void;
@@ -76,6 +84,10 @@ export type InternalEngineBridge = {
 
 export type InternalEngineDesktopBridge = {
   getInternalEngineStatus(): Promise<InternalEngineShellStatus>;
+  getInternalEngineRuntimeInfo(): Promise<InternalEngineRuntimeInfo>;
+  connectInternalEngine(options: EngineConnectOptions): Promise<void>;
+  disconnectInternalEngine(): Promise<void>;
+  getInternalEngineActiveSessionKey(): Promise<string>;
 };
 
 function createUnavailableInternalEngineError(message: string): Error {
@@ -94,6 +106,50 @@ export function createUnavailableInternalEngineBridge(status: InternalEngineShel
     },
     sessions: {
       getActiveSessionKey: () => fail<string>(),
+      createChatSession: () => fail<string>(),
+      createCoworkSession: () => fail<string>(),
+      sendChat: (_sessionKey, _text) => fail<{ sessionKey: string }>(),
+      resolveSessionKey: (_preferredKey) => fail<string>(),
+      getHistory: (_sessionKey, _limit) => fail<EngineChatMessage[]>(),
+      listModels: () => fail<EngineModelChoice[]>(),
+      getSessionModel: (_sessionKey) => fail<string | null>(),
+      listSessions: (_limit) => fail<EngineSessionSummary[]>(),
+      setSessionModel: (_sessionKey, _modelValue) => fail<void>(),
+      setSessionTitle: (_sessionKey, _title) => fail<void>(),
+      deleteSession: (_sessionKey) => fail<void>(),
+    },
+    scheduling: {
+      listCronJobs: () => fail<EngineCronJob[]>(),
+    },
+    tools: {
+      fetchToolsCatalog: () => fail<EngineToolsCatalog>(),
+    },
+    workspace: {
+      listWorkspaceFiles: (_relativePath) => fail<EngineWorkspaceListResult>(),
+      readWorkspaceFile: (_relativePath) => fail<EngineWorkspaceReadResult>(),
+      statWorkspaceFile: (_relativePath) => fail<EngineWorkspaceStatResult>(),
+      renameWorkspaceFile: (_oldPath, _newPath) => fail<void>(),
+      deleteWorkspaceFile: (_path) => fail<void>(),
+      writeWorkspaceFile: (_path, _content) => fail<void>(),
+    },
+  };
+}
+
+export function createDesktopBackedInternalEngineBridge(
+  desktopBridge: InternalEngineDesktopBridge,
+  status: InternalEngineShellStatus,
+): InternalEngineBridge {
+  const fail = <T>(): Promise<T> => Promise.reject(createUnavailableInternalEngineError(status.unavailableReason));
+
+  return {
+    status,
+    lifecycle: {
+      connect: (options) => desktopBridge.connectInternalEngine(options),
+      disconnect: () => desktopBridge.disconnectInternalEngine(),
+      isConnected: () => false,
+    },
+    sessions: {
+      getActiveSessionKey: () => desktopBridge.getInternalEngineActiveSessionKey(),
       createChatSession: () => fail<string>(),
       createCoworkSession: () => fail<string>(),
       sendChat: (_sessionKey, _text) => fail<{ sessionKey: string }>(),

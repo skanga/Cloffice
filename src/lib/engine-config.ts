@@ -3,10 +3,11 @@ import type { EngineConnectOptions } from './engine-runtime-types.js';
 import {
   buildDeferredProviderAwareEngineConfigV2,
   NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION,
-  PROVIDER_AWARE_ENGINE_CONFIG_WRITE_ENABLED,
+  PROVIDER_AWARE_ENGINE_CONFIG_WRITE_MODE,
+  resolveProviderAwareEngineConfigWriteMode,
+  type ProviderAwareEngineConfigWriteMode,
   type ProviderAwareStoredEngineConfigV2,
 } from './engine-config-migration.js';
-import { getEngineProvider } from './engine-provider-registry.js';
 
 export type EngineDraftConfig = {
   runtimeKind: EngineRuntimeKind;
@@ -29,6 +30,7 @@ export type PreparedEngineConfigWrite = {
   providerAwareConfig: ProviderAwareStoredEngineConfigV2;
   providerAwareWriteEligible: boolean;
   providerAwareWriteEnabled: boolean;
+  providerAwareWriteMode: ProviderAwareEngineConfigWriteMode;
 };
 
 export function buildEngineDraftConfig(params: {
@@ -127,10 +129,20 @@ export function buildDeferredProviderAwareEngineConfig(draft: EngineDraftConfig)
   });
 }
 
-export function prepareEngineConfigWrite(draft: EngineDraftConfig): PreparedEngineConfigWrite {
-  const provider = getEngineProvider(draft.providerId);
-  const providerAwareWriteEligible = provider.availableInBuild;
-  const providerAwareWriteEnabled = providerAwareWriteEligible && PROVIDER_AWARE_ENGINE_CONFIG_WRITE_ENABLED;
+export function prepareEngineConfigWrite(
+  draft: EngineDraftConfig,
+  options?: {
+    developerBuild?: boolean;
+    developerOptIn?: boolean;
+  },
+): PreparedEngineConfigWrite {
+  const providerAwareWriteMode = resolveProviderAwareEngineConfigWriteMode({
+    providerId: draft.providerId,
+    developerBuild: options?.developerBuild ?? false,
+    developerOptIn: options?.developerOptIn ?? false,
+  });
+  const providerAwareWriteEligible = draft.providerId === 'internal';
+  const providerAwareWriteEnabled = providerAwareWriteMode === 'internal-experimental';
 
   return {
     activeFormat: providerAwareWriteEnabled ? 'provider-aware-v2' : 'app-config-v1-compat',
@@ -138,6 +150,7 @@ export function prepareEngineConfigWrite(draft: EngineDraftConfig): PreparedEngi
     providerAwareConfig: buildDeferredProviderAwareEngineConfig(draft),
     providerAwareWriteEligible,
     providerAwareWriteEnabled,
+    providerAwareWriteMode,
   };
 }
 

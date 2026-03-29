@@ -6,6 +6,7 @@ import type { FormEvent } from 'react';
 
 import type { EngineProviderId, HealthCheckResult } from '@/app-types';
 import type { EngineDiscoveryResult } from '@/lib/engine-discovery';
+import type { InternalEngineRuntimeInfo } from '@/lib/internal-engine-bridge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -133,6 +134,7 @@ export function OnboardingPage({
   const [connectAttempted, setConnectAttempted] = useState(false);
   const [discovery, setDiscovery] = useState<DiscoveryState>({ status: 'idle' });
   const [showToken, setShowToken] = useState(false);
+  const [internalRuntimeInfo, setInternalRuntimeInfo] = useState<InternalEngineRuntimeInfo | null>(null);
   const engineProviders = useMemo(() => listEngineProviders(), []);
   const selectedEngineProvider = useMemo(() => getEngineProvider(draftEngineProviderId), [draftEngineProviderId]);
 
@@ -158,6 +160,29 @@ export function OnboardingPage({
 
     return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const bridge = getDesktopBridge();
+    if (!bridge?.getInternalEngineRuntimeInfo) {
+      setInternalRuntimeInfo(null);
+      return;
+    }
+
+    let cancelled = false;
+    bridge.getInternalEngineRuntimeInfo().then((info) => {
+      if (!cancelled) {
+        setInternalRuntimeInfo(info);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setInternalRuntimeInfo(null);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const effectivePairingId = useMemo(() => {
     if (pairingRequestId) return pairingRequestId;
@@ -633,6 +658,19 @@ export function OnboardingPage({
                 </span>
               </div>
             )}
+
+            {draftEngineProviderId === 'internal' && internalRuntimeInfo ? (
+              <div className="mb-6 w-full max-w-[360px] rounded-xl border border-dashed border-border bg-muted/20 px-4 py-3 text-left">
+                <p className="font-sans text-[12px] font-semibold text-foreground">Internal runtime diagnostics</p>
+                <div className="mt-2 grid gap-1 font-sans text-[11px] text-muted-foreground">
+                  <p><span className="font-medium text-foreground">Service:</span> {internalRuntimeInfo.serviceName}</p>
+                  <p><span className="font-medium text-foreground">Version:</span> {internalRuntimeInfo.serviceVersion}</p>
+                  <p><span className="font-medium text-foreground">Home:</span> {internalRuntimeInfo.runtimeHome}</p>
+                  <p><span className="font-medium text-foreground">Connected:</span> {internalRuntimeInfo.connected ? 'yes' : 'no'}</p>
+                  <p><span className="font-medium text-foreground">Status:</span> {internalRuntimeInfo.status.unavailableReason}</p>
+                </div>
+              </div>
+            ) : null}
 
             <div className="mt-4 w-full max-w-[320px]">
               <PrimaryButton onClick={onComplete}>

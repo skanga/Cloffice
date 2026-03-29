@@ -1,8 +1,11 @@
 import type { EngineProviderId } from '@/app-types';
 import {
   INTERNAL_ENGINE_RUNTIME_DESCRIPTOR,
+  describeInternalEngineShell,
   InternalEnginePlaceholderClient,
 } from './internal-engine-placeholder';
+import { getDesktopBridge } from './desktop-bridge';
+import { createDesktopBackedInternalEngineBridge } from './internal-engine-bridge';
 import {
   OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR,
   OpenClawCompatibilityEngineClient,
@@ -61,8 +64,16 @@ export function getEngineRuntimeDescriptor(providerId: EngineProviderId = 'openc
 }
 
 export function createEngineClient(providerId: EngineProviderId = 'openclaw-compat'): EngineClientInstance {
+  if (providerId === 'internal') {
+    const desktopBridge = getDesktopBridge();
+    if (desktopBridge) {
+      return new InternalEnginePlaceholderClient(
+        createDesktopBackedInternalEngineBridge(desktopBridge, describeInternalEngineShell()),
+      );
+    }
+    return new InternalEnginePlaceholderClient();
+  }
+
   const resolvedProviderId = resolveAvailableEngineProviderId(providerId);
-  return resolvedProviderId === 'internal'
-    ? new InternalEnginePlaceholderClient()
-    : new OpenClawRuntimeAdapter();
+  return new OpenClawRuntimeAdapter();
 }

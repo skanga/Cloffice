@@ -8,9 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import { getDesktopBridge } from '@/lib/desktop-bridge';
 import { listConnectors, persistConnectorConfig } from '@/lib/connectors';
 import { loadAllowedDomains, saveAllowedDomains } from '@/lib/connectors/web-fetch';
 import { getEngineProvider, listEngineProviders } from '@/lib/engine-provider-registry';
+import type { InternalEngineRuntimeInfo } from '@/lib/internal-engine-bridge';
 import type { ConnectorDefinition } from '@/lib/connectors/connector-types';
 
 type AppLanguage = 'en' | 'de';
@@ -259,6 +261,7 @@ export function SettingsPage({
   const [copied, setCopied] = useState(false);
   const [prefersDarkSystem, setPrefersDarkSystem] = useState(false);
   const [connectionNameDraft, setConnectionNameDraft] = useState('');
+  const [internalRuntimeInfo, setInternalRuntimeInfo] = useState<InternalEngineRuntimeInfo | null>(null);
   const engineProviders = useMemo(() => listEngineProviders(), []);
   const selectedEngineProvider = useMemo(() => getEngineProvider(draftEngineProviderId), [draftEngineProviderId]);
   const t = useCallback((en: string, de: string) => (preferences.language === 'de' ? de : en), [preferences.language]);
@@ -274,6 +277,29 @@ export function SettingsPage({
 
     media.addEventListener('change', applyPreference);
     return () => media.removeEventListener('change', applyPreference);
+  }, []);
+
+  useEffect(() => {
+    const bridge = getDesktopBridge();
+    if (!bridge?.getInternalEngineRuntimeInfo) {
+      setInternalRuntimeInfo(null);
+      return;
+    }
+
+    let cancelled = false;
+    bridge.getInternalEngineRuntimeInfo().then((info) => {
+      if (!cancelled) {
+        setInternalRuntimeInfo(info);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setInternalRuntimeInfo(null);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const useDarkPreview =
@@ -598,6 +624,18 @@ export function SettingsPage({
                   );
                 })}
               </div>
+              {draftEngineProviderId === 'internal' && internalRuntimeInfo ? (
+                <div className="rounded-lg border border-dashed border-border/70 bg-muted/20 px-3 py-3">
+                  <p className="text-xs font-medium text-foreground">Internal runtime diagnostics</p>
+                  <div className="mt-2 grid gap-1 text-[11px] text-muted-foreground">
+                    <p><span className="font-medium text-foreground">Service:</span> {internalRuntimeInfo.serviceName}</p>
+                    <p><span className="font-medium text-foreground">Version:</span> {internalRuntimeInfo.serviceVersion}</p>
+                    <p><span className="font-medium text-foreground">Home:</span> {internalRuntimeInfo.runtimeHome}</p>
+                    <p><span className="font-medium text-foreground">Connected:</span> {internalRuntimeInfo.connected ? 'yes' : 'no'}</p>
+                    <p><span className="font-medium text-foreground">Status:</span> {internalRuntimeInfo.status.unavailableReason}</p>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <form className="grid gap-3" onSubmit={onSave}>

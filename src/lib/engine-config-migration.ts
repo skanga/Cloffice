@@ -2,7 +2,8 @@ import type { EngineProviderId, EngineRuntimeKind, EngineTransport } from '../ap
 
 export const CURRENT_ENGINE_CONFIG_STORAGE_VERSION = 1;
 export const NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION = 2;
-export const PROVIDER_AWARE_ENGINE_CONFIG_WRITE_ENABLED = false;
+export type ProviderAwareEngineConfigWriteMode = 'disabled' | 'internal-experimental';
+export const PROVIDER_AWARE_ENGINE_CONFIG_WRITE_MODE: ProviderAwareEngineConfigWriteMode = 'disabled';
 
 export type ProviderAwareStoredEngineConfigV2 = {
   version: typeof NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION;
@@ -55,4 +56,15 @@ export function buildDeferredProviderAwareEngineConfigV2(
     version: NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION,
     ...config,
   };
+}
+
+export function resolveProviderAwareEngineConfigWriteMode(params: {
+  providerId: EngineProviderId;
+  developerBuild: boolean;
+  developerOptIn: boolean;
+}): ProviderAwareEngineConfigWriteMode {
+  if (params.providerId === 'internal' && params.developerBuild && params.developerOptIn) {
+    return 'internal-experimental';
+  }
+  return PROVIDER_AWARE_ENGINE_CONFIG_WRITE_MODE;
 }

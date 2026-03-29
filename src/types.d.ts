@@ -15,14 +15,18 @@ import type {
 } from './app-types';
 import type { DesktopBridgeEngineConfig, EngineDraftConfig } from './lib/engine-config';
 import type { EngineDiscoveryResult } from './lib/engine-discovery';
-import type { EngineRuntimeHealthResult } from './lib/engine-runtime-types';
-import type { InternalEngineShellStatus } from './lib/internal-engine-bridge';
+import type { EngineConnectOptions, EngineRuntimeHealthResult } from './lib/engine-runtime-types';
+import type { InternalEngineRuntimeInfo, InternalEngineShellStatus } from './lib/internal-engine-bridge';
 import type { OpenClawCompatibilityDiscoveryResult } from './lib/openclaw-compat-engine';
 
 type DesktopBridgeApi = {
   getConfig: () => Promise<AppConfig>;
   saveConfig: (config: AppConfig) => Promise<AppConfig>;
   getInternalEngineStatus: () => Promise<InternalEngineShellStatus>;
+  getInternalEngineRuntimeInfo: () => Promise<InternalEngineRuntimeInfo>;
+  connectInternalEngine: (options: EngineConnectOptions) => Promise<void>;
+  disconnectInternalEngine: () => Promise<void>;
+  getInternalEngineActiveSessionKey: () => Promise<string>;
   getEngineConfig: () => Promise<DesktopBridgeEngineConfig>;
   saveEngineConfig: (draft: EngineDraftConfig) => Promise<DesktopBridgeEngineConfig>;
   healthCheck: (baseUrl: string) => Promise<HealthCheckResult>;
