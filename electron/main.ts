@@ -99,6 +99,26 @@ function createInternalEngineMainService() {
     messages: EngineChatMessage[];
     updatedAt: number;
   }>();
+  type PersistedInternalEngineSession = {
+    key: string;
+    kind: string;
+    title?: string;
+    model: string | null;
+    messages: EngineChatMessage[];
+    updatedAt: number;
+  };
+  type PersistedInternalEngineState = {
+    version: 1;
+    activeSessionKey: string | null;
+    cleanShutdown: boolean;
+    lastPersistedAt: number;
+    sessions: PersistedInternalEngineSession[];
+  };
+  const stateFilePath = path.join(runtimeHome, 'state.v1.json');
+  let stateLoaded = false;
+  let stateWriteChain: Promise<void> = Promise.resolve();
+  let stateRestoreStatus: 'fresh' | 'restored' | 'recovered_after_interruption' | 'load_failed' = 'fresh';
+  let lastRecoveryNote: string | null = null;
 
   const unavailable = () => new Error(shellStatus.unavailableReason);
   const requireConnected = () => {
@@ -374,6 +394,153 @@ function createInternalEngineMainService() {
       session.messages.splice(0, session.messages.length - historyLimit);
     }
   };
+  const serializeSession = (session: {
+    key: string;
+    kind: string;
+    title?: string;
+    model: string | null;
+    messages: EngineChatMessage[];
+    updatedAt: number;
+  }): PersistedInternalEngineSession => ({
+    key: session.key,
+    kind: session.kind,
+    ...(session.title ? { title: session.title } : {}),
+    model: resolveModelValue(session.model),
+    messages: session.messages.map((message) => ({
+      id: typeof message.id === 'string' && message.id.trim() ? message.id : crypto.randomUUID(),
+      role: message.role === 'user' || message.role === 'assistant' || message.role === 'system' ? message.role : 'system',
+      text: typeof message.text === 'string' ? message.text : '',
+    })),
+    updatedAt: Number.isFinite(session.updatedAt) ? session.updatedAt : now(),
+  });
+  const parsePersistedSession = (value: unknown): PersistedInternalEngineSession | null => {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+    const candidate = value as Record<string, unknown>;
+    const key = typeof candidate.key === 'string' && candidate.key.trim() ? candidate.key.trim() : null;
+    if (!key) {
+      return null;
+    }
+    const kind = typeof candidate.kind === 'string' && candidate.kind.trim() ? candidate.kind.trim() : 'chat';
+    const title = typeof candidate.title === 'string' && candidate.title.trim() ? normalizeSessionTitle(candidate.title) : undefined;
+    const model = resolveModelValue(typeof candidate.model === 'string' ? candidate.model : null);
+    const updatedAt = Number.isFinite(candidate.updatedAt) ? Number(candidate.updatedAt) : now();
+    const messages = Array.isArray(candidate.messages)
+      ? candidate.messages.flatMap((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return [];
+          }
+          const message = entry as Record<string, unknown>;
+          const role = message.role === 'user' || message.role === 'assistant' || message.role === 'system'
+            ? message.role
+            : null;
+          if (!role) {
+            return [];
+          }
+          return [{
+            id: typeof message.id === 'string' && message.id.trim() ? message.id : crypto.randomUUID(),
+            role,
+            text: typeof message.text === 'string' ? message.text : '',
+          } satisfies EngineChatMessage];
+        })
+      : [];
+    return {
+      key,
+      kind,
+      ...(title ? { title } : {}),
+      model,
+      messages,
+      updatedAt,
+    };
+  };
+  const buildPersistedState = (): PersistedInternalEngineState => ({
+    version: 1,
+    activeSessionKey,
+    cleanShutdown: connected ? false : true,
+    lastPersistedAt: now(),
+    sessions: Array.from(sessions.values())
+      .sort((left, right) => left.updatedAt - right.updatedAt)
+      .map((session) => serializeSession(session)),
+  });
+  const writePersistedState = async (override?: Partial<Pick<PersistedInternalEngineState, 'cleanShutdown'>>): Promise<void> => {
+    await fs.mkdir(runtimeHome, { recursive: true });
+    await fs.writeFile(stateFilePath, JSON.stringify({
+      ...buildPersistedState(),
+      ...override,
+    }, null, 2), 'utf8');
+  };
+  const persistState = async (override?: Partial<Pick<PersistedInternalEngineState, 'cleanShutdown'>>): Promise<void> => {
+    stateWriteChain = stateWriteChain.then(() => writePersistedState(override));
+    await stateWriteChain;
+  };
+  const appendRecoveryNote = (sessionKey: string, note: string) => {
+    const session = ensureSession(
+      sessionKey,
+      sessionKey === mainSessionKey ? 'main' : sessionKey.startsWith('internal:cowork:') ? 'cowork' : 'chat',
+    );
+    const alreadyPresent = session.messages.some(
+      (message) => message.role === 'system' && message.text === note,
+    );
+    if (!alreadyPresent) {
+      appendSystemMessage(session.messages, note);
+      trimSessionHistory(session);
+      session.updatedAt = now();
+    }
+  };
+  const loadPersistedState = async (): Promise<void> => {
+    if (stateLoaded) {
+      return;
+    }
+    await fs.mkdir(runtimeHome, { recursive: true });
+    try {
+      const raw = await fs.readFile(stateFilePath, 'utf8');
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      sessions.clear();
+      const restoredSessions = Array.isArray(parsed.sessions)
+        ? parsed.sessions
+            .map((entry) => parsePersistedSession(entry))
+            .filter((entry): entry is PersistedInternalEngineSession => Boolean(entry))
+        : [];
+      for (const session of restoredSessions) {
+        sessions.set(session.key, session);
+      }
+      const restoredActiveSessionKey =
+        typeof parsed.activeSessionKey === 'string' && parsed.activeSessionKey.trim()
+          ? parsed.activeSessionKey.trim()
+          : null;
+      activeSessionKey = restoredActiveSessionKey && sessions.has(restoredActiveSessionKey)
+        ? restoredActiveSessionKey
+        : null;
+      const cleanShutdown = parsed.cleanShutdown === true;
+      stateRestoreStatus = restoredSessions.length > 0
+        ? cleanShutdown ? 'restored' : 'recovered_after_interruption'
+        : 'fresh';
+      if (!cleanShutdown && restoredSessions.length > 0) {
+        lastRecoveryNote = 'Recovered internal runtime state after an interrupted shutdown. In-flight runs were not resumed.';
+      } else {
+        lastRecoveryNote = null;
+      }
+    } catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || (error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.warn('[Cloffice] Failed to load internal engine state, starting with a fresh runtime.', error);
+        stateRestoreStatus = 'load_failed';
+        lastRecoveryNote = 'Previous internal runtime state could not be loaded. Started with a fresh runtime state.';
+      } else {
+        stateRestoreStatus = 'fresh';
+        lastRecoveryNote = null;
+      }
+      sessions.clear();
+      activeSessionKey = null;
+    }
+
+    ensureSession(mainSessionKey, 'main');
+    activeSessionKey = activeSessionKey && sessions.has(activeSessionKey) ? activeSessionKey : mainSessionKey;
+    if (lastRecoveryNote) {
+      appendRecoveryNote(activeSessionKey || mainSessionKey, lastRecoveryNote);
+    }
+    stateLoaded = true;
+  };
 
   const ensureSession = (sessionKey: string, kind: string = 'chat') => {
     const normalizedKey = sessionKey.trim() || mainSessionKey;
@@ -394,9 +561,6 @@ function createInternalEngineMainService() {
     return created;
   };
 
-  ensureSession(mainSessionKey, 'main');
-  activeSessionKey = mainSessionKey;
-
   return {
     getStatus() {
       return shellStatus;
@@ -406,13 +570,16 @@ function createInternalEngineMainService() {
         connected = false;
         throw unavailable();
       }
+      await loadPersistedState();
       connected = true;
-      activeSessionKey = mainSessionKey;
-      ensureSession(mainSessionKey, 'main');
-      await fs.mkdir(runtimeHome, { recursive: true });
+      activeSessionKey = activeSessionKey && sessions.has(activeSessionKey) ? activeSessionKey : mainSessionKey;
+      await persistState({ cleanShutdown: false });
     },
     async disconnect(): Promise<void> {
       connected = false;
+      if (stateLoaded) {
+        await persistState({ cleanShutdown: true });
+      }
     },
     async getActiveSessionKey(): Promise<string> {
       requireConnected();
@@ -430,18 +597,22 @@ function createInternalEngineMainService() {
         sessionCount: sessions.size,
         activeSessionKey,
         defaultModel,
+        stateRestoreStatus,
+        lastRecoveryNote,
       };
     },
     async createChatSession(): Promise<string> {
       requireConnected();
       const key = `internal:chat:${crypto.randomUUID()}`;
       activeSessionKey = ensureSession(key, 'chat').key;
+      await persistState();
       return activeSessionKey;
     },
     async createCoworkSession(): Promise<string> {
       requireConnected();
       const key = `internal:cowork:${crypto.randomUUID()}`;
       activeSessionKey = ensureSession(key, 'cowork').key;
+      await persistState();
       return activeSessionKey;
     },
     async resolveSessionKey(preferredKey = 'main'): Promise<string> {
@@ -454,6 +625,7 @@ function createInternalEngineMainService() {
         preferredKey,
         preferredKey.startsWith('internal:cowork:') ? 'cowork' : 'chat',
       ).key;
+      await persistState();
       return activeSessionKey;
     },
     async listSessions(limit = 200): Promise<EngineSessionSummary[]> {
@@ -488,6 +660,7 @@ function createInternalEngineMainService() {
         trimSessionHistory(session);
       }
       session.updatedAt = now();
+      await persistState();
     },
     async setSessionTitle(sessionKey: string, title: string | null): Promise<void> {
       requireConnected();
@@ -497,6 +670,7 @@ function createInternalEngineMainService() {
       );
       session.title = title && title.trim() ? normalizeSessionTitle(title) : undefined;
       session.updatedAt = now();
+      await persistState();
     },
     async deleteSession(sessionKey: string): Promise<void> {
       requireConnected();
@@ -509,12 +683,15 @@ function createInternalEngineMainService() {
           updatedAt: now(),
         });
         activeSessionKey = mainSessionKey;
+        await persistState();
         return;
       }
       sessions.delete(sessionKey);
       if (activeSessionKey === sessionKey) {
         activeSessionKey = mainSessionKey;
       }
+      ensureSession(mainSessionKey, 'main');
+      await persistState();
     },
     async getHistory(sessionKey: string, limit = 50): Promise<EngineChatMessage[]> {
       requireConnected();
@@ -551,6 +728,7 @@ function createInternalEngineMainService() {
       if (!session.title) {
         session.title = inferSessionTitle(session.key, text, nextModel);
       }
+      await persistState();
       return {
         sessionKey: session.key,
         runId: crypto.randomUUID(),
@@ -615,6 +793,7 @@ function createInternalEngineMainService() {
       trimSessionHistory(session);
       session.updatedAt = now();
       activeSessionKey = session.key;
+      await persistState();
 
       return {
         sessionKey: session.key,

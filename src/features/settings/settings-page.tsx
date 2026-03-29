@@ -654,6 +654,7 @@ export function SettingsPage({
                   <p className="text-xs font-medium text-foreground">Internal runtime diagnostics</p>
                   <div className="mt-2 grid gap-1 text-[11px] text-muted-foreground">
                     <p><span className="font-medium text-foreground">Readiness:</span> {internalRuntimeInfo.readiness}</p>
+                    <p><span className="font-medium text-foreground">Restore:</span> {internalRuntimeInfo.stateRestoreStatus}</p>
                     <p><span className="font-medium text-foreground">Service:</span> {internalRuntimeInfo.serviceName}</p>
                     <p><span className="font-medium text-foreground">Version:</span> {internalRuntimeInfo.serviceVersion}</p>
                     <p><span className="font-medium text-foreground">Home:</span> {internalRuntimeInfo.runtimeHome}</p>
@@ -662,6 +663,9 @@ export function SettingsPage({
                     <p><span className="font-medium text-foreground">Active session:</span> {internalRuntimeInfo.activeSessionKey ?? 'none'}</p>
                     <p><span className="font-medium text-foreground">Default model:</span> {internalRuntimeInfo.defaultModel}</p>
                     <p><span className="font-medium text-foreground">Status:</span> {internalRuntimeInfo.status.availableInBuild ? 'Internal development runtime available.' : internalRuntimeInfo.status.unavailableReason}</p>
+                    {internalRuntimeInfo.lastRecoveryNote ? (
+                      <p><span className="font-medium text-foreground">Recovery:</span> {internalRuntimeInfo.lastRecoveryNote}</p>
+                    ) : null}
                   </div>
                 </div>
               ) : null}

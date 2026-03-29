@@ -38,6 +38,8 @@ export type InternalEngineRuntimeInfo = {
   sessionCount: number;
   activeSessionKey: string | null;
   defaultModel: string;
+  stateRestoreStatus: 'fresh' | 'restored' | 'recovered_after_interruption' | 'load_failed';
+  lastRecoveryNote: string | null;
 };
 
 export type InternalEngineCoworkActionPhase =
