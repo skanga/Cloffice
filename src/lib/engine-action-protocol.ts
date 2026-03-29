@@ -1,9 +1,9 @@
 import type { ChatActivityItem, CoworkProjectTaskStatus, EngineRequestedAction } from '@/app-types';
 import {
-  parseRelayActivityItems,
-  parseRelayFileActions,
-  stripRelayActionPayloadFromText,
-} from './chat-utils';
+  parseOpenClawCompatibilityActivityItems,
+  parseOpenClawCompatibilityFileActions,
+  stripOpenClawCompatibilityActionPayloadFromText,
+} from './openclaw-compat-parser';
 
 export const OPENCLAW_COMPAT_ENGINE_ACTION_FIELD = 'relay_actions';
 export const INTERNAL_ENGINE_ACTION_FIELD = 'engine_actions';
@@ -55,7 +55,7 @@ export function parseEngineRequestedActions(rawInput: unknown): EngineRequestedA
       continue;
     }
 
-    const direct = parseRelayFileActions(current);
+    const direct = parseOpenClawCompatibilityFileActions(current);
     if (direct.length > 0) {
       return direct;
     }
@@ -77,7 +77,7 @@ export function parseEngineRequestedActions(rawInput: unknown): EngineRequestedA
     }
 
     const record = current as Record<string, unknown>;
-    const preferred = parseRelayFileActions(
+    const preferred = parseOpenClawCompatibilityFileActions(
       record.requestedActions
       ?? record.requested_actions
       ?? record[INTERNAL_ENGINE_ACTION_FIELD]
@@ -98,11 +98,11 @@ export function parseEngineRequestedActions(rawInput: unknown): EngineRequestedA
 }
 
 export function parseEngineActivityItems(rawInput: unknown): ChatActivityItem[] {
-  return parseRelayActivityItems(rawInput);
+  return parseOpenClawCompatibilityActivityItems(rawInput);
 }
 
 export function stripEngineActionPayloadFromText(rawText: string): string {
-  let sanitized = stripRelayActionPayloadFromText(rawText);
+  let sanitized = stripOpenClawCompatibilityActionPayloadFromText(rawText);
   sanitized = sanitized.replace(/```json\s*[\s\S]*?"engine_actions"[\s\S]*?```/gi, '');
   sanitized = sanitized.replace(/```[\s\S]*?"engine_actions"[\s\S]*?```/gi, '');
   sanitized = sanitized.replace(/\{[\s\S]*?"engine_actions"[\s\S]*?\}/gi, '');

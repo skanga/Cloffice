@@ -2056,22 +2056,9 @@ export default function App() {
               actionPhase,
               actionMode,
               providerId,
+              executionResult,
             } = deriveEngineSessionArtifacts(chatEvent);
-            const rawInternalExecution =
-              providerId === 'internal' && payload.execution && typeof payload.execution === 'object'
-                ? payload.execution as Partial<EngineActionExecutionResult>
-                : null;
-            const internalExecution =
-              rawInternalExecution
-              && Array.isArray(rawInternalExecution.receipts)
-              && Array.isArray(rawInternalExecution.previews)
-              && Array.isArray(rawInternalExecution.errors)
-                ? {
-                    receipts: rawInternalExecution.receipts as LocalActionReceipt[],
-                    previews: rawInternalExecution.previews.filter((entry): entry is string => typeof entry === 'string'),
-                    errors: rawInternalExecution.errors.filter((entry): entry is string => typeof entry === 'string'),
-                  }
-                : null;
+            const internalExecution = providerId === 'internal' ? executionResult : null;
             if (coworkUsage) {
               accumulateTodayUsage(coworkUsage);
               setSessionUsage((prev) => addUsage(prev, coworkUsage));

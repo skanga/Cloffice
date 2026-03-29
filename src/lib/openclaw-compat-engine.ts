@@ -83,7 +83,7 @@ export class OpenClawCompatibilityEngineClient implements EngineRuntimeClient {
       handler({
         type: 'event',
         event: frame.event,
-        payload: frame.payload,
+        payload: normalizeOpenClawCompatibilityEventPayload(frame.event, frame.payload),
         seq: frame.seq,
         stateVersion: frame.stateVersion,
       });
@@ -230,3 +230,64 @@ export function buildOpenClawCompatibilityAdminPairingHint(requestId?: string): 
 }
 
 export { GatewayRequestError as OpenClawCompatibilityRequestError };
+
+function normalizeOpenClawCompatibilityEventPayload(eventName: string, payload: unknown): unknown {
+  if (eventName !== 'chat' || !payload || typeof payload !== 'object') {
+    return payload;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const normalized: Record<string, unknown> = { ...record };
+  const message = normalizeOpenClawCompatibilityMessage(normalized.message ?? normalized);
+
+  normalized.message = message;
+
+  if (typeof normalized.sessionKey !== 'string' && typeof normalized.session_key === 'string') {
+    normalized.sessionKey = normalized.session_key;
+  }
+  if (typeof normalized.runId !== 'string' && typeof normalized.run_id === 'string') {
+    normalized.runId = normalized.run_id;
+  }
+  if (typeof normalized.errorMessage !== 'string' && typeof normalized.error_message === 'string') {
+    normalized.errorMessage = normalized.error_message;
+  }
+
+  if (normalized.requestedActions === undefined) {
+    normalized.requestedActions =
+      normalized.relay_actions
+      ?? normalized.relayActions
+      ?? message.relay_actions
+      ?? message.relayActions;
+  }
+
+  if (normalized.activityItems === undefined) {
+    normalized.activityItems =
+      normalized.relay_activity
+      ?? normalized.relayActivity
+      ?? message.relay_activity
+      ?? message.relayActivity;
+  }
+
+  return normalized;
+}
+
+function normalizeOpenClawCompatibilityMessage(message: unknown): Record<string, unknown> {
+  if (!message || typeof message !== 'object') {
+    return {};
+  }
+
+  const record = message as Record<string, unknown>;
+  const normalized: Record<string, unknown> = { ...record };
+
+  if (typeof normalized.sessionKey !== 'string' && typeof normalized.session_key === 'string') {
+    normalized.sessionKey = normalized.session_key;
+  }
+  if (typeof normalized.runId !== 'string' && typeof normalized.run_id === 'string') {
+    normalized.runId = normalized.run_id;
+  }
+  if (typeof normalized.errorMessage !== 'string' && typeof normalized.error_message === 'string') {
+    normalized.errorMessage = normalized.error_message;
+  }
+
+  return normalized;
+}

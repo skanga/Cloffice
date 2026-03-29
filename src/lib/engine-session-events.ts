@@ -92,6 +92,7 @@ export type EngineSessionArtifacts = {
   actionPhase: 'none' | 'planning' | 'approval_required' | 'awaiting_approval' | 'executing' | 'completed' | 'blocked';
   actionMode: 'none' | 'read-only';
   providerId?: string;
+  executionResult: EngineActionExecutionResult | null;
 };
 
 export type EngineSessionScope = 'chat' | 'cowork';
@@ -146,6 +147,7 @@ export function deriveEngineSessionArtifacts(event: EngineSessionEvent): EngineS
     actionPhase: normalizeEngineActionPhase(payload.engineActionPhase),
     actionMode: payload.engineActionMode === 'read-only' ? 'read-only' : 'none',
     providerId: typeof payload.providerId === 'string' ? payload.providerId : undefined,
+    executionResult: extractEngineExecutionResult(payload),
   };
 }
 
@@ -270,7 +272,7 @@ export function buildEngineActionExecutionResult(params: {
       ];
 
   const machineReadableReceipt = {
-    relay_action_receipts: params.receipts,
+    engine_action_receipts: params.receipts,
   };
   const receiptLines = [
     summary,
@@ -346,4 +348,37 @@ function normalizeEngineActionPhase(value: unknown): EngineSessionArtifacts['act
     || value === 'blocked'
     ? value
     : 'none';
+}
+
+function extractEngineExecutionResult(payload: Record<string, unknown>): EngineActionExecutionResult | null {
+  const execution = payload.execution;
+  if (!execution || typeof execution !== 'object') {
+    return null;
+  }
+
+  const record = execution as Record<string, unknown>;
+  if (!Array.isArray(record.receipts) || !Array.isArray(record.previews) || !Array.isArray(record.errors)) {
+    return null;
+  }
+
+  return {
+    summary: typeof record.summary === 'string' ? record.summary : '',
+    okCount: typeof record.okCount === 'number' ? record.okCount : 0,
+    errorCount: typeof record.errorCount === 'number' ? record.errorCount : 0,
+    receipts: record.receipts as EngineActionExecutionResult['receipts'],
+    previews: record.previews.filter((entry): entry is string => typeof entry === 'string'),
+    errors: record.errors.filter((entry): entry is string => typeof entry === 'string'),
+    activityItems: Array.isArray(record.activityItems)
+      ? record.activityItems.filter((entry): entry is ChatActivityItem => !!entry && typeof entry === 'object' && typeof (entry as { label?: unknown }).label === 'string')
+      : [],
+    receiptMessage: {
+      id: typeof (record.receiptMessage as { id?: unknown } | undefined)?.id === 'string'
+        ? (record.receiptMessage as { id: string }).id
+        : `engine-execution-${Date.now()}`,
+      role: 'system',
+      text: typeof (record.receiptMessage as { text?: unknown } | undefined)?.text === 'string'
+        ? (record.receiptMessage as { text: string }).text
+        : '',
+    },
+  };
 }
