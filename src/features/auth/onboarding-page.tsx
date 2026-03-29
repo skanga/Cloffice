@@ -136,7 +136,27 @@ export function OnboardingPage({
   const [showToken, setShowToken] = useState(false);
   const [internalRuntimeInfo, setInternalRuntimeInfo] = useState<InternalEngineRuntimeInfo | null>(null);
   const engineProviders = useMemo(() => listEngineProviders(), []);
+  const effectiveEngineProviders = useMemo(
+    () => engineProviders.map((provider) => (
+      provider.id === 'internal' && internalRuntimeInfo
+        ? {
+            ...provider,
+            availableInBuild: internalRuntimeInfo.status.availableInBuild,
+            selectionEnabled: internalRuntimeInfo.status.availableInBuild,
+            availabilityReason: internalRuntimeInfo.status.availableInBuild ? undefined : internalRuntimeInfo.status.unavailableReason,
+            summary: internalRuntimeInfo.status.availableInBuild
+              ? 'Developer-only internal runtime available in this build.'
+              : provider.summary,
+          }
+        : provider
+    )),
+    [engineProviders, internalRuntimeInfo],
+  );
   const selectedEngineProvider = useMemo(() => getEngineProvider(draftEngineProviderId), [draftEngineProviderId]);
+  const selectedEngineProviderCard = useMemo(
+    () => effectiveEngineProviders.find((provider) => provider.id === draftEngineProviderId) ?? selectedEngineProvider,
+    [draftEngineProviderId, effectiveEngineProviders, selectedEngineProvider],
+  );
 
   // Auto-discover a local runtime on mount.
   useEffect(() => {
@@ -409,7 +429,7 @@ export function OnboardingPage({
                   Engine provider
                 </label>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {engineProviders.map((provider) => {
+                  {effectiveEngineProviders.map((provider) => {
                     const isSelected = draftEngineProviderId === provider.id;
                     return (
                       <button
@@ -645,9 +665,9 @@ export function OnboardingPage({
               You're all set
             </h2>
             <p className="mb-2 font-sans text-[15px] leading-relaxed text-muted-foreground">
-              {selectedEngineProvider.availableInBuild
-                ? `Cloffice is connected to the current runtime endpoint through ${selectedEngineProvider.displayName}.`
-                : `${selectedEngineProvider.displayName} is registered in Cloffice, but this build is currently connected through the OpenClaw compatibility runtime. ${selectedEngineProvider.availabilityReason ?? ''}`.trim()}
+              {selectedEngineProviderCard.availableInBuild
+                ? `Cloffice is connected to the current runtime endpoint through ${selectedEngineProviderCard.displayName}.`
+                : `${selectedEngineProviderCard.displayName} is registered in Cloffice, but this build is currently connected through the OpenClaw compatibility runtime. ${selectedEngineProviderCard.availabilityReason ?? ''}`.trim()}
             </p>
 
             {health?.message && (

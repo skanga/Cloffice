@@ -35,6 +35,13 @@ export type InternalEngineRuntimeInfo = {
   connected: boolean;
 };
 
+export type InternalEngineSendChatResult = {
+  sessionKey: string;
+  runId: string;
+  assistantMessage: EngineChatMessage;
+  model: string;
+};
+
 export type InternalEngineLifecycleBridge = {
   connect(options: EngineConnectOptions): Promise<void>;
   disconnect(): Promise<void> | void;
@@ -45,7 +52,7 @@ export type InternalEngineSessionBridge = {
   getActiveSessionKey(): Promise<string>;
   createChatSession(): Promise<string>;
   createCoworkSession(): Promise<string>;
-  sendChat(sessionKey: string, text: string): Promise<{ sessionKey: string }>;
+  sendChat(sessionKey: string, text: string): Promise<{ sessionKey: string } | InternalEngineSendChatResult>;
   resolveSessionKey(preferredKey?: string): Promise<string>;
   getHistory(sessionKey: string, limit?: number): Promise<EngineChatMessage[]>;
   listModels(): Promise<EngineModelChoice[]>;
@@ -88,6 +95,16 @@ export type InternalEngineDesktopBridge = {
   connectInternalEngine(options: EngineConnectOptions): Promise<void>;
   disconnectInternalEngine(): Promise<void>;
   getInternalEngineActiveSessionKey(): Promise<string>;
+  createInternalChatSession(): Promise<string>;
+  resolveInternalSessionKey(preferredKey?: string): Promise<string>;
+  listInternalSessions(limit?: number): Promise<EngineSessionSummary[]>;
+  listInternalModels(): Promise<EngineModelChoice[]>;
+  getInternalSessionModel(sessionKey: string): Promise<string | null>;
+  setInternalSessionModel(sessionKey: string, modelValue: string | null): Promise<void>;
+  setInternalSessionTitle(sessionKey: string, title: string | null): Promise<void>;
+  deleteInternalSession(sessionKey: string): Promise<void>;
+  getInternalHistory(sessionKey: string, limit?: number): Promise<EngineChatMessage[]>;
+  sendInternalChat(sessionKey: string, text: string): Promise<InternalEngineSendChatResult>;
 };
 
 function createUnavailableInternalEngineError(message: string): Error {
@@ -150,17 +167,17 @@ export function createDesktopBackedInternalEngineBridge(
     },
     sessions: {
       getActiveSessionKey: () => desktopBridge.getInternalEngineActiveSessionKey(),
-      createChatSession: () => fail<string>(),
+      createChatSession: () => desktopBridge.createInternalChatSession(),
       createCoworkSession: () => fail<string>(),
-      sendChat: (_sessionKey, _text) => fail<{ sessionKey: string }>(),
-      resolveSessionKey: (_preferredKey) => fail<string>(),
-      getHistory: (_sessionKey, _limit) => fail<EngineChatMessage[]>(),
-      listModels: () => fail<EngineModelChoice[]>(),
-      getSessionModel: (_sessionKey) => fail<string | null>(),
-      listSessions: (_limit) => fail<EngineSessionSummary[]>(),
-      setSessionModel: (_sessionKey, _modelValue) => fail<void>(),
-      setSessionTitle: (_sessionKey, _title) => fail<void>(),
-      deleteSession: (_sessionKey) => fail<void>(),
+      sendChat: (sessionKey, text) => desktopBridge.sendInternalChat(sessionKey, text),
+      resolveSessionKey: (preferredKey) => desktopBridge.resolveInternalSessionKey(preferredKey),
+      getHistory: (sessionKey, limit) => desktopBridge.getInternalHistory(sessionKey, limit),
+      listModels: () => desktopBridge.listInternalModels(),
+      getSessionModel: (sessionKey) => desktopBridge.getInternalSessionModel(sessionKey),
+      listSessions: (limit) => desktopBridge.listInternalSessions(limit),
+      setSessionModel: (sessionKey, modelValue) => desktopBridge.setInternalSessionModel(sessionKey, modelValue),
+      setSessionTitle: (sessionKey, title) => desktopBridge.setInternalSessionTitle(sessionKey, title),
+      deleteSession: (sessionKey) => desktopBridge.deleteInternalSession(sessionKey),
     },
     scheduling: {
       listCronJobs: () => fail<EngineCronJob[]>(),

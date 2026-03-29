@@ -263,7 +263,27 @@ export function SettingsPage({
   const [connectionNameDraft, setConnectionNameDraft] = useState('');
   const [internalRuntimeInfo, setInternalRuntimeInfo] = useState<InternalEngineRuntimeInfo | null>(null);
   const engineProviders = useMemo(() => listEngineProviders(), []);
+  const effectiveEngineProviders = useMemo(
+    () => engineProviders.map((provider) => (
+      provider.id === 'internal' && internalRuntimeInfo
+        ? {
+            ...provider,
+            availableInBuild: internalRuntimeInfo.status.availableInBuild,
+            selectionEnabled: internalRuntimeInfo.status.availableInBuild,
+            availabilityReason: internalRuntimeInfo.status.availableInBuild ? undefined : internalRuntimeInfo.status.unavailableReason,
+            summary: internalRuntimeInfo.status.availableInBuild
+              ? 'Developer-only internal runtime available in this build.'
+              : provider.summary,
+          }
+        : provider
+    )),
+    [engineProviders, internalRuntimeInfo],
+  );
   const selectedEngineProvider = useMemo(() => getEngineProvider(draftEngineProviderId), [draftEngineProviderId]);
+  const selectedEngineProviderCard = useMemo(
+    () => effectiveEngineProviders.find((provider) => provider.id === draftEngineProviderId) ?? selectedEngineProvider,
+    [draftEngineProviderId, effectiveEngineProviders, selectedEngineProvider],
+  );
   const t = useCallback((en: string, de: string) => (preferences.language === 'de' ? de : en), [preferences.language]);
 
   useEffect(() => {
@@ -585,17 +605,17 @@ export function SettingsPage({
                 <p className="font-sans text-xs text-muted-foreground">{t('Engine provider', 'Engine-Anbieter')}</p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {t(
-                    selectedEngineProvider.availableInBuild
-                      ? `${selectedEngineProvider.displayName} is available in this build.`
-                      : `${selectedEngineProvider.displayName} is registered, but not yet runnable in this build.`,
-                    selectedEngineProvider.availableInBuild
-                      ? `${selectedEngineProvider.displayName} ist in diesem Build verfuegbar.`
-                      : `${selectedEngineProvider.displayName} ist registriert, aber in diesem Build noch nicht lauffaehig.`,
+                    selectedEngineProviderCard.availableInBuild
+                      ? `${selectedEngineProviderCard.displayName} is available in this build.`
+                      : `${selectedEngineProviderCard.displayName} is registered, but not yet runnable in this build.`,
+                    selectedEngineProviderCard.availableInBuild
+                      ? `${selectedEngineProviderCard.displayName} ist in diesem Build verfuegbar.`
+                      : `${selectedEngineProviderCard.displayName} ist registriert, aber in diesem Build noch nicht lauffaehig.`,
                   )}
                 </p>
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
-                {engineProviders.map((provider) => {
+                {effectiveEngineProviders.map((provider) => {
                   const isSelected = draftEngineProviderId === provider.id;
                   return (
                     <button

@@ -12,6 +12,16 @@ interface Window {
     connectInternalEngine: (options: any) => Promise<void>;
     disconnectInternalEngine: () => Promise<void>;
     getInternalEngineActiveSessionKey: () => Promise<string>;
+    createInternalChatSession: () => Promise<string>;
+    resolveInternalSessionKey: (preferredKey?: string) => Promise<string>;
+    listInternalSessions: (limit?: number) => Promise<any[]>;
+    listInternalModels: () => Promise<any[]>;
+    getInternalSessionModel: (sessionKey: string) => Promise<string | null>;
+    setInternalSessionModel: (sessionKey: string, modelValue: string | null) => Promise<void>;
+    setInternalSessionTitle: (sessionKey: string, title: string | null) => Promise<void>;
+    deleteInternalSession: (sessionKey: string) => Promise<void>;
+    getInternalHistory: (sessionKey: string, limit?: number) => Promise<any[]>;
+    sendInternalChat: (sessionKey: string, text: string) => Promise<any>;
     getEngineConfig: () => Promise<any>;
     saveEngineConfig: (draft: any) => Promise<any>;
     healthCheck: (baseUrl: string) => Promise<any>;

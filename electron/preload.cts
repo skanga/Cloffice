@@ -17,7 +17,7 @@ import type {
 import { parseDesktopBridgeEngineConfig, prepareEngineConfigWrite, type DesktopBridgeEngineConfig, type EngineDraftConfig } from '../src/lib/engine-config.js';
 import { normalizeEngineDiscoveryResult } from '../src/lib/engine-discovery.js';
 import { normalizeEngineRuntimeHealthResult, type EngineConnectOptions, type EngineRuntimeHealthResult } from '../src/lib/engine-runtime-types.js';
-import type { InternalEngineRuntimeInfo, InternalEngineShellStatus } from '../src/lib/internal-engine-bridge.js';
+import type { InternalEngineRuntimeInfo, InternalEngineSendChatResult, InternalEngineShellStatus } from '../src/lib/internal-engine-bridge.js';
 import {
   OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR,
   type OpenClawCompatibilityDiscoveryResult,
@@ -38,6 +38,26 @@ const desktopBridgeApi = {
     ipcRenderer.invoke('internal-engine:disconnect') as Promise<void>,
   getInternalEngineActiveSessionKey: () =>
     ipcRenderer.invoke('internal-engine:get-active-session-key') as Promise<string>,
+  createInternalChatSession: () =>
+    ipcRenderer.invoke('internal-engine:create-chat-session') as Promise<string>,
+  resolveInternalSessionKey: (preferredKey?: string) =>
+    ipcRenderer.invoke('internal-engine:resolve-session-key', preferredKey) as Promise<string>,
+  listInternalSessions: (limit?: number) =>
+    ipcRenderer.invoke('internal-engine:list-sessions', limit) as Promise<Array<{ key: string; kind: string; title?: string }>>,
+  listInternalModels: () =>
+    ipcRenderer.invoke('internal-engine:list-models') as Promise<Array<{ value: string; label: string }>>,
+  getInternalSessionModel: (sessionKey: string) =>
+    ipcRenderer.invoke('internal-engine:get-session-model', sessionKey) as Promise<string | null>,
+  setInternalSessionModel: (sessionKey: string, modelValue: string | null) =>
+    ipcRenderer.invoke('internal-engine:set-session-model', sessionKey, modelValue) as Promise<void>,
+  setInternalSessionTitle: (sessionKey: string, title: string | null) =>
+    ipcRenderer.invoke('internal-engine:set-session-title', sessionKey, title) as Promise<void>,
+  deleteInternalSession: (sessionKey: string) =>
+    ipcRenderer.invoke('internal-engine:delete-session', sessionKey) as Promise<void>,
+  getInternalHistory: (sessionKey: string, limit?: number) =>
+    ipcRenderer.invoke('internal-engine:get-history', sessionKey, limit) as Promise<Array<{ id: string; role: 'user' | 'assistant' | 'system'; text: string }>>,
+  sendInternalChat: (sessionKey: string, text: string) =>
+    ipcRenderer.invoke('internal-engine:send-chat', sessionKey, text) as Promise<InternalEngineSendChatResult>,
   getEngineConfig: async () =>
     parseDesktopBridgeEngineConfig(await ipcRenderer.invoke('config:get') as AppConfig, DEFAULT_COMPAT_ENGINE_ENDPOINT) as DesktopBridgeEngineConfig,
   saveEngineConfig: async (draft: EngineDraftConfig) => {

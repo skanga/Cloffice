@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import os from 'node:os';
+import crypto from 'node:crypto';
 
 const execAsync = promisify(exec);
 import type {
@@ -24,8 +25,8 @@ import type {
   GatewayDiscoveryResult,
 } from '../src/app-types.js';
 import { describeInternalEngineShell } from '../src/lib/internal-engine-placeholder.js';
-import type { EngineConnectOptions } from '../src/lib/engine-runtime-types.js';
-import type { InternalEngineRuntimeInfo } from '../src/lib/internal-engine-bridge.js';
+import type { EngineChatMessage, EngineConnectOptions, EngineModelChoice, EngineSessionSummary } from '../src/lib/engine-runtime-types.js';
+import type { InternalEngineRuntimeInfo, InternalEngineSendChatResult } from '../src/lib/internal-engine-bridge.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -35,26 +36,74 @@ const defaultConfig: AppConfig = {
 };
 
 function createInternalEngineMainService() {
-  const shellStatus = describeInternalEngineShell();
+  const developerEnabled = !app.isPackaged || process.env.CLOFFICE_ENABLE_INTERNAL_ENGINE === '1';
+  const describedShell = describeInternalEngineShell();
+  const shellStatus = {
+    ...describedShell,
+    capabilities: {
+      ...describedShell.capabilities,
+      connection: developerEnabled,
+      sessions: developerEnabled,
+      models: developerEnabled,
+    },
+    availableInBuild: developerEnabled,
+    unavailableReason: developerEnabled ? 'Internal engine development path active.' : describedShell.unavailableReason,
+  };
   let connected = false;
   const runtimeHome = path.join(app.getPath('userData'), 'internal-engine');
   const serviceName = 'cloffice-internal-engine-shell';
+  const defaultModel = 'internal/dev-echo';
+  const modelChoices: EngineModelChoice[] = [{ value: defaultModel, label: 'Internal Dev Echo' }];
+  const mainSessionKey = 'internal:main';
+  const sessions = new Map<string, {
+    key: string;
+    kind: string;
+    title?: string;
+    model: string | null;
+    messages: EngineChatMessage[];
+  }>();
 
   const unavailable = () => new Error(shellStatus.unavailableReason);
+
+  const ensureSession = (sessionKey: string, kind: string = 'chat') => {
+    const normalizedKey = sessionKey.trim() || mainSessionKey;
+    const existing = sessions.get(normalizedKey);
+    if (existing) {
+      return existing;
+    }
+    const created = {
+      key: normalizedKey,
+      kind,
+      title: normalizedKey === mainSessionKey ? 'Main chat' : undefined,
+      model: defaultModel,
+      messages: [] as EngineChatMessage[],
+    };
+    sessions.set(normalizedKey, created);
+    return created;
+  };
+
+  ensureSession(mainSessionKey, 'main');
 
   return {
     getStatus() {
       return shellStatus;
     },
     async connect(_options: EngineConnectOptions): Promise<void> {
-      connected = false;
-      throw unavailable();
+      if (!shellStatus.availableInBuild) {
+        connected = false;
+        throw unavailable();
+      }
+      connected = true;
+      await fs.mkdir(runtimeHome, { recursive: true });
     },
     async disconnect(): Promise<void> {
       connected = false;
     },
     async getActiveSessionKey(): Promise<string> {
-      throw unavailable();
+      if (!connected) {
+        throw unavailable();
+      }
+      return ensureSession(mainSessionKey, 'main').key;
     },
     async getRuntimeInfo(): Promise<InternalEngineRuntimeInfo> {
       return {
@@ -63,6 +112,99 @@ function createInternalEngineMainService() {
         serviceVersion: app.getVersion(),
         serviceName,
         connected,
+      };
+    },
+    async createChatSession(): Promise<string> {
+      if (!connected) {
+        throw unavailable();
+      }
+      const key = `internal:chat:${crypto.randomUUID()}`;
+      return ensureSession(key, 'chat').key;
+    },
+    async resolveSessionKey(preferredKey = 'main'): Promise<string> {
+      if (!connected) {
+        throw unavailable();
+      }
+      if (!preferredKey || preferredKey === 'main') {
+        return mainSessionKey;
+      }
+      return ensureSession(preferredKey, 'chat').key;
+    },
+    async listSessions(limit = 200): Promise<EngineSessionSummary[]> {
+      if (!connected) {
+        throw unavailable();
+      }
+      return Array.from(sessions.values()).slice(0, limit).map(({ key, kind, title }) => ({ key, kind, title }));
+    },
+    async listModels(): Promise<EngineModelChoice[]> {
+      if (!connected) {
+        throw unavailable();
+      }
+      return modelChoices;
+    },
+    async getSessionModel(sessionKey: string): Promise<string | null> {
+      if (!connected) {
+        throw unavailable();
+      }
+      return ensureSession(sessionKey, 'chat').model;
+    },
+    async setSessionModel(sessionKey: string, modelValue: string | null): Promise<void> {
+      if (!connected) {
+        throw unavailable();
+      }
+      ensureSession(sessionKey, 'chat').model = modelValue && modelValue.trim() ? modelValue.trim() : defaultModel;
+    },
+    async setSessionTitle(sessionKey: string, title: string | null): Promise<void> {
+      if (!connected) {
+        throw unavailable();
+      }
+      ensureSession(sessionKey, 'chat').title = title && title.trim() ? title.trim() : undefined;
+    },
+    async deleteSession(sessionKey: string): Promise<void> {
+      if (!connected) {
+        throw unavailable();
+      }
+      if (sessionKey === mainSessionKey) {
+        sessions.set(mainSessionKey, { ...ensureSession(mainSessionKey, 'main'), messages: [] });
+        return;
+      }
+      sessions.delete(sessionKey);
+    },
+    async getHistory(sessionKey: string, limit = 50): Promise<EngineChatMessage[]> {
+      if (!connected) {
+        throw unavailable();
+      }
+      return ensureSession(sessionKey, sessionKey === mainSessionKey ? 'main' : 'chat').messages.slice(-limit);
+    },
+    async sendChat(sessionKey: string, text: string): Promise<InternalEngineSendChatResult> {
+      if (!connected) {
+        throw unavailable();
+      }
+      const session = ensureSession(sessionKey, sessionKey === mainSessionKey ? 'main' : 'chat');
+      const userMessage: EngineChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        text,
+      };
+      const assistantMessage: EngineChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: [
+          'Internal engine development path response.',
+          '',
+          `Session: ${session.key}`,
+          `Model: ${session.model ?? defaultModel}`,
+          '',
+          'Echo:',
+          text,
+        ].join('\n'),
+      };
+      session.messages.push(userMessage, assistantMessage);
+      return {
+        sessionKey: session.key,
+        runId: crypto.randomUUID(),
+        assistantMessage,
+        model: session.model ?? defaultModel,
       };
     },
     isConnected() {
@@ -1000,6 +1142,16 @@ app.whenReady().then(async () => {
   ipcMain.handle('internal-engine:connect', async (_event, options: EngineConnectOptions) => internalEngineService.connect(options));
   ipcMain.handle('internal-engine:disconnect', async () => internalEngineService.disconnect());
   ipcMain.handle('internal-engine:get-active-session-key', async () => internalEngineService.getActiveSessionKey());
+  ipcMain.handle('internal-engine:create-chat-session', async () => internalEngineService.createChatSession());
+  ipcMain.handle('internal-engine:resolve-session-key', async (_event, preferredKey?: string) => internalEngineService.resolveSessionKey(preferredKey));
+  ipcMain.handle('internal-engine:list-sessions', async (_event, limit?: number) => internalEngineService.listSessions(limit));
+  ipcMain.handle('internal-engine:list-models', async () => internalEngineService.listModels());
+  ipcMain.handle('internal-engine:get-session-model', async (_event, sessionKey: string) => internalEngineService.getSessionModel(sessionKey));
+  ipcMain.handle('internal-engine:set-session-model', async (_event, sessionKey: string, modelValue: string | null) => internalEngineService.setSessionModel(sessionKey, modelValue));
+  ipcMain.handle('internal-engine:set-session-title', async (_event, sessionKey: string, title: string | null) => internalEngineService.setSessionTitle(sessionKey, title));
+  ipcMain.handle('internal-engine:delete-session', async (_event, sessionKey: string) => internalEngineService.deleteSession(sessionKey));
+  ipcMain.handle('internal-engine:get-history', async (_event, sessionKey: string, limit?: number) => internalEngineService.getHistory(sessionKey, limit));
+  ipcMain.handle('internal-engine:send-chat', async (_event, sessionKey: string, text: string) => internalEngineService.sendChat(sessionKey, text));
   ipcMain.handle('backend:health-check', async (_event, baseUrl: string) => runHealthCheck(baseUrl));
   ipcMain.handle('gateway:discover', async () => discoverGateway());
   ipcMain.handle('plugin:check-workspace', async () => {

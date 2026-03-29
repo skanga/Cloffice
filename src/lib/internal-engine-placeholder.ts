@@ -17,6 +17,7 @@ import {
   createUnavailableInternalEngineBridge,
   type InternalEngineBridge,
   type InternalEngineShellCapabilities,
+  type InternalEngineSendChatResult,
 } from './internal-engine-bridge.js';
 
 /**
@@ -57,17 +58,28 @@ export class InternalEnginePlaceholderClient implements EngineRuntimeClient {
   }
 
   connect(options: EngineConnectOptions): Promise<void> {
-    this.connectionHandler?.(false, this.bridge.status.unavailableReason);
-    this.eventHandler?.({
-      type: 'event',
-      event: 'engine.unavailable',
-      payload: {
-        runtimeKind: this.runtimeKind,
-        providerId: this.providerId,
-        reason: this.bridge.status.unavailableReason,
-      },
+    if (!this.bridge.status.availableInBuild) {
+      this.connectionHandler?.(false, this.bridge.status.unavailableReason);
+      this.eventHandler?.({
+        type: 'event',
+        event: 'engine.unavailable',
+        payload: {
+          runtimeKind: this.runtimeKind,
+          providerId: this.providerId,
+          reason: this.bridge.status.unavailableReason,
+        },
+      });
+      return this.bridge.lifecycle.connect(options);
+    }
+
+    this.connectionHandler?.(false, 'Connecting to internal engine development path...');
+    return this.bridge.lifecycle.connect(options).then(() => {
+      this.connectionHandler?.(true, 'Connected to internal engine development path.');
+    }).catch((error) => {
+      const message = error instanceof Error ? error.message : this.bridge.status.unavailableReason;
+      this.connectionHandler?.(false, message);
+      throw error;
     });
-    return this.bridge.lifecycle.connect(options);
   }
 
   disconnect(): void {
@@ -100,7 +112,23 @@ export class InternalEnginePlaceholderClient implements EngineRuntimeClient {
   }
 
   sendChat(_sessionKey: string, _text: string): Promise<{ sessionKey: string }> {
-    return this.bridge.sessions.sendChat(_sessionKey, _text);
+    return this.bridge.sessions.sendChat(_sessionKey, _text).then((result) => {
+      const internalResult = result as InternalEngineSendChatResult;
+      if (internalResult.assistantMessage) {
+        this.eventHandler?.({
+          type: 'event',
+          event: 'chat',
+          payload: {
+            sessionKey: internalResult.sessionKey,
+            runId: internalResult.runId,
+            model: internalResult.model,
+            state: 'completed',
+            message: internalResult.assistantMessage,
+          },
+        });
+      }
+      return { sessionKey: internalResult.sessionKey };
+    });
   }
 
   resolveSessionKey(_preferredKey?: string): Promise<string> {

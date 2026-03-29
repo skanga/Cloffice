@@ -67,8 +67,19 @@ export function createEngineClient(providerId: EngineProviderId = 'openclaw-comp
   if (providerId === 'internal') {
     const desktopBridge = getDesktopBridge();
     if (desktopBridge) {
+      const internalDesktopStatus = {
+        ...describeInternalEngineShell(),
+        availableInBuild: true as const,
+        unavailableReason: 'Internal engine development path active.',
+        capabilities: {
+          ...describeInternalEngineShell().capabilities,
+          connection: true,
+          sessions: true,
+          models: true,
+        },
+      };
       return new InternalEnginePlaceholderClient(
-        createDesktopBackedInternalEngineBridge(desktopBridge, describeInternalEngineShell()),
+        createDesktopBackedInternalEngineBridge(desktopBridge, internalDesktopStatus),
       );
     }
     return new InternalEnginePlaceholderClient();
