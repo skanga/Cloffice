@@ -6,7 +6,7 @@ import type { FormEvent } from 'react';
 
 import type { EngineProviderId, HealthCheckResult } from '@/app-types';
 import type { EngineDiscoveryResult } from '@/lib/engine-discovery';
-import type { InternalEngineRuntimeInfo } from '@/lib/internal-engine-bridge';
+import type { InternalEngineRunRecord, InternalEngineRuntimeInfo } from '@/lib/internal-engine-bridge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -135,6 +135,7 @@ export function OnboardingPage({
   const [discovery, setDiscovery] = useState<DiscoveryState>({ status: 'idle' });
   const [showToken, setShowToken] = useState(false);
   const [internalRuntimeInfo, setInternalRuntimeInfo] = useState<InternalEngineRuntimeInfo | null>(null);
+  const [internalRunHistory, setInternalRunHistory] = useState<InternalEngineRunRecord[]>([]);
   const engineProviders = useMemo(() => listEngineProviders(), []);
   const effectiveEngineProviders = useMemo(
     () => engineProviders.map((provider) => (
@@ -145,7 +146,7 @@ export function OnboardingPage({
             selectionEnabled: internalRuntimeInfo.status.availableInBuild,
             availabilityReason: internalRuntimeInfo.status.availableInBuild ? undefined : internalRuntimeInfo.status.unavailableReason,
             summary: internalRuntimeInfo.status.availableInBuild
-              ? `Developer-only internal runtime ${internalRuntimeInfo.readiness === 'ready' ? 'ready for chat sessions' : 'available in this build'}.`
+              ? `Developer-only internal runtime ${internalRuntimeInfo.providerBackedModelCount > 0 ? `ready with ${internalRuntimeInfo.providerBackedModelCount} provider-backed chat models` : internalRuntimeInfo.readiness === 'ready' ? 'ready for internal chat sessions' : 'available in this build'}.`
               : provider.summary,
           }
         : provider
@@ -185,17 +186,23 @@ export function OnboardingPage({
     const bridge = getDesktopBridge();
     if (!bridge?.getInternalEngineRuntimeInfo) {
       setInternalRuntimeInfo(null);
+      setInternalRunHistory([]);
       return;
     }
 
     let cancelled = false;
-    bridge.getInternalEngineRuntimeInfo().then((info) => {
+    Promise.all([
+      bridge.getInternalEngineRuntimeInfo(),
+      bridge.getInternalRunHistory?.(3) ?? Promise.resolve([]),
+    ]).then(([info, runs]) => {
       if (!cancelled) {
         setInternalRuntimeInfo(info);
+        setInternalRunHistory(runs);
       }
     }).catch(() => {
       if (!cancelled) {
         setInternalRuntimeInfo(null);
+        setInternalRunHistory([]);
       }
     });
 
@@ -697,9 +704,24 @@ export function OnboardingPage({
                   <p><span className="font-medium text-foreground">Artifacts:</span> {internalRuntimeInfo.artifactCount}</p>
                   <p><span className="font-medium text-foreground">Pending approvals:</span> {internalRuntimeInfo.pendingApprovalCount}</p>
                   <p><span className="font-medium text-foreground">Interrupted runs:</span> {internalRuntimeInfo.interruptedRunCount}</p>
+                  <p><span className="font-medium text-foreground">Provider-backed models:</span> {internalRuntimeInfo.providerBackedModelCount}</p>
                   <p><span className="font-medium text-foreground">Active session:</span> {internalRuntimeInfo.activeSessionKey ?? 'none'}</p>
                   <p><span className="font-medium text-foreground">Default model:</span> {internalRuntimeInfo.defaultModel}</p>
                   <p><span className="font-medium text-foreground">Status:</span> {internalRuntimeInfo.status.availableInBuild ? 'Internal development runtime available.' : internalRuntimeInfo.status.unavailableReason}</p>
+                  {internalRuntimeInfo.lastProviderId ? (
+                    <p><span className="font-medium text-foreground">Last provider:</span> {internalRuntimeInfo.lastProviderId}</p>
+                  ) : null}
+                  {internalRuntimeInfo.lastProviderError ? (
+                    <p><span className="font-medium text-foreground">Last provider error:</span> {internalRuntimeInfo.lastProviderError}</p>
+                  ) : null}
+                  {internalRuntimeInfo.chatProviders.length > 0 ? (
+                    <p>
+                      <span className="font-medium text-foreground">Chat providers:</span>{' '}
+                      {internalRuntimeInfo.chatProviders
+                        .map((provider) => `${provider.label} (${provider.configured ? `${provider.modelCount} models` : 'not configured'})`)
+                        .join(' · ')}
+                    </p>
+                  ) : null}
                   {internalRuntimeInfo.latestArtifactSummary ? (
                     <p><span className="font-medium text-foreground">Latest artifact:</span> {internalRuntimeInfo.latestArtifactSummary}</p>
                   ) : null}
@@ -714,6 +736,31 @@ export function OnboardingPage({
                     <p><span className="font-medium text-foreground">Recovery:</span> {internalRuntimeInfo.lastRecoveryNote}</p>
                   ) : null}
                 </div>
+                {internalRunHistory.length > 0 ? (
+                  <div className="mt-3 border-t border-border/40 pt-3">
+                    <p className="font-sans text-[12px] font-semibold text-foreground">Recent runs</p>
+                    <div className="mt-2 grid gap-2">
+                      {internalRunHistory.map((run) => {
+                        const latestEntry = run.timeline?.[run.timeline.length - 1];
+                        return (
+                          <div key={run.runId} className="rounded-md border border-border/50 bg-background/40 px-2.5 py-2">
+                            <p className="font-sans text-[11px] font-medium text-foreground">
+                              {run.sessionKind} · {run.status} · {run.model}
+                            </p>
+                            <p className="font-sans text-[11px] text-muted-foreground">
+                              {run.summary ?? run.promptPreview ?? run.runId}
+                            </p>
+                            {latestEntry ? (
+                              <p className="font-sans text-[11px] text-muted-foreground/90">
+                                Latest: {latestEntry.phase} - {latestEntry.message}
+                              </p>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 

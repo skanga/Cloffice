@@ -3,11 +3,20 @@ import type { EngineConnectOptions } from './engine-runtime-types.js';
 import {
   buildDeferredProviderAwareEngineConfigV2,
   NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION,
-  PROVIDER_AWARE_ENGINE_CONFIG_WRITE_MODE,
   resolveProviderAwareEngineConfigWriteMode,
   type ProviderAwareEngineConfigWriteMode,
   type ProviderAwareStoredEngineConfigV2,
+  type StoredInternalProviderConfig,
 } from './engine-config-migration.js';
+
+export type InternalProviderConfig = StoredInternalProviderConfig;
+
+export const EMPTY_INTERNAL_PROVIDER_CONFIG: InternalProviderConfig = {
+  openaiApiKey: '',
+  openaiBaseUrl: '',
+  anthropicApiKey: '',
+  geminiApiKey: '',
+};
 
 export type EngineDraftConfig = {
   runtimeKind: EngineRuntimeKind;
@@ -15,6 +24,7 @@ export type EngineDraftConfig = {
   transport: EngineTransport;
   endpointUrl: string;
   accessToken: string;
+  internalProviderConfig: InternalProviderConfig;
 };
 
 export type ParsedStoredEngineConfig = {
@@ -37,6 +47,7 @@ export function buildEngineDraftConfig(params: {
   providerId: EngineProviderId;
   endpointUrl: string;
   accessToken: string;
+  internalProviderConfig?: Partial<InternalProviderConfig>;
 }): EngineDraftConfig {
   return {
     runtimeKind: params.providerId === 'internal' ? 'internal' : 'openclaw-compat',
@@ -44,6 +55,10 @@ export function buildEngineDraftConfig(params: {
     transport: params.providerId === 'internal' ? 'internal-ipc' : 'websocket-gateway',
     endpointUrl: params.endpointUrl,
     accessToken: params.accessToken,
+    internalProviderConfig: {
+      ...EMPTY_INTERNAL_PROVIDER_CONFIG,
+      ...params.internalProviderConfig,
+    },
   };
 }
 
@@ -66,6 +81,7 @@ export function parseStoredEngineConfig(entry: unknown, fallbackEndpointUrl: str
       providerId: providerAwareConfig.providerId,
       endpointUrl: providerAwareConfig.endpointUrl,
       accessToken: providerAwareConfig.accessToken,
+      internalProviderConfig: providerAwareConfig.internalProviderConfig,
     });
 
     return {
@@ -126,6 +142,7 @@ export function buildDeferredProviderAwareEngineConfig(draft: EngineDraftConfig)
     transport: draft.transport,
     endpointUrl: draft.endpointUrl,
     accessToken: draft.accessToken,
+    ...(draft.providerId === 'internal' ? { internalProviderConfig: { ...draft.internalProviderConfig } } : {}),
   });
 }
 
@@ -191,5 +208,27 @@ function parseStoredProviderAwareEngineConfigV2(
     transport,
     endpointUrl,
     accessToken: typeof record.accessToken === 'string' ? record.accessToken : '',
+    ...(record.internalProviderConfig && typeof record.internalProviderConfig === 'object'
+      ? {
+          internalProviderConfig: {
+            openaiApiKey:
+              typeof (record.internalProviderConfig as Record<string, unknown>).openaiApiKey === 'string'
+                ? (record.internalProviderConfig as Record<string, string>).openaiApiKey
+                : '',
+            openaiBaseUrl:
+              typeof (record.internalProviderConfig as Record<string, unknown>).openaiBaseUrl === 'string'
+                ? (record.internalProviderConfig as Record<string, string>).openaiBaseUrl
+                : '',
+            anthropicApiKey:
+              typeof (record.internalProviderConfig as Record<string, unknown>).anthropicApiKey === 'string'
+                ? (record.internalProviderConfig as Record<string, string>).anthropicApiKey
+                : '',
+            geminiApiKey:
+              typeof (record.internalProviderConfig as Record<string, unknown>).geminiApiKey === 'string'
+                ? (record.internalProviderConfig as Record<string, string>).geminiApiKey
+                : '',
+          },
+        }
+      : {}),
   };
 }

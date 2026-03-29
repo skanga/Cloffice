@@ -12,6 +12,7 @@ import type {
 } from './engine-runtime-types.js';
 import type { ChatActivityItem, EngineRequestedAction, LocalActionReceipt } from '../app-types.js';
 import type { InternalApprovalRecoveryFlow } from './internal-approval-recovery.js';
+import type { InternalChatProviderId, InternalProviderStatus } from './internal-provider-adapter.js';
 
 export type InternalEngineShellCapabilities = {
   connection: boolean;
@@ -48,6 +49,10 @@ export type InternalEngineRuntimeInfo = {
   latestArtifactSummary: string | null;
   latestRunTimelinePhase: string | null;
   latestRunTimelineMessage: string | null;
+  chatProviders: InternalProviderStatus[];
+  providerBackedModelCount: number;
+  lastProviderId: InternalChatProviderId | null;
+  lastProviderError: string | null;
 };
 
 export type InternalEngineRunTimelineEntry = {

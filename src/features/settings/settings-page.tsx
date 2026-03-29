@@ -10,6 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { getDesktopBridge } from '@/lib/desktop-bridge';
+import type { InternalProviderConfig } from '@/lib/engine-config';
 import { listConnectors, persistConnectorConfig } from '@/lib/connectors';
 import { loadAllowedDomains, saveAllowedDomains } from '@/lib/connectors/web-fetch';
 import { getEngineProvider, listEngineProviders } from '@/lib/engine-provider-registry';
@@ -28,6 +29,7 @@ type SettingsPageProps = {
   draftEngineProviderId: EngineProviderId;
   draftEngineUrl: string;
   draftEngineToken: string;
+  draftInternalProviderConfig: InternalProviderConfig;
   health: HealthCheckResult | null;
   status: string;
   saving: boolean;
@@ -38,6 +40,7 @@ type SettingsPageProps = {
   onDraftEngineProviderIdChange: (value: EngineProviderId) => void;
   onDraftEngineUrlChange: (value: string) => void;
   onDraftEngineTokenChange: (value: string) => void;
+  onDraftInternalProviderConfigChange: (patch: Partial<InternalProviderConfig>) => void;
   onSave: (event: FormEvent) => void;
   onSelectEngineConnection: (connectionId: string) => void;
   onSaveEngineConnection: (name: string) => void;
@@ -240,6 +243,7 @@ export function SettingsPage({
   draftEngineProviderId,
   draftEngineUrl,
   draftEngineToken,
+  draftInternalProviderConfig,
   health,
   status,
   saving,
@@ -250,6 +254,7 @@ export function SettingsPage({
   onDraftEngineProviderIdChange,
   onDraftEngineUrlChange,
   onDraftEngineTokenChange,
+  onDraftInternalProviderConfigChange,
   onSave,
   onSelectEngineConnection,
   onSaveEngineConnection,
@@ -672,9 +677,24 @@ export function SettingsPage({
                     <p><span className="font-medium text-foreground">Artifacts:</span> {internalRuntimeInfo.artifactCount}</p>
                     <p><span className="font-medium text-foreground">Pending approvals:</span> {internalRuntimeInfo.pendingApprovalCount}</p>
                     <p><span className="font-medium text-foreground">Interrupted runs:</span> {internalRuntimeInfo.interruptedRunCount}</p>
+                    <p><span className="font-medium text-foreground">Provider-backed models:</span> {internalRuntimeInfo.providerBackedModelCount}</p>
                     <p><span className="font-medium text-foreground">Active session:</span> {internalRuntimeInfo.activeSessionKey ?? 'none'}</p>
                     <p><span className="font-medium text-foreground">Default model:</span> {internalRuntimeInfo.defaultModel}</p>
                     <p><span className="font-medium text-foreground">Status:</span> {internalRuntimeInfo.status.availableInBuild ? 'Internal development runtime available.' : internalRuntimeInfo.status.unavailableReason}</p>
+                    {internalRuntimeInfo.lastProviderId ? (
+                      <p><span className="font-medium text-foreground">Last provider:</span> {internalRuntimeInfo.lastProviderId}</p>
+                    ) : null}
+                    {internalRuntimeInfo.lastProviderError ? (
+                      <p><span className="font-medium text-foreground">Last provider error:</span> {internalRuntimeInfo.lastProviderError}</p>
+                    ) : null}
+                    {internalRuntimeInfo.chatProviders.length > 0 ? (
+                      <p className="sm:col-span-2">
+                        <span className="font-medium text-foreground">Chat providers:</span>{' '}
+                        {internalRuntimeInfo.chatProviders
+                          .map((provider) => `${provider.label} (${provider.configured ? `${provider.modelCount} models` : 'not configured'})`)
+                          .join(' · ')}
+                      </p>
+                    ) : null}
                     {internalRuntimeInfo.latestArtifactSummary ? (
                       <p><span className="font-medium text-foreground">Latest artifact:</span> {internalRuntimeInfo.latestArtifactSummary}</p>
                     ) : null}
@@ -739,6 +759,63 @@ export function SettingsPage({
                   className="font-sans"
                 />
               </label>
+
+              {draftEngineProviderId === 'internal' ? (
+                <div className="grid gap-3 rounded-lg border border-border/70 bg-muted/20 p-3">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{t('Internal provider credentials', 'Interne Provider-Zugangsdaten')}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t(
+                        'Saved in Cloffice engine config for the internal provider path. Environment variables still override blank fields.',
+                        'Wird fuer den internen Provider-Pfad in der Cloffice-Engine-Konfiguration gespeichert. Leere Felder koennen weiterhin durch Umgebungsvariablen ueberschrieben werden.',
+                      )}
+                    </p>
+                  </div>
+
+                  <label className="grid gap-1">
+                    <span className="font-sans text-xs text-muted-foreground">OpenAI-compatible API key</span>
+                    <Input
+                      type="password"
+                      value={draftInternalProviderConfig.openaiApiKey}
+                      onChange={(event) => onDraftInternalProviderConfigChange({ openaiApiKey: event.target.value })}
+                      placeholder="sk-..."
+                      className="font-sans"
+                    />
+                  </label>
+
+                  <label className="grid gap-1">
+                    <span className="font-sans text-xs text-muted-foreground">OpenAI-compatible base URL</span>
+                    <Input
+                      value={draftInternalProviderConfig.openaiBaseUrl}
+                      onChange={(event) => onDraftInternalProviderConfigChange({ openaiBaseUrl: event.target.value })}
+                      placeholder="https://api.openai.com/v1"
+                      className="font-sans"
+                    />
+                  </label>
+
+                  <label className="grid gap-1">
+                    <span className="font-sans text-xs text-muted-foreground">Anthropic API key</span>
+                    <Input
+                      type="password"
+                      value={draftInternalProviderConfig.anthropicApiKey}
+                      onChange={(event) => onDraftInternalProviderConfigChange({ anthropicApiKey: event.target.value })}
+                      placeholder="sk-ant-..."
+                      className="font-sans"
+                    />
+                  </label>
+
+                  <label className="grid gap-1">
+                    <span className="font-sans text-xs text-muted-foreground">Gemini API key</span>
+                    <Input
+                      type="password"
+                      value={draftInternalProviderConfig.geminiApiKey}
+                      onChange={(event) => onDraftInternalProviderConfigChange({ geminiApiKey: event.target.value })}
+                      placeholder="AIza..."
+                      className="font-sans"
+                    />
+                  </label>
+                </div>
+              ) : null}
 
               <Button
                 className="w-full border-0 bg-primary text-primary-foreground hover:bg-primary/90"
@@ -972,9 +1049,23 @@ export function SettingsPage({
                     <p><span className="font-medium text-foreground">{t('Pending approvals', 'Ausstehende Freigaben')}:</span> {internalRuntimeInfo.pendingApprovalCount}</p>
                     <p><span className="font-medium text-foreground">{t('Artifacts', 'Artefakte')}:</span> {internalRuntimeInfo.artifactCount}</p>
                     <p><span className="font-medium text-foreground">{t('Interrupted runs', 'Unterbrochene Laeufe')}:</span> {internalRuntimeInfo.interruptedRunCount}</p>
+                    <p><span className="font-medium text-foreground">{t('Provider-backed models', 'Provider-Modelle')}:</span> {internalRuntimeInfo.providerBackedModelCount}</p>
                     <p><span className="font-medium text-foreground">{t('Latest run event', 'Letztes Laufereignis')}:</span> {internalRuntimeInfo.latestRunTimelinePhase ?? t('none', 'keine')}</p>
                     <p><span className="font-medium text-foreground">{t('Latest artifact', 'Letztes Artefakt')}:</span> {internalRuntimeInfo.latestArtifactSummary ?? t('none', 'keines')}</p>
                   </div>
+                  {internalRuntimeInfo.chatProviders.length > 0 ? (
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">{t('Chat providers', 'Chat-Anbieter')}:</span>{' '}
+                      {internalRuntimeInfo.chatProviders
+                        .map((provider) => `${provider.label} (${provider.configured ? `${provider.modelCount} models` : 'not configured'})`)
+                        .join(' · ')}
+                    </p>
+                  ) : null}
+                  {internalRuntimeInfo.lastProviderError ? (
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">{t('Last provider error', 'Letzter Provider-Fehler')}:</span> {internalRuntimeInfo.lastProviderError}
+                    </p>
+                  ) : null}
                   {internalRuntimeInfo.lastRecoveryNote ? (
                     <p className="mt-3 text-xs text-muted-foreground">
                       <span className="font-medium text-foreground">{t('Recovery note', 'Wiederherstellungshinweis')}:</span> {internalRuntimeInfo.lastRecoveryNote}

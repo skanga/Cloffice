@@ -1,4 +1,12 @@
-import { appConfigFromEngineDraft, buildEngineDraftConfig, engineConnectOptionsFromDraft, engineDraftFromAppConfig, parseStoredEngineConfig } from './lib/engine-config';
+import {
+  EMPTY_INTERNAL_PROVIDER_CONFIG,
+  appConfigFromEngineDraft,
+  buildEngineDraftConfig,
+  engineConnectOptionsFromDraft,
+  engineDraftFromAppConfig,
+  parseStoredEngineConfig,
+  type InternalProviderConfig,
+} from './lib/engine-config';
 import { engineConnectionMatchesAppConfig, parseStoredEngineConnectionProfile, serializeEngineConnectionProfile } from './lib/engine-connection-profiles';
 import { getDesktopBridge } from './lib/desktop-bridge';
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -494,6 +502,7 @@ export default function App() {
   const [draftEngineUrl, setDraftEngineUrl] = useState(DEFAULT_GATEWAY_URL);
   const [draftEngineToken, setDraftEngineToken] = useState('');
   const [draftEngineProviderId, setDraftEngineProviderId] = useState<EngineProviderId>('openclaw-compat');
+  const [draftInternalProviderConfig, setDraftInternalProviderConfig] = useState<InternalProviderConfig>(EMPTY_INTERNAL_PROVIDER_CONFIG);
   const [engineConnections, setEngineConnections] = useState<EngineConnectionProfile[]>(() => loadEngineConnectionProfiles());
   const [health, setHealth] = useState<HealthCheckResult | null>(null);
   const [status, setStatus] = useState('Loading configuration...');
@@ -1801,8 +1810,9 @@ export default function App() {
         providerId: draftEngineProviderId,
         endpointUrl: draftEngineUrl.trim() || DEFAULT_GATEWAY_URL,
         accessToken: draftEngineToken,
+        internalProviderConfig: draftInternalProviderConfig,
       }),
-    [draftEngineProviderId, draftEngineToken, draftEngineUrl],
+    [draftEngineProviderId, draftEngineToken, draftEngineUrl, draftInternalProviderConfig],
   );
 
   const markEngineConnectionLastUsed = useCallback((connectedConfig: AppConfig) => {
@@ -1827,12 +1837,13 @@ export default function App() {
       providerId: profile.providerId,
       endpointUrl: profile.endpointUrl,
       accessToken: profile.accessToken,
+      internalProviderConfig: draftInternalProviderConfig,
     });
     setDraftEngineUrl(selectedEngineDraft.endpointUrl);
     setDraftEngineToken(selectedEngineDraft.accessToken);
     setDraftEngineProviderId(selectedEngineDraft.providerId);
     setStatus(`Loaded connection "${profile.name}". Click Save and connect to apply it.`);
-  }, [engineConnections]);
+  }, [draftInternalProviderConfig, engineConnections]);
 
   const handleSaveEngineConnection = useCallback((name: string) => {
     const trimmedName = name.trim();
@@ -1977,6 +1988,7 @@ export default function App() {
         setDraftEngineUrl(localConfig.engineDraft.endpointUrl);
         setDraftEngineToken(localConfig.engineDraft.accessToken);
         setDraftEngineProviderId(localConfig.engineDraft.providerId);
+        setDraftInternalProviderConfig(localConfig.engineDraft.internalProviderConfig);
         setStatus('Loaded local configuration (bridge unavailable).');
       } else {
         setStatus('Electron bridge unavailable. Configuration will be saved locally for this browser profile.');
@@ -2005,6 +2017,7 @@ export default function App() {
         setDraftEngineUrl(storedEngineConfig.engineDraft.endpointUrl);
         setDraftEngineToken(storedEngineConfig.engineDraft.accessToken);
         setDraftEngineProviderId(storedEngineConfig.engineDraft.providerId);
+        setDraftInternalProviderConfig(storedEngineConfig.engineDraft.internalProviderConfig);
         setStatus('Configuration loaded.');
         setConfigReady(true);
       })
@@ -2019,6 +2032,7 @@ export default function App() {
           setDraftEngineUrl(localConfig.engineDraft.endpointUrl);
           setDraftEngineToken(localConfig.engineDraft.accessToken);
           setDraftEngineProviderId(localConfig.engineDraft.providerId);
+          setDraftInternalProviderConfig(localConfig.engineDraft.internalProviderConfig);
           setStatus('Loaded local fallback configuration.');
         } else {
           setStatus('Unable to load config. Using defaults.');
@@ -2585,6 +2599,7 @@ export default function App() {
       providerId: draftEngineProviderId,
       endpointUrl: draftEngineUrl.trim() || DEFAULT_GATEWAY_URL,
       accessToken: draftEngineToken,
+      internalProviderConfig: draftInternalProviderConfig,
     });
     const nextConfig = appConfigFromEngineDraft(nextEngineDraft);
 
@@ -2607,6 +2622,7 @@ export default function App() {
           setDraftEngineUrl(savedEngineConfig.engineDraft.endpointUrl);
           setDraftEngineToken(savedEngineConfig.engineDraft.accessToken);
           setDraftEngineProviderId(savedEngineConfig.engineDraft.providerId);
+          setDraftInternalProviderConfig(savedEngineConfig.engineDraft.internalProviderConfig);
         });
         persistLocalConfig(savedEngineConfig.appConfig);
       } catch {
@@ -2620,6 +2636,7 @@ export default function App() {
         setDraftEngineUrl(nextEngineDraft.endpointUrl);
         setDraftEngineToken(nextEngineDraft.accessToken);
         setDraftEngineProviderId(nextEngineDraft.providerId);
+        setDraftInternalProviderConfig(nextEngineDraft.internalProviderConfig);
       });
       persistLocalConfig(nextConfig);
     }
@@ -4346,6 +4363,7 @@ export default function App() {
                         draftEngineProviderId={draftEngineProviderId}
                         draftEngineUrl={draftEngineUrl}
                         draftEngineToken={draftEngineToken}
+                        draftInternalProviderConfig={draftInternalProviderConfig}
                         health={health}
                         status={status}
                         saving={saving}
@@ -4356,6 +4374,9 @@ export default function App() {
                         onDraftEngineProviderIdChange={setDraftEngineProviderId}
                         onDraftEngineUrlChange={setDraftEngineUrl}
                         onDraftEngineTokenChange={setDraftEngineToken}
+                        onDraftInternalProviderConfigChange={(patch) =>
+                          setDraftInternalProviderConfig((current) => ({ ...current, ...patch }))
+                        }
                         onSave={handleSave}
                         onSelectEngineConnection={handleSelectEngineConnection}
                         onSaveEngineConnection={handleSaveEngineConnection}

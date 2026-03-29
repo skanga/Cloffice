@@ -27,18 +27,26 @@ import type {
 } from '../src/app-types.js';
 import { describeInternalEngineShell } from '../src/lib/internal-engine-placeholder.js';
 import type { EngineChatMessage, EngineConnectOptions, EngineModelChoice, EngineSessionSummary } from '../src/lib/engine-runtime-types.js';
+import { EMPTY_INTERNAL_PROVIDER_CONFIG, parseStoredEngineConfig, type InternalProviderConfig } from '../src/lib/engine-config.js';
 import type {
   InternalEngineCoworkContinuationRequest,
+  InternalEngineRuntimeInfo,
   InternalEnginePendingApprovalDecision,
   InternalEnginePendingApprovalDecisionResult,
   InternalEngineRunRecord,
-  InternalEngineRuntimeInfo,
   InternalEngineSendChatResult,
 } from '../src/lib/internal-engine-bridge.js';
 import type { ChatActivityItem, EngineRequestedAction } from '../src/app-types.js';
 import { applyInternalApprovalRecoveryDecision, type InternalApprovalRecoveryFlow } from '../src/lib/internal-approval-recovery.js';
+import {
+  buildInternalProviderCatalog,
+  isProviderBackedInternalModel,
+  sendInternalProviderChat,
+  type InternalChatProviderId,
+  type InternalProviderStatus,
+} from '../src/lib/internal-provider-adapter.js';
 
-const execFileAsync = promisify(execFile);
+  const execFileAsync = promisify(execFile);
 
 const defaultConfig: AppConfig = {
   gatewayUrl: 'ws://127.0.0.1:18789',
@@ -88,7 +96,7 @@ function createInternalEngineMainService() {
       bootstrapMessage: 'Planner mode active. Prefer structured plans and explicit next steps.',
     },
   };
-  const modelChoices: EngineModelChoice[] = Object.entries(modelBehaviors).map(([value, behavior]) => ({
+  const devModelChoices: EngineModelChoice[] = Object.entries(modelBehaviors).map(([value, behavior]) => ({
     value,
     label: behavior.label,
   }));
@@ -208,6 +216,11 @@ function createInternalEngineMainService() {
   let stateRestoreStatus: 'fresh' | 'restored' | 'recovered_after_interruption' | 'load_failed' = 'fresh';
   let lastRecoveryNote: string | null = null;
   let interruptedRunCount = 0;
+  let storedInternalProviderConfig: InternalProviderConfig = { ...EMPTY_INTERNAL_PROVIDER_CONFIG };
+  let providerStatuses: InternalProviderStatus[] = [];
+  let providerModelChoices: EngineModelChoice[] = [];
+  let lastProviderId: InternalChatProviderId | null = null;
+  let lastProviderError: string | null = null;
   const runs = new Map<string, PersistedInternalRunRecord>();
   let artifacts: PersistedInternalArtifactRecord[] = [];
   let pendingApprovalFlows: InternalApprovalRecoveryFlow[] = [];
@@ -222,10 +235,37 @@ function createInternalEngineMainService() {
     }
   };
   const now = () => Date.now();
-  const resolveModelValue = (value: string | null | undefined) => (
-    value && value in modelBehaviors ? value : defaultModel
+  const refreshProviderCatalog = () => {
+    const catalog = buildInternalProviderCatalog(storedInternalProviderConfig);
+    providerStatuses = catalog.statuses;
+    providerModelChoices = catalog.models.map((model) => ({
+      value: model.value,
+      label: model.label,
+    }));
+  };
+  const refreshProviderCatalogFromConfig = async () => {
+    storedInternalProviderConfig = await readStoredInternalProviderConfig();
+    refreshProviderCatalog();
+  };
+  const listAvailableModels = () => [...devModelChoices, ...providerModelChoices];
+  const isKnownModel = (value: string | null | undefined) => (
+    typeof value === 'string' && listAvailableModels().some((model) => model.value === value)
   );
-  const getModelBehavior = (value: string | null | undefined) => modelBehaviors[resolveModelValue(value)];
+  const resolveModelValue = (value: string | null | undefined): string => {
+    if (typeof value === 'string' && isKnownModel(value)) {
+      return value;
+    }
+    return defaultModel;
+  };
+  const getModelBehavior = (value: string | null | undefined) => {
+    const resolvedValue = resolveModelValue(value);
+    return modelBehaviors[resolvedValue] ?? {
+      label: resolvedValue,
+      historyLimit: 60,
+      titlePrefix: 'Chat',
+      bootstrapMessage: null,
+    };
+  };
   const normalizeSessionTitle = (title: string) => {
     const compact = title.replace(/\s+/g, ' ').trim();
     return compact.length > 48 ? `${compact.slice(0, 45).trimEnd()}...` : compact;
@@ -993,6 +1033,7 @@ function createInternalEngineMainService() {
         connected = false;
         throw unavailable();
       }
+      await refreshProviderCatalogFromConfig();
       await loadPersistedState();
       connected = true;
       activeSessionKey = activeSessionKey && sessions.has(activeSessionKey) ? activeSessionKey : mainSessionKey;
@@ -1010,6 +1051,7 @@ function createInternalEngineMainService() {
       return activeSessionKey;
     },
     async getRuntimeInfo(): Promise<InternalEngineRuntimeInfo> {
+      await refreshProviderCatalogFromConfig();
       const latestTimelineEntry = latestRunTimelineEntry();
       return {
         status: shellStatus,
@@ -1030,6 +1072,10 @@ function createInternalEngineMainService() {
         latestArtifactSummary: latestArtifactSummary(),
         latestRunTimelinePhase: latestTimelineEntry?.phase ?? null,
         latestRunTimelineMessage: latestTimelineEntry?.message ?? null,
+        chatProviders: providerStatuses,
+        providerBackedModelCount: providerModelChoices.length,
+        lastProviderId,
+        lastProviderError,
       };
     },
     async getRunHistory(limit = 10): Promise<InternalEngineRunRecord[]> {
@@ -1085,7 +1131,8 @@ function createInternalEngineMainService() {
     },
     async listModels(): Promise<EngineModelChoice[]> {
       requireConnected();
-      return modelChoices;
+      await refreshProviderCatalogFromConfig();
+      return listAvailableModels();
     },
     async getSessionModel(sessionKey: string): Promise<string | null> {
       requireConnected();
@@ -1096,6 +1143,7 @@ function createInternalEngineMainService() {
     },
     async setSessionModel(sessionKey: string, modelValue: string | null): Promise<void> {
       requireConnected();
+      refreshProviderCatalog();
       const session = ensureSession(
         sessionKey,
         sessionKey.startsWith('internal:cowork:') ? 'cowork' : 'chat',
@@ -1178,10 +1226,26 @@ function createInternalEngineMainService() {
       };
       const requestedActions = session.kind === 'cowork' ? buildCoworkFoundationActions(text) : [];
       const activityItems = session.kind === 'cowork' ? buildCoworkFoundationActivityItems(requestedActions) : [];
+      const providerBackedChat = session.kind !== 'cowork' && isProviderBackedInternalModel(nextModel);
+      let assistantText: string;
+      if (providerBackedChat) {
+        await refreshProviderCatalogFromConfig();
+        try {
+          const providerResult = await sendInternalProviderChat(nextModel, [...session.messages, userMessage], storedInternalProviderConfig);
+          lastProviderId = providerResult.providerId;
+          lastProviderError = null;
+          assistantText = providerResult.text;
+        } catch (error) {
+          lastProviderError = error instanceof Error ? error.message : 'Provider-backed internal chat failed.';
+          throw error;
+        }
+      } else {
+        assistantText = formatInternalAssistantText(nextModel, text, session.key, session.messages.length + 2, session.kind);
+      }
       const assistantMessage: EngineChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        text: formatInternalAssistantText(nextModel, text, session.key, session.messages.length + 2, session.kind),
+        text: assistantText,
       };
       const runId = crypto.randomUUID();
       session.messages.push(userMessage, assistantMessage);
@@ -1201,7 +1265,11 @@ function createInternalEngineMainService() {
         startedAt: now(),
         updatedAt: now(),
         ...(previewPrompt(text) ? { promptPreview: previewPrompt(text) } : {}),
-        summary: requestedActions.length > 0 ? 'Awaiting operator approval for internal read-only actions.' : 'Internal chat run completed.',
+        summary: requestedActions.length > 0
+          ? 'Awaiting operator approval for internal read-only actions.'
+          : providerBackedChat && lastProviderId
+            ? `Internal provider chat completed via ${lastProviderId}.`
+            : 'Internal chat run completed.',
         timeline: [
           {
             id: crypto.randomUUID(),
@@ -1215,6 +1283,8 @@ function createInternalEngineMainService() {
             phase: requestedActions.length > 0 ? 'awaiting_approval' : 'completed',
             message: requestedActions.length > 0
               ? 'Awaiting operator approval for internal read-only actions.'
+              : providerBackedChat && lastProviderId
+                ? `Internal provider chat completed via ${lastProviderId}.`
               : 'Internal chat response completed.',
           },
         ],
@@ -2165,10 +2235,33 @@ async function openLocalPath(targetPath: string): Promise<{ ok: boolean; error?:
   return { ok: true };
 }
 
-async function readConfig(): Promise<AppConfig> {
+async function readRawConfigEntry(): Promise<unknown | null> {
   try {
     const raw = await fs.readFile(configPath(), 'utf8');
-    const parsed = JSON.parse(raw) as Partial<AppConfig> & { baseUrl?: string; mode?: string };
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+async function writeRawConfigEntry(entry: unknown): Promise<unknown> {
+  await fs.mkdir(path.dirname(configPath()), { recursive: true });
+  await fs.writeFile(configPath(), JSON.stringify(entry, null, 2), 'utf8');
+  return entry;
+}
+
+async function readStoredInternalProviderConfig(): Promise<InternalProviderConfig> {
+  const rawEntry = await readRawConfigEntry();
+  const parsed = parseStoredEngineConfig(rawEntry, defaultConfig.gatewayUrl);
+  return parsed?.engineDraft.internalProviderConfig ?? { ...EMPTY_INTERNAL_PROVIDER_CONFIG };
+}
+
+async function readConfig(): Promise<AppConfig> {
+  try {
+    const parsed = await readRawConfigEntry() as Partial<AppConfig> & { baseUrl?: string; mode?: string } | null;
+    if (!parsed || typeof parsed !== 'object') {
+      return defaultConfig;
+    }
     const inferredGatewayUrl =
       parsed.gatewayUrl ??
       (parsed.baseUrl
@@ -2192,8 +2285,7 @@ async function writeConfig(config: AppConfig): Promise<AppConfig> {
     gatewayToken: config.gatewayToken.trim(),
   };
 
-  await fs.mkdir(path.dirname(configPath()), { recursive: true });
-  await fs.writeFile(configPath(), JSON.stringify(normalized, null, 2), 'utf8');
+  await writeRawConfigEntry(normalized);
   return normalized;
 }
 
@@ -2393,6 +2485,8 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('config:get', async () => readConfig());
   ipcMain.handle('config:save', async (_event, config: AppConfig) => writeConfig(config));
+  ipcMain.handle('engine-config:get', async () => readRawConfigEntry());
+  ipcMain.handle('engine-config:save', async (_event, entry: unknown) => writeRawConfigEntry(entry));
   ipcMain.handle('internal-engine:status', async () => internalEngineService.getStatus());
   ipcMain.handle('internal-engine:get-runtime-info', async () => internalEngineService.getRuntimeInfo());
   ipcMain.handle('internal-engine:get-run-history', async (_event, limit?: number) => internalEngineService.getRunHistory(limit));

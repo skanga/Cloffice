@@ -5,6 +5,13 @@ export const NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION = 2;
 export type ProviderAwareEngineConfigWriteMode = 'disabled' | 'internal-experimental';
 export const PROVIDER_AWARE_ENGINE_CONFIG_WRITE_MODE: ProviderAwareEngineConfigWriteMode = 'disabled';
 
+export type StoredInternalProviderConfig = {
+  openaiApiKey: string;
+  openaiBaseUrl: string;
+  anthropicApiKey: string;
+  geminiApiKey: string;
+};
+
 export type ProviderAwareStoredEngineConfigV2 = {
   version: typeof NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION;
   providerId: EngineProviderId;
@@ -12,6 +19,7 @@ export type ProviderAwareStoredEngineConfigV2 = {
   transport: EngineTransport;
   endpointUrl: string;
   accessToken: string;
+  internalProviderConfig?: StoredInternalProviderConfig;
 };
 
 export type ProviderAwareEngineConfigMigrationPlan = {
@@ -21,7 +29,7 @@ export type ProviderAwareEngineConfigMigrationPlan = {
   currentWriter: 'app-config-v1-compat';
   nextWriter: 'deferred-provider-aware-v2';
   legacyKeys: readonly ['gatewayUrl', 'gatewayToken'];
-  futureFields: readonly ['providerId', 'runtimeKind', 'transport', 'endpointUrl', 'accessToken'];
+  futureFields: readonly ['providerId', 'runtimeKind', 'transport', 'endpointUrl', 'accessToken', 'internalProviderConfig'];
   blockers: Record<EngineProviderId, string | null>;
   notes: readonly string[];
 };
@@ -33,7 +41,7 @@ export const FIRST_PROVIDER_AWARE_ENGINE_CONFIG_MIGRATION: ProviderAwareEngineCo
   currentWriter: 'app-config-v1-compat',
   nextWriter: 'deferred-provider-aware-v2',
   legacyKeys: ['gatewayUrl', 'gatewayToken'],
-  futureFields: ['providerId', 'runtimeKind', 'transport', 'endpointUrl', 'accessToken'],
+  futureFields: ['providerId', 'runtimeKind', 'transport', 'endpointUrl', 'accessToken', 'internalProviderConfig'],
   blockers: {
     'openclaw-compat': null,
     internal: 'Persisted provider-aware runtime settings have not shipped yet, so existing installs still write the legacy gateway keys only.',
@@ -63,7 +71,7 @@ export function resolveProviderAwareEngineConfigWriteMode(params: {
   developerBuild: boolean;
   developerOptIn: boolean;
 }): ProviderAwareEngineConfigWriteMode {
-  if (params.providerId === 'internal' && params.developerBuild && params.developerOptIn) {
+  if (params.providerId === 'internal') {
     return 'internal-experimental';
   }
   return PROVIDER_AWARE_ENGINE_CONFIG_WRITE_MODE;

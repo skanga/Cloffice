@@ -42,32 +42,102 @@ const INTERNAL_ENGINE_RUNTIME_DESCRIPTOR = {
   transport: 'internal-ipc',
 } as const;
 
-function parseDesktopBridgeEngineConfig(
-  config: AppConfig,
-  fallbackEndpoint: string,
-  engineDraftOverride?: EngineDraftConfig,
-): DesktopBridgeEngineConfig {
-  const engineDraft = engineDraftOverride ?? {
-    providerId: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.providerId,
-    runtimeKind: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind,
-    transport: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.transport,
-    endpointUrl: config.gatewayUrl?.trim() || fallbackEndpoint,
-    accessToken: config.gatewayToken ?? '',
-  };
+function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpoint: string): DesktopBridgeEngineConfig {
+  if (!entry || typeof entry !== 'object') {
+    return {
+      appConfig: {
+        gatewayUrl: fallbackEndpoint,
+        gatewayToken: '',
+      },
+      engineDraft: {
+        providerId: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.providerId,
+        runtimeKind: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind,
+        transport: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.transport,
+        endpointUrl: fallbackEndpoint,
+        accessToken: '',
+        internalProviderConfig: {
+          openaiApiKey: '',
+          openaiBaseUrl: '',
+          anthropicApiKey: '',
+          geminiApiKey: '',
+        },
+      },
+      storageVersion: 1,
+    };
+  }
+
+  const record = entry as Record<string, unknown>;
+  if (record.version === 2) {
+    const internalProviderConfig =
+      record.internalProviderConfig && typeof record.internalProviderConfig === 'object'
+        ? record.internalProviderConfig as Record<string, unknown>
+        : {};
+    return {
+      appConfig: {
+        gatewayUrl: typeof record.endpointUrl === 'string' && record.endpointUrl.trim() ? record.endpointUrl.trim() : fallbackEndpoint,
+        gatewayToken: typeof record.accessToken === 'string' ? record.accessToken : '',
+      },
+      engineDraft: {
+        providerId: record.providerId === 'internal' ? 'internal' : 'openclaw-compat',
+        runtimeKind: record.runtimeKind === 'internal' ? 'internal' : 'openclaw-compat',
+        transport: record.transport === 'internal-ipc' ? 'internal-ipc' : 'websocket-gateway',
+        endpointUrl: typeof record.endpointUrl === 'string' && record.endpointUrl.trim() ? record.endpointUrl.trim() : fallbackEndpoint,
+        accessToken: typeof record.accessToken === 'string' ? record.accessToken : '',
+        internalProviderConfig: {
+          openaiApiKey: typeof internalProviderConfig.openaiApiKey === 'string' ? internalProviderConfig.openaiApiKey : '',
+          openaiBaseUrl: typeof internalProviderConfig.openaiBaseUrl === 'string' ? internalProviderConfig.openaiBaseUrl : '',
+          anthropicApiKey: typeof internalProviderConfig.anthropicApiKey === 'string' ? internalProviderConfig.anthropicApiKey : '',
+          geminiApiKey: typeof internalProviderConfig.geminiApiKey === 'string' ? internalProviderConfig.geminiApiKey : '',
+        },
+      },
+      storageVersion: 2,
+    };
+  }
 
   return {
     appConfig: {
-      gatewayUrl: config.gatewayUrl?.trim() || fallbackEndpoint,
-      gatewayToken: config.gatewayToken ?? '',
+      gatewayUrl: typeof record.gatewayUrl === 'string' && record.gatewayUrl.trim() ? record.gatewayUrl.trim() : fallbackEndpoint,
+      gatewayToken: typeof record.gatewayToken === 'string' ? record.gatewayToken : '',
     },
-    engineDraft,
+    engineDraft: {
+      providerId: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.providerId,
+      runtimeKind: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind,
+      transport: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.transport,
+      endpointUrl: typeof record.gatewayUrl === 'string' && record.gatewayUrl.trim() ? record.gatewayUrl.trim() : fallbackEndpoint,
+      accessToken: typeof record.gatewayToken === 'string' ? record.gatewayToken : '',
+      internalProviderConfig: {
+        openaiApiKey: '',
+        openaiBaseUrl: '',
+        anthropicApiKey: '',
+        geminiApiKey: '',
+      },
+    },
     storageVersion: 1,
   };
 }
 
-function prepareDesktopBridgeEngineConfigWrite(draft: EngineDraftConfig): { legacyAppConfig: AppConfig } {
+function prepareDesktopBridgeEngineConfigWrite(draft: EngineDraftConfig): { activeEntry: unknown } {
+  if (draft.providerId === 'internal') {
+    return {
+      activeEntry: {
+        version: 2,
+        providerId: draft.providerId,
+        runtimeKind: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind,
+        transport: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.transport,
+        endpointUrl: draft.endpointUrl?.trim() || DEFAULT_COMPAT_ENGINE_ENDPOINT,
+        accessToken: draft.accessToken ?? '',
+        internalProviderConfig: {
+          openaiApiKey: draft.internalProviderConfig.openaiApiKey ?? '',
+          openaiBaseUrl: draft.internalProviderConfig.openaiBaseUrl ?? '',
+          anthropicApiKey: draft.internalProviderConfig.anthropicApiKey ?? '',
+          geminiApiKey: draft.internalProviderConfig.geminiApiKey ?? '',
+        },
+      },
+    };
+  }
+
   return {
-    legacyAppConfig: {
+    activeEntry: {
       gatewayUrl: draft.endpointUrl?.trim() || DEFAULT_COMPAT_ENGINE_ENDPOINT,
       gatewayToken: draft.accessToken ?? '',
     },
@@ -147,25 +217,15 @@ const desktopBridgeApi = {
   applyInternalPendingApprovalDecision: (runId: string, decision: InternalEnginePendingApprovalDecision) =>
     ipcRenderer.invoke('internal-engine:apply-pending-approval-decision', runId, decision) as Promise<InternalEnginePendingApprovalDecisionResult>,
   getEngineConfig: async () =>
-    parseDesktopBridgeEngineConfig(await ipcRenderer.invoke('config:get') as AppConfig, DEFAULT_COMPAT_ENGINE_ENDPOINT) as DesktopBridgeEngineConfig,
+    parseDesktopBridgeEngineConfig(await ipcRenderer.invoke('engine-config:get'), DEFAULT_COMPAT_ENGINE_ENDPOINT) as DesktopBridgeEngineConfig,
   saveEngineConfig: async (draft: EngineDraftConfig) => {
     const preparedWrite = prepareDesktopBridgeEngineConfigWrite(draft);
     return parseDesktopBridgeEngineConfig(
-      await ipcRenderer.invoke('config:save', preparedWrite.legacyAppConfig) as AppConfig,
+      await ipcRenderer.invoke(
+        'engine-config:save',
+        preparedWrite.activeEntry,
+      ),
       draft.endpointUrl || DEFAULT_COMPAT_ENGINE_ENDPOINT,
-      {
-        providerId: draft.providerId,
-        runtimeKind:
-          draft.providerId === INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.providerId
-            ? INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind
-            : OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind,
-        transport:
-          draft.providerId === INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.providerId
-            ? INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.transport
-            : OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.transport,
-        endpointUrl: draft.endpointUrl || DEFAULT_COMPAT_ENGINE_ENDPOINT,
-        accessToken: draft.accessToken ?? '',
-      },
     ) as DesktopBridgeEngineConfig;
   },
   healthCheck: (baseUrl: string) =>
