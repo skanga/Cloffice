@@ -17,7 +17,10 @@ import {
   type EngineRejectedApprovalAction,
 } from './engine-approval-orchestrator';
 import { executeEngineLocalActionPlan } from './engine-local-action-orchestrator';
-import { buildEngineActionExecutionResult } from './engine-session-events';
+import {
+  buildEngineActionExecutionResult,
+  buildMissingEngineRequestedActionsMessage,
+} from './engine-session-events';
 
 export function deriveEngineActionRunKey(sessionKey: string, runId: string): string {
   return `${sessionKey || 'unknown'}:${runId}`;
@@ -45,6 +48,10 @@ export type EngineCoworkReceiptApplication = {
   taskStatus: CoworkProjectTaskStatus;
   taskSummary: string;
   taskOutcome: string;
+};
+
+export type EngineCoworkReceiptPosting = EngineCoworkReceiptApplication & {
+  receiptMessage: ChatMessage;
 };
 
 export type EngineCoworkFailureApplication = {
@@ -167,6 +174,15 @@ export function resolveEngineCoworkReceiptApplication(
   };
 }
 
+export function resolveEngineCoworkReceiptPosting(
+  result: EngineActionExecutionResult,
+): EngineCoworkReceiptPosting {
+  return {
+    ...resolveEngineCoworkReceiptApplication(result),
+    receiptMessage: result.receiptMessage,
+  };
+}
+
 export function appendEngineCoworkReceiptMessage(params: {
   current: ChatMessage[];
   result: EngineActionExecutionResult;
@@ -197,6 +213,10 @@ export type EngineCoworkNoActionApplication = {
   notificationBody: string;
 };
 
+export type EngineCoworkNoActionCompletion = EngineCoworkNoActionApplication & {
+  message: ChatMessage;
+};
+
 export function resolveEngineCoworkNoActionApplication(params: {
   visibleText: string;
   projectTitle?: string;
@@ -209,6 +229,32 @@ export function resolveEngineCoworkNoActionApplication(params: {
     notificationTitle: 'Cloffice task completed',
     notificationBody: params.projectTitle || 'Cowork run finished.',
   };
+}
+
+export function resolveEngineCoworkNoActionCompletion(params: {
+  visibleText: string;
+  projectTitle?: string;
+  runId: string;
+  rootPath?: string;
+}): EngineCoworkNoActionCompletion {
+  return {
+    ...resolveEngineCoworkNoActionApplication({
+      visibleText: params.visibleText,
+      projectTitle: params.projectTitle,
+    }),
+    message: buildMissingEngineRequestedActionsMessage({
+      runId: params.runId,
+      projectTitle: params.projectTitle,
+      rootPath: params.rootPath,
+    }),
+  };
+}
+
+export function appendEngineCoworkSystemMessage(params: {
+  current: ChatMessage[];
+  message: ChatMessage;
+}): ChatMessage[] {
+  return appendUniqueSystemMessage(params.current, params.message);
 }
 
 type ValidateProjectRelativePath = (
