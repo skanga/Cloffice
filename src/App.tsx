@@ -106,12 +106,14 @@ import {
     resolveEngineCoworkStreamingTransition,
   } from './lib/engine-session-events';
 import {
+  applyEngineCoworkStreamMessageUpdate,
   appendEngineCoworkReceiptMessage,
   appendEngineCoworkActivityMessage,
   appendUniqueSystemMessage,
   applyEngineCoworkFinalMessageUpdate,
   deriveEngineActionRunKey,
   executeEngineCoworkActionExecution,
+  resolveEngineCoworkFailureApplication,
   resolveEngineCoworkApprovalApplication,
   resolveEngineCoworkNoActionApplication,
   resolveEngineCoworkReceiptApplication,
@@ -1980,18 +1982,19 @@ export default function App() {
             setCoworkAwaitingStream(false);
             setCoworkRunPhase('error');
             const resolvedErrorMessage = sessionResult.statusMessage || 'Cowork stream failed.';
-            setCoworkRunStatus(resolvedErrorMessage);
+            const failureApplication = resolveEngineCoworkFailureApplication(resolvedErrorMessage);
+            setCoworkRunStatus(failureApplication.runStatus);
             setCoworkProgressStage('executing_workstreams', {
               blocked: true,
-              details: resolvedErrorMessage,
+              details: failureApplication.progressDetails,
             });
-            setStatus(resolvedErrorMessage);
+            setStatus(failureApplication.runStatus);
             const taskEntry = resolveCoworkTaskForRun(eventSessionKey || coworkSessionKeyRef.current, runId);
             if (taskEntry) {
-              setCoworkTaskStatus(taskEntry.taskId, 'failed', {
+              setCoworkTaskStatus(taskEntry.taskId, failureApplication.taskStatus, {
                 runId,
-                summary: resolvedErrorMessage,
-                outcome: resolvedErrorMessage,
+                summary: failureApplication.taskSummary,
+                outcome: failureApplication.taskOutcome,
               });
               finalizeCoworkTaskRun(eventSessionKey || coworkSessionKeyRef.current, taskEntry.taskId);
             }
@@ -2016,19 +2019,12 @@ export default function App() {
             }
             const { streamId } = getEngineSessionMessageIds('cowork', runId);
             setCoworkMessages((current) => {
-              if (!visibleText) {
-                return current;
-              }
-              const index = current.findIndex((entry) => entry.id === streamId);
-              if (index >= 0) {
-                const next = [...current];
-                next[index] = { ...next[index], text: visibleText, role };
-                if (eventSessionKey) {
-                  coworkMessageCache.current.set(eventSessionKey, next);
-                }
-                return next;
-              }
-              const next = [...current, { id: streamId, role, text: visibleText }];
+              const next = applyEngineCoworkStreamMessageUpdate({
+                current,
+                streamId,
+                role,
+                visibleText,
+              });
               if (eventSessionKey) {
                 coworkMessageCache.current.set(eventSessionKey, next);
               }

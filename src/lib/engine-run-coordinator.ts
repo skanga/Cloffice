@@ -47,6 +47,14 @@ export type EngineCoworkReceiptApplication = {
   taskOutcome: string;
 };
 
+export type EngineCoworkFailureApplication = {
+  runStatus: string;
+  progressDetails: string;
+  taskStatus: CoworkProjectTaskStatus;
+  taskSummary: string;
+  taskOutcome: string;
+};
+
 export function applyEngineCoworkFinalMessageUpdate(params: {
   current: ChatMessage[];
   streamId: string;
@@ -104,6 +112,38 @@ export function appendEngineCoworkActivityMessage(params: {
   }
 
   return [...params.current, activityMessage];
+}
+
+export function applyEngineCoworkStreamMessageUpdate(params: {
+  current: ChatMessage[];
+  streamId: string;
+  role: ChatMessage['role'];
+  visibleText: string;
+}): ChatMessage[] {
+  if (!params.visibleText) {
+    return params.current;
+  }
+
+  const index = params.current.findIndex((entry) => entry.id === params.streamId);
+  if (index >= 0) {
+    const next = [...params.current];
+    next[index] = { ...next[index], text: params.visibleText, role: params.role };
+    return next;
+  }
+
+  return [...params.current, { id: params.streamId, role: params.role, text: params.visibleText }];
+}
+
+export function resolveEngineCoworkFailureApplication(
+  resolvedErrorMessage: string,
+): EngineCoworkFailureApplication {
+  return {
+    runStatus: resolvedErrorMessage,
+    progressDetails: resolvedErrorMessage,
+    taskStatus: 'failed',
+    taskSummary: resolvedErrorMessage,
+    taskOutcome: resolvedErrorMessage,
+  };
 }
 
 export type EngineCoworkApprovalApplication = {
