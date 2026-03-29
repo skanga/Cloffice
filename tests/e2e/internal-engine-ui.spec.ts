@@ -224,15 +224,8 @@ test.describe('Internal engine UI flow', () => {
   });
 
   test('operator can approve a live cowork read-only action through the internal runtime UI flow', async () => {
-    await connectInternalProviderFromOnboarding(page);
-    await finishOnboarding(page);
-
-    await expect(page.getByRole('button', { name: 'Connected' })).toBeVisible({ timeout: 15000 });
-    const backButton = page.getByRole('button', { name: 'Back' });
-    if (await backButton.isVisible({ timeout: 5000 })) {
-      await backButton.click();
-    }
-    await page.getByRole('tab', { name: /cowork/i }).click();
+    await markOnboardingComplete(page);
+    await connectInternalProviderFromSettings(page);
     await expect(page.getByTitle('Add project')).toBeVisible({ timeout: 15000 });
 
     const rootFolder = await prepareProjectRoot(page);
@@ -255,8 +248,23 @@ test.describe('Internal engine UI flow', () => {
       const approvalTestIdAttr = (await nextApprovalCard.getAttribute('data-testid')) || '';
       const nextApprovalId = approvalTestIdAttr.replace('pending-approval-', '');
       expect(nextApprovalId).not.toBe('');
-      await page.getByTestId(`pending-approval-approve-${nextApprovalId}`).click();
-      await expect(page.getByTestId(`pending-approval-${nextApprovalId}`)).toHaveCount(0);
+      await nextApprovalCard.getByRole('button', { name: 'Approve' }).click();
+      await expect
+        .poll(
+          async () => {
+            const cards = pendingApprovalCards(page);
+            const count = await cards.count();
+            if (count === 0) {
+              return 'cleared';
+            }
+
+            const activeApprovalTestIdAttr = (await cards.first().getAttribute('data-testid')) || '';
+            const activeApprovalId = activeApprovalTestIdAttr.replace('pending-approval-', '');
+            return activeApprovalId === nextApprovalId ? 'unchanged' : 'advanced';
+          },
+          { timeout: 15000 },
+        )
+        .not.toBe('unchanged');
       resolvedApprovals += 1;
       if (resolvedApprovals > 4) {
         throw new Error('Unexpected number of internal cowork approvals.');

@@ -116,6 +116,13 @@ import {
   resolveEngineCoworkNoActionCommit,
   resolveEngineCoworkReceiptCommit,
 } from './lib/engine-run-coordinator';
+import {
+  applyInternalApprovalRecoveryDecision,
+  buildInternalApprovalRecoveryFlow,
+  loadInternalApprovalRecoveryFlows,
+  saveInternalApprovalRecoveryFlows,
+  type InternalApprovalRecoveryFlow,
+} from './lib/internal-approval-recovery';
   import {
     buildInternalEngineActionInstruction,
     buildOpenClawCompatEngineActionInstruction,
@@ -479,6 +486,7 @@ export default function App() {
   const coworkMessageCache = useRef<Map<string, ChatMessage[]>>(new Map());
   const executedCoworkActionRunsRef = useRef<Set<string>>(new Set());
   const approvalResolversRef = useRef<Map<string, ApprovalResolverEntry>>(new Map());
+  const internalApprovalRecoveryFlowsRef = useRef<Map<string, InternalApprovalRecoveryFlow>>(new Map());
   const pendingCoworkRunContextsRef = useRef<Map<string, CoworkRunProjectContext[]>>(new Map());
   const resolvedCoworkRunContextsRef = useRef<Map<string, CoworkRunProjectContext>>(new Map());
   const pendingCoworkTaskQueueRef = useRef<Map<string, CoworkTaskQueueEntry[]>>(new Map());
@@ -1040,6 +1048,112 @@ export default function App() {
     resolver.resolve(decision);
   };
 
+  const writeInternalApprovalRecoveryFlows = (flows: InternalApprovalRecoveryFlow[]) => {
+    const nextMap = new Map<string, InternalApprovalRecoveryFlow>();
+    for (const flow of flows) {
+      nextMap.set(flow.currentApproval.id, flow);
+    }
+    internalApprovalRecoveryFlowsRef.current = nextMap;
+    saveInternalApprovalRecoveryFlows(window.localStorage, flows);
+  };
+
+  const syncRecoveredApprovalCards = (flows: InternalApprovalRecoveryFlow[]) => {
+    const currentRecoveredIds = new Set(internalApprovalRecoveryFlowsRef.current.keys());
+    setPendingApprovals((current) => {
+      const next = current.filter((item) => !currentRecoveredIds.has(item.id));
+      for (const flow of flows) {
+        if (!next.some((item) => item.id === flow.currentApproval.id)) {
+          next.push(flow.currentApproval);
+        }
+      }
+      return next;
+    });
+  };
+
+  const restoreInternalApprovalRecoveryFlows = () => {
+    const flows = loadInternalApprovalRecoveryFlows(window.localStorage);
+    writeInternalApprovalRecoveryFlows(flows);
+    syncRecoveredApprovalCards(flows);
+  };
+
+  const clearRecoveredApprovalCards = () => {
+    const recoveredIds = new Set(internalApprovalRecoveryFlowsRef.current.keys());
+    if (recoveredIds.size === 0) {
+      return;
+    }
+    setPendingApprovals((current) => current.filter((item) => !recoveredIds.has(item.id)));
+  };
+
+  const persistInternalApprovalRecoveryFlow = (flow: InternalApprovalRecoveryFlow) => {
+    const flows = loadInternalApprovalRecoveryFlows(window.localStorage)
+      .filter((entry) => entry.runId !== flow.runId);
+    flows.push(flow);
+    saveInternalApprovalRecoveryFlows(window.localStorage, flows);
+  };
+
+  const clearInternalApprovalRecoveryFlow = (runId: string) => {
+    const flows = loadInternalApprovalRecoveryFlows(window.localStorage)
+      .filter((entry) => entry.runId !== runId);
+    saveInternalApprovalRecoveryFlows(window.localStorage, flows);
+    const currentRecoveredIds = new Set(internalApprovalRecoveryFlowsRef.current.keys());
+    if (currentRecoveredIds.size > 0) {
+      writeInternalApprovalRecoveryFlows(flows);
+      syncRecoveredApprovalCards(flows);
+    }
+  };
+
+  const continueRecoveredInternalApprovalFlow = async (
+    approvalId: string,
+    decision: { approved: boolean; reason?: string; expired?: boolean },
+  ) => {
+    const flow = internalApprovalRecoveryFlowsRef.current.get(approvalId);
+    if (!flow) {
+      return false;
+    }
+
+    setPendingApprovals((current) => current.filter((item) => item.id !== approvalId));
+    const next = applyInternalApprovalRecoveryDecision(flow, decision);
+
+    if (next.kind === 'next') {
+      const flows = loadInternalApprovalRecoveryFlows(window.localStorage)
+        .filter((entry) => entry.runId !== flow.runId);
+      flows.push(next.flow);
+      writeInternalApprovalRecoveryFlows(flows);
+      syncRecoveredApprovalCards(flows);
+      setStatus(`Awaiting approval for ${next.flow.currentApproval.summary}...`);
+      return true;
+    }
+
+    clearInternalApprovalRecoveryFlow(flow.runId);
+    const client = engineClientRef.current as EngineClientInstance & {
+      continueCoworkRun?: (payload: {
+        sessionKey: string;
+        runId: string;
+        rootPath: string;
+        approvedActions: EngineRequestedAction[];
+        rejectedActions: { id: string; actionId: string; actionType: EngineRequestedAction['type']; path: string; approved: false; reason?: string }[];
+      }) => Promise<unknown>;
+    } | null;
+
+    if (!client?.continueCoworkRun) {
+      setStatus('Recovered internal approval flow could not continue because the internal runtime continuation API is unavailable.');
+      return true;
+    }
+
+    setCoworkRunStatus('Submitting recovered approval results to internal cowork...');
+    setCoworkProgressStage('executing_workstreams', {
+      details: 'Resuming recovered internal cowork approval flow.',
+    });
+
+    try {
+      await client.continueCoworkRun(next.payload);
+    } catch (error) {
+      const info = readEngineError(error);
+      setStatus(info.message || 'Failed to continue recovered internal approval flow.');
+    }
+    return true;
+  };
+
   const requestActionApproval = (request: PendingApprovalAction) => {
     setPendingApprovals((current) => [...current, request]);
 
@@ -1060,6 +1174,10 @@ export default function App() {
   };
 
   const handleApprovePendingAction = (approvalId: string) => {
+    if (internalApprovalRecoveryFlowsRef.current.has(approvalId)) {
+      void continueRecoveredInternalApprovalFlow(approvalId, { approved: true });
+      return;
+    }
     resolvePendingApproval(approvalId, { approved: true });
   };
 
@@ -1067,6 +1185,14 @@ export default function App() {
     const trimmedReason = reason.trim();
     if (!trimmedReason) {
       setStatus('Provide a reason before rejecting an action.');
+      return;
+    }
+
+    if (internalApprovalRecoveryFlowsRef.current.has(approvalId)) {
+      void continueRecoveredInternalApprovalFlow(approvalId, {
+        approved: false,
+        reason: trimmedReason,
+      });
       return;
     }
 
@@ -2209,6 +2335,23 @@ export default function App() {
                         });
                       }
                     : undefined,
+                  onInternalApprovalCheckpoint: ({ request, sessionKey, rootPath, context, requestedActions: boundedActions, currentIndex, approvedActions, rejectedActions }) => {
+                    persistInternalApprovalRecoveryFlow(
+                      buildInternalApprovalRecoveryFlow({
+                        sessionKey,
+                        rootPath,
+                        context,
+                        requestedActions: boundedActions,
+                        currentIndex,
+                        approvedActions,
+                        rejectedActions,
+                        currentApproval: request,
+                      }),
+                    );
+                  },
+                  onInternalApprovalFlowComplete: (completedRunId) => {
+                    clearInternalApprovalRecoveryFlow(completedRunId);
+                  },
                 });
                 if (executionOutcome.kind === 'continued') {
                   return;
@@ -2377,6 +2520,11 @@ export default function App() {
         setEngineConnected(true);
         setHealth({ ok: true, message: `Connected to runtime at ${runtimeEndpointUrl}` });
         markEngineConnectionLastUsed({ gatewayUrl: runtimeEndpointUrl, gatewayToken: runtimeAccessToken });
+        if (draftEngineProviderId === 'internal') {
+          restoreInternalApprovalRecoveryFlows();
+        } else {
+          clearRecoveredApprovalCards();
+        }
         if (!onboardingComplete) {
           completeOnboarding();
         }

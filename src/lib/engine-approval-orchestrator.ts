@@ -37,6 +37,33 @@ export type EngineApprovalLoopContext = {
   maxActionsPerRun: number;
 };
 
+export function createPendingEngineApprovalAction(params: {
+  action: EngineRequestedAction;
+  index: number;
+  context: EngineApprovalLoopContext;
+}): PendingApprovalAction {
+  const actionId = params.action.id || `action-${params.index + 1}`;
+  const actionPath = params.action.path || '.';
+  const actionSummary = summarizeEngineRequestedAction(params.action);
+
+  return {
+    id: `${params.context.runId}-${actionId}-${params.index + 1}`,
+    runId: params.context.runId,
+    actionId,
+    actionType: params.action.type,
+    projectId: params.context.projectId,
+    projectTitle: params.context.projectTitle,
+    projectRootFolder: params.context.projectRootFolder,
+    path: actionPath,
+    scopeId: params.context.scopeId,
+    scopeName: params.context.scopeName,
+    riskLevel: params.context.riskLevel,
+    summary: `${params.context.projectTitle ? `[${params.context.projectTitle}] ` : ''}${actionSummary}`,
+    preview: buildEngineApprovalPreview(params.action),
+    createdAt: Date.now(),
+  };
+}
+
 export async function runEngineReadOnlyApprovalLoop(params: {
   actions: EngineRequestedAction[];
   context: EngineApprovalLoopContext;
@@ -56,6 +83,13 @@ export async function runEngineReadOnlyApprovalLoop(params: {
     actionSummary: string;
     reason: string;
   }) => void;
+  onCheckpoint?: (info: {
+    request: PendingApprovalAction;
+    currentIndex: number;
+    boundedActions: EngineRequestedAction[];
+    approvedActions: EngineRequestedAction[];
+    rejectedActions: EngineRejectedApprovalAction[];
+  }) => void;
 }): Promise<EngineApprovalLoopResult> {
   const boundedActions = params.actions.slice(0, params.context.maxActionsPerRun);
   const approvedActions: EngineRequestedAction[] = [];
@@ -74,23 +108,19 @@ export async function runEngineReadOnlyApprovalLoop(params: {
       actionSummary,
     });
 
-    const approvalId = `${params.context.runId}-${actionId}-${index + 1}`;
-    const decision = await params.requestApproval({
-      id: approvalId,
-      runId: params.context.runId,
-      actionId,
-      actionType: action.type,
-      projectId: params.context.projectId,
-      projectTitle: params.context.projectTitle,
-      projectRootFolder: params.context.projectRootFolder,
-      path: actionPath,
-      scopeId: params.context.scopeId,
-      scopeName: params.context.scopeName,
-      riskLevel: params.context.riskLevel,
-      summary: `${params.context.projectTitle ? `[${params.context.projectTitle}] ` : ''}${actionSummary}`,
-      preview: buildEngineApprovalPreview(action),
-      createdAt: Date.now(),
+    const request = createPendingEngineApprovalAction({
+      action,
+      index,
+      context: params.context,
     });
+    params.onCheckpoint?.({
+      request,
+      currentIndex: index,
+      boundedActions,
+      approvedActions: [...approvedActions],
+      rejectedActions: [...rejectedActions],
+    });
+    const decision = await params.requestApproval(request);
 
     if (!decision.approved) {
       const reason = decision.reason || 'Rejected by operator.';

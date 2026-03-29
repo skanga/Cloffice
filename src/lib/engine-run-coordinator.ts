@@ -13,6 +13,7 @@ import type { DesktopBridgeApi } from './connectors/connector-types';
 import {
   runEngineReadOnlyApprovalLoop,
   resolveEngineApprovalTaskTransition,
+  type EngineApprovalLoopContext,
   type EngineApprovalDecision,
   type EngineRejectedApprovalAction,
 } from './engine-approval-orchestrator';
@@ -377,6 +378,17 @@ export async function executeEngineCoworkActionExecution(params: {
   onRunStatus: (status: string) => void;
   onProgress: (details: string) => void;
   onTaskStatus?: (status: CoworkProjectTaskStatus, summary: string, outcome?: string) => void;
+  onInternalApprovalCheckpoint?: (checkpoint: {
+    request: PendingApprovalAction;
+    sessionKey: string;
+    rootPath: string;
+    context: EngineApprovalLoopContext;
+    requestedActions: EngineRequestedAction[];
+    currentIndex: number;
+    approvedActions: EngineRequestedAction[];
+    rejectedActions: EngineRejectedApprovalAction[];
+  }) => void;
+  onInternalApprovalFlowComplete?: (runId: string) => void;
 }): Promise<EngineCoworkActionExecutionOutcome> {
   if (!params.bridge) {
     return {
@@ -414,18 +426,19 @@ export async function executeEngineCoworkActionExecution(params: {
       );
     }
 
+    const approvalContext: EngineApprovalLoopContext = {
+      runId: params.runId,
+      projectId: params.runContext.projectId || undefined,
+      projectTitle: params.runContext.projectTitle || undefined,
+      projectRootFolder: params.runContext.rootFolder || undefined,
+      scopeId: 'workspace.read',
+      scopeName: 'Workspace read',
+      riskLevel: 'medium',
+      maxActionsPerRun: params.maxActionsPerRun,
+    };
     const { approvedActions, rejectedActions } = await runEngineReadOnlyApprovalLoop({
       actions: params.requestedActions,
-      context: {
-        runId: params.runId,
-        projectId: params.runContext.projectId || undefined,
-        projectTitle: params.runContext.projectTitle || undefined,
-        projectRootFolder: params.runContext.rootFolder || undefined,
-        scopeId: 'workspace.read',
-        scopeName: 'Workspace read',
-        riskLevel: 'medium',
-        maxActionsPerRun: params.maxActionsPerRun,
-      },
+      context: approvalContext,
       requestApproval: params.requestApproval,
       onPending: ({ action, actionPath, actionSummary }) => {
         params.onRunStatus(`Awaiting approval for ${actionSummary}...`);
@@ -440,6 +453,18 @@ export async function executeEngineCoworkActionExecution(params: {
       onApproved: ({ action }) => {
         const taskTransition = resolveEngineApprovalTaskTransition('approved', action);
         params.onTaskStatus?.(taskTransition.status, taskTransition.summary);
+      },
+      onCheckpoint: ({ request, currentIndex, boundedActions, approvedActions: currentApproved, rejectedActions: currentRejected }) => {
+        params.onInternalApprovalCheckpoint?.({
+          request,
+          sessionKey: params.eventSessionKey || params.currentCoworkSessionKey,
+          rootPath,
+          context: approvalContext,
+          requestedActions: boundedActions,
+          currentIndex,
+          approvedActions: currentApproved,
+          rejectedActions: currentRejected,
+        });
       },
     });
 
@@ -460,6 +485,7 @@ export async function executeEngineCoworkActionExecution(params: {
       approvedActions,
       rejectedActions,
     });
+    params.onInternalApprovalFlowComplete?.(params.runId);
     return { kind: 'continued' };
   }
 
