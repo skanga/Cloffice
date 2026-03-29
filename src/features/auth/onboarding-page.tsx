@@ -1,6 +1,6 @@
 import { getDesktopBridge } from '@/lib/desktop-bridge';
 import { getEngineDiscoveryEndpoint } from '@/lib/engine-discovery';
-import { listEngineProviders } from '@/lib/engine-provider-registry';
+import { getEngineProvider, listEngineProviders } from '@/lib/engine-provider-registry';
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import type { FormEvent } from 'react';
 
@@ -134,6 +134,7 @@ export function OnboardingPage({
   const [discovery, setDiscovery] = useState<DiscoveryState>({ status: 'idle' });
   const [showToken, setShowToken] = useState(false);
   const engineProviders = useMemo(() => listEngineProviders(), []);
+  const selectedEngineProvider = useMemo(() => getEngineProvider(draftEngineProviderId), [draftEngineProviderId]);
 
   // Auto-discover a local runtime on mount.
   useEffect(() => {
@@ -619,9 +620,9 @@ export function OnboardingPage({
               You're all set
             </h2>
             <p className="mb-2 font-sans text-[15px] leading-relaxed text-muted-foreground">
-              {draftEngineProviderId === 'internal'
-                ? 'Cloffice is prepared to use the internal engine once it becomes available.'
-                : 'Cloffice is connected to the current runtime endpoint through the OpenClaw compatibility path.'}
+              {selectedEngineProvider.availableInBuild
+                ? `Cloffice is connected to the current runtime endpoint through ${selectedEngineProvider.displayName}.`
+                : `${selectedEngineProvider.displayName} is registered in Cloffice, but this build is currently connected through the OpenClaw compatibility runtime. ${selectedEngineProvider.availabilityReason ?? ''}`.trim()}
             </p>
 
             {health?.message && (

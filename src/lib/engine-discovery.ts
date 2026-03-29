@@ -1,4 +1,5 @@
-import type { EngineProviderId, EngineRuntimeKind, EngineTransport, GatewayDiscoveryResult } from '../app-types.js';
+import type { EngineProviderId, EngineRuntimeKind, EngineTransport } from '../app-types.js';
+import type { OpenClawCompatibilityDiscoveryResult } from './openclaw-compat-engine.js';
 
 export type EngineDiscoveryResult = {
   found: boolean;
@@ -11,7 +12,7 @@ export type EngineDiscoveryResult = {
   transport: EngineTransport;
 };
 
-export function normalizeEngineDiscoveryResult(result: GatewayDiscoveryResult): EngineDiscoveryResult {
+export function normalizeEngineDiscoveryResult(result: OpenClawCompatibilityDiscoveryResult): EngineDiscoveryResult {
   return {
     found: result.found,
     endpointUrl: result.gatewayUrl,

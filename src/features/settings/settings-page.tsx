@@ -260,6 +260,7 @@ export function SettingsPage({
   const [prefersDarkSystem, setPrefersDarkSystem] = useState(false);
   const [connectionNameDraft, setConnectionNameDraft] = useState('');
   const engineProviders = useMemo(() => listEngineProviders(), []);
+  const selectedEngineProvider = useMemo(() => getEngineProvider(draftEngineProviderId), [draftEngineProviderId]);
   const t = useCallback((en: string, de: string) => (preferences.language === 'de' ? de : en), [preferences.language]);
 
   useEffect(() => {
@@ -558,8 +559,12 @@ export function SettingsPage({
                 <p className="font-sans text-xs text-muted-foreground">{t('Engine provider', 'Engine-Anbieter')}</p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {t(
-                    'Choose the runtime/provider model Cloffice should prepare for. Only the OpenClaw compatibility path is active in this phase.',
-                    'Waehle das Laufzeit-/Anbietermodell, auf das Cloffice vorbereitet werden soll. In dieser Phase ist nur der OpenClaw-Kompatibilitaetspfad aktiv.',
+                    selectedEngineProvider.availableInBuild
+                      ? `${selectedEngineProvider.displayName} is available in this build.`
+                      : `${selectedEngineProvider.displayName} is registered, but not yet runnable in this build.`,
+                    selectedEngineProvider.availableInBuild
+                      ? `${selectedEngineProvider.displayName} ist in diesem Build verfuegbar.`
+                      : `${selectedEngineProvider.displayName} ist registriert, aber in diesem Build noch nicht lauffaehig.`,
                   )}
                 </p>
               </div>

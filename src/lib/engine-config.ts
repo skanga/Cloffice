@@ -1,6 +1,7 @@
 import type { AppConfig, EngineProviderId, EngineRuntimeKind, EngineTransport } from '../app-types.js';
 import type { EngineConnectOptions } from './engine-runtime-types.js';
 import {
+  buildDeferredProviderAwareEngineConfigV2,
   NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION,
   type ProviderAwareStoredEngineConfigV2,
 } from './engine-config-migration.js';
@@ -105,6 +106,16 @@ export function appConfigFromEngineDraft(draft: EngineDraftConfig): AppConfig {
     gatewayUrl: draft.endpointUrl,
     gatewayToken: draft.accessToken,
   };
+}
+
+export function buildDeferredProviderAwareEngineConfig(draft: EngineDraftConfig): ProviderAwareStoredEngineConfigV2 {
+  return buildDeferredProviderAwareEngineConfigV2({
+    providerId: draft.providerId,
+    runtimeKind: draft.runtimeKind,
+    transport: draft.transport,
+    endpointUrl: draft.endpointUrl,
+    accessToken: draft.accessToken,
+  });
 }
 
 export function engineConnectOptionsFromDraft(

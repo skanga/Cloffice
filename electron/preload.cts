@@ -2,7 +2,6 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   AppConfig,
   HealthCheckResult,
-  GatewayDiscoveryResult,
   LocalFileApplyResult,
   LocalFileAppendResult,
   LocalFileCreateResult,
@@ -18,7 +17,10 @@ import type {
 import { appConfigFromEngineDraft, parseDesktopBridgeEngineConfig, type DesktopBridgeEngineConfig, type EngineDraftConfig } from '../src/lib/engine-config.js';
 import { normalizeEngineDiscoveryResult } from '../src/lib/engine-discovery.js';
 import { normalizeEngineRuntimeHealthResult, type EngineRuntimeHealthResult } from '../src/lib/engine-runtime-types.js';
-import { OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR } from '../src/lib/openclaw-compat-engine.js';
+import {
+  OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR,
+  type OpenClawCompatibilityDiscoveryResult,
+} from '../src/lib/openclaw-compat-engine.js';
 
 const DEFAULT_COMPAT_ENGINE_ENDPOINT = 'ws://127.0.0.1:18789';
 
@@ -40,9 +42,9 @@ const desktopBridgeApi = {
       OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR,
     ) as EngineRuntimeHealthResult,
   discoverGateway: () =>
-    ipcRenderer.invoke('gateway:discover') as Promise<GatewayDiscoveryResult>,
+    ipcRenderer.invoke('gateway:discover') as Promise<OpenClawCompatibilityDiscoveryResult>,
   discoverEngine: async () =>
-    normalizeEngineDiscoveryResult(await ipcRenderer.invoke('gateway:discover') as GatewayDiscoveryResult),
+    normalizeEngineDiscoveryResult(await ipcRenderer.invoke('gateway:discover') as OpenClawCompatibilityDiscoveryResult),
   checkWorkspacePlugin: () =>
     ipcRenderer.invoke('plugin:check-workspace') as Promise<{ installed: boolean; error?: string }>,
   installWorkspacePlugin: () =>

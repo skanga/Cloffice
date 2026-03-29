@@ -27,6 +27,24 @@ export const INTERNAL_ENGINE_RUNTIME_DESCRIPTOR: EngineRuntimeDescriptor = {
   transport: 'internal-ipc',
 };
 
+export type InternalEngineShellCapabilities = {
+  connection: false;
+  sessions: false;
+  models: false;
+  scheduling: false;
+  toolsCatalog: false;
+  workspaceRpc: false;
+};
+
+export const INTERNAL_ENGINE_SHELL_CAPABILITIES: InternalEngineShellCapabilities = {
+  connection: false,
+  sessions: false,
+  models: false,
+  scheduling: false,
+  toolsCatalog: false,
+  workspaceRpc: false,
+};
+
 const INTERNAL_ENGINE_UNAVAILABLE_MESSAGE = 'The internal engine runtime is not available in this build yet.';
 
 function internalEngineUnavailable(): Error {
@@ -34,23 +52,33 @@ function internalEngineUnavailable(): Error {
 }
 
 export class InternalEnginePlaceholderClient implements EngineRuntimeClient {
+  private connectionHandler: EngineConnectionHandler | null = null;
+  private eventHandler: EngineEventHandler | null = null;
+
   readonly providerId = INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.providerId;
   readonly runtimeKind = INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind;
   readonly transport = INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.transport;
 
   connect(_options: EngineConnectOptions): Promise<void> {
+    this.connectionHandler?.(false, INTERNAL_ENGINE_UNAVAILABLE_MESSAGE);
     return Promise.reject(internalEngineUnavailable());
   }
 
-  disconnect(): void {}
+  disconnect(): void {
+    this.connectionHandler?.(false, 'Internal engine shell disconnected.');
+  }
 
   isConnected(): boolean {
     return false;
   }
 
-  setConnectionHandler(_handler: EngineConnectionHandler): void {}
+  setConnectionHandler(handler: EngineConnectionHandler): void {
+    this.connectionHandler = handler;
+  }
 
-  setEventHandler(_handler: EngineEventHandler): void {}
+  setEventHandler(handler: EngineEventHandler): void {
+    this.eventHandler = handler;
+  }
 
   getActiveSessionKey(): Promise<string> {
     return Promise.reject(internalEngineUnavailable());
@@ -131,4 +159,13 @@ export class InternalEnginePlaceholderClient implements EngineRuntimeClient {
   writeWorkspaceFile(_path: string, _content: string): Promise<void> {
     return Promise.reject(internalEngineUnavailable());
   }
+}
+
+export function describeInternalEngineShell() {
+  return {
+    runtime: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR,
+    capabilities: INTERNAL_ENGINE_SHELL_CAPABILITIES,
+    availableInBuild: false as const,
+    unavailableReason: INTERNAL_ENGINE_UNAVAILABLE_MESSAGE,
+  };
 }

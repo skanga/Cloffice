@@ -1,6 +1,5 @@
 import type {
   AppConfig,
-  GatewayDiscoveryResult,
   HealthCheckResult,
   LocalFileApplyResult,
   LocalFileAppendResult,
@@ -17,6 +16,7 @@ import type {
 import type { DesktopBridgeEngineConfig, EngineDraftConfig } from './lib/engine-config';
 import type { EngineDiscoveryResult } from './lib/engine-discovery';
 import type { EngineRuntimeHealthResult } from './lib/engine-runtime-types';
+import type { OpenClawCompatibilityDiscoveryResult } from './lib/openclaw-compat-engine';
 
 type DesktopBridgeApi = {
   getConfig: () => Promise<AppConfig>;
@@ -25,7 +25,7 @@ type DesktopBridgeApi = {
   saveEngineConfig: (draft: EngineDraftConfig) => Promise<DesktopBridgeEngineConfig>;
   healthCheck: (baseUrl: string) => Promise<HealthCheckResult>;
   checkRuntimeHealth: (baseUrl: string) => Promise<EngineRuntimeHealthResult>;
-  discoverGateway: () => Promise<GatewayDiscoveryResult>;
+  discoverGateway: () => Promise<OpenClawCompatibilityDiscoveryResult>;
   discoverEngine: () => Promise<EngineDiscoveryResult>;
   checkWorkspacePlugin: () => Promise<{ installed: boolean; error?: string }>;
   installWorkspacePlugin: () => Promise<{ ok: boolean; output?: string; error?: string }>;

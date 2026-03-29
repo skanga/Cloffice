@@ -1,5 +1,8 @@
 import type { EngineProviderId } from '@/app-types';
-import { InternalEnginePlaceholderClient } from './internal-engine-placeholder';
+import {
+  INTERNAL_ENGINE_RUNTIME_DESCRIPTOR,
+  InternalEnginePlaceholderClient,
+} from './internal-engine-placeholder';
 import {
   OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR,
   OpenClawCompatibilityEngineClient,
@@ -52,11 +55,7 @@ export function resolveAvailableEngineProviderId(providerId: EngineProviderId): 
 export function getEngineRuntimeDescriptor(providerId: EngineProviderId = 'openclaw-compat'): EngineRuntimeDescriptor {
   const resolvedProviderId = resolveAvailableEngineProviderId(providerId);
   if (resolvedProviderId === 'internal') {
-    return {
-      providerId: 'internal',
-      runtimeKind: 'internal',
-      transport: 'internal-ipc',
-    };
+    return INTERNAL_ENGINE_RUNTIME_DESCRIPTOR;
   }
   return OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR;
 }

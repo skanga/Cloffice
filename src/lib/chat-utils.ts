@@ -3,7 +3,7 @@
  * No React imports — safe to use anywhere.
  */
 import type { ChatActivityItem, ChatMessage, EngineRequestedAction } from '@/app-types';
-import { OpenClawCompatibilityRequestError as EngineRequestError } from './openclaw-compat-engine';
+import { getOpenClawCompatibilityRequestError } from './openclaw-compat-engine';
 
 /* ── Exported types ──────────────────────────────────────────────────────── */
 
@@ -307,9 +307,10 @@ export function readEngineError(error: unknown): EngineErrorInfo {
     return { message: 'Runtime connection failed.' };
   }
 
-  if (error instanceof EngineRequestError) {
-    console.log('[Cloffice] EngineRequestError details:', JSON.stringify(error.details));
-    const d = error.details as Record<string, unknown> | undefined;
+  const compatibilityError = getOpenClawCompatibilityRequestError(error);
+  if (compatibilityError) {
+    console.log('[Cloffice] EngineRequestError details:', JSON.stringify(compatibilityError.details));
+    const d = compatibilityError.details as Record<string, unknown> | undefined;
     const requestId =
       (typeof d?.requestId === 'string' && d.requestId) ||
       (typeof d?.request_id === 'string' && d.request_id) ||
@@ -317,8 +318,8 @@ export function readEngineError(error: unknown): EngineErrorInfo {
       extractUuidFromMessage(error.message) ||
       undefined;
     return {
-      message: error.message,
-      code: error.code,
+      message: compatibilityError.message,
+      code: compatibilityError.code,
       requestId,
     };
   }

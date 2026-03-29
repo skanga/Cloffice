@@ -11,6 +11,7 @@ import type {
   EngineWorkspaceReadResult,
   EngineWorkspaceStatResult,
 } from './engine-runtime-types.js';
+import type { GatewayDiscoveryResult } from '../app-types.js';
 import {
   OpenClawGatewayClient,
   type GatewayChatMessage,
@@ -36,6 +37,8 @@ export const OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR: EngineRuntimeDescriptor 
   runtimeKind: 'openclaw-compat',
   transport: 'websocket-gateway',
 };
+
+export type OpenClawCompatibilityDiscoveryResult = GatewayDiscoveryResult;
 
 export class OpenClawCompatibilityEngineClient implements EngineRuntimeClient {
   private readonly gatewayClient = new OpenClawGatewayClient();
@@ -182,4 +185,9 @@ export type OpenClawCompatibilityEventFrame = {
   seq?: number;
   stateVersion?: Record<string, unknown>;
 };
+
+export function getOpenClawCompatibilityRequestError(error: unknown): GatewayRequestError | null {
+  return error instanceof GatewayRequestError ? error : null;
+}
+
 export { GatewayRequestError as OpenClawCompatibilityRequestError };

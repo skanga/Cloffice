@@ -1,5 +1,6 @@
 import type { EngineProviderId, EngineRuntimeKind, EngineTransport } from '@/app-types';
 import { getProviderAwareEngineConfigMigrationPlan } from './engine-config-migration';
+import { describeInternalEngineShell } from './internal-engine-placeholder';
 
 export type EngineProviderDefinition = {
   id: EngineProviderId;
@@ -13,6 +14,7 @@ export type EngineProviderDefinition = {
 };
 
 const migrationPlan = getProviderAwareEngineConfigMigrationPlan();
+const internalEngineShell = describeInternalEngineShell();
 
 const ENGINE_PROVIDER_REGISTRY: Record<EngineProviderId, EngineProviderDefinition> = {
   'openclaw-compat': {
@@ -27,12 +29,16 @@ const ENGINE_PROVIDER_REGISTRY: Record<EngineProviderId, EngineProviderDefinitio
   internal: {
     id: 'internal',
     displayName: 'Internal engine',
-    summary: 'Planned next phase. The UI can prepare for it, but this build still runs through the compatibility runtime.',
-    runtimeKind: 'internal',
-    transport: 'internal-ipc',
-    availableInBuild: false,
-    selectionEnabled: false,
-    availabilityReason: migrationPlan.blockers.internal ?? 'Not available in this build.',
+    summary: internalEngineShell.availableInBuild
+      ? 'Built-in provider-neutral runtime available in this build.'
+      : 'Internal runtime shell is registered, but this build still routes through the compatibility runtime.',
+    runtimeKind: internalEngineShell.runtime.runtimeKind,
+    transport: internalEngineShell.runtime.transport,
+    availableInBuild: internalEngineShell.availableInBuild,
+    selectionEnabled: internalEngineShell.availableInBuild,
+    availabilityReason: internalEngineShell.availableInBuild
+      ? undefined
+      : migrationPlan.blockers.internal ?? internalEngineShell.unavailableReason,
   },
 };
 
