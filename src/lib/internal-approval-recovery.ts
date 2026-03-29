@@ -1,12 +1,10 @@
-import type { EngineRequestedAction, PendingApprovalAction } from '@/app-types';
+import type { EngineRequestedAction, PendingApprovalAction } from '../app-types.js';
 import {
   createPendingEngineApprovalAction,
   type EngineApprovalLoopContext,
   type EngineApprovalDecision,
   type EngineRejectedApprovalAction,
-} from './engine-approval-orchestrator';
-
-export const INTERNAL_APPROVAL_RECOVERY_STORAGE_KEY = 'cloffice.internal.approval-recovery.v1';
+} from './engine-approval-orchestrator.js';
 
 export type InternalApprovalRecoveryFlow = {
   runId: string;
@@ -41,31 +39,6 @@ export function buildInternalApprovalRecoveryFlow(params: {
     rejectedActions: params.rejectedActions,
     currentApproval: params.currentApproval,
   };
-}
-
-export function loadInternalApprovalRecoveryFlows(storage: Storage): InternalApprovalRecoveryFlow[] {
-  try {
-    const raw = storage.getItem(INTERNAL_APPROVAL_RECOVERY_STORAGE_KEY);
-    if (!raw) {
-      return [];
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter(Boolean) as InternalApprovalRecoveryFlow[] : [];
-  } catch {
-    return [];
-  }
-}
-
-export function saveInternalApprovalRecoveryFlows(storage: Storage, flows: InternalApprovalRecoveryFlow[]): void {
-  try {
-    if (flows.length === 0) {
-      storage.removeItem(INTERNAL_APPROVAL_RECOVERY_STORAGE_KEY);
-      return;
-    }
-    storage.setItem(INTERNAL_APPROVAL_RECOVERY_STORAGE_KEY, JSON.stringify(flows));
-  } catch {
-    // ignore localStorage persistence failures
-  }
 }
 
 export function applyInternalApprovalRecoveryDecision(

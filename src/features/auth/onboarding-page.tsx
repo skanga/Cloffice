@@ -694,6 +694,7 @@ export function OnboardingPage({
                   <p><span className="font-medium text-foreground">Connected:</span> {internalRuntimeInfo.connected ? 'yes' : 'no'}</p>
                   <p><span className="font-medium text-foreground">Sessions:</span> {internalRuntimeInfo.sessionCount}</p>
                   <p><span className="font-medium text-foreground">Runs:</span> {internalRuntimeInfo.runCount}</p>
+                  <p><span className="font-medium text-foreground">Artifacts:</span> {internalRuntimeInfo.artifactCount}</p>
                   <p><span className="font-medium text-foreground">Interrupted runs:</span> {internalRuntimeInfo.interruptedRunCount}</p>
                   <p><span className="font-medium text-foreground">Active session:</span> {internalRuntimeInfo.activeSessionKey ?? 'none'}</p>
                   <p><span className="font-medium text-foreground">Default model:</span> {internalRuntimeInfo.defaultModel}</p>

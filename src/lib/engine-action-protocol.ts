@@ -1,9 +1,9 @@
-import type { ChatActivityItem, CoworkProjectTaskStatus, EngineRequestedAction } from '@/app-types';
+import type { ChatActivityItem, CoworkProjectTaskStatus, EngineRequestedAction } from '../app-types.js';
 import {
   parseOpenClawCompatibilityActivityItems,
   parseOpenClawCompatibilityFileActions,
   stripOpenClawCompatibilityActionPayloadFromText,
-} from './openclaw-compat-parser';
+} from './openclaw-compat-parser.js';
 
 export const OPENCLAW_COMPAT_ENGINE_ACTION_FIELD = 'relay_actions';
 export const INTERNAL_ENGINE_ACTION_FIELD = 'engine_actions';

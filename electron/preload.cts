@@ -20,10 +20,13 @@ import type { EngineConnectOptions, EngineRuntimeHealthResult } from '../src/lib
 import type {
   InternalEngineCoworkContinuationRequest,
   InternalEngineCoworkContinuationResult,
+  InternalEnginePendingApprovalDecision,
+  InternalEnginePendingApprovalDecisionResult,
   InternalEngineRuntimeInfo,
   InternalEngineSendChatResult,
   InternalEngineShellStatus,
 } from '../src/lib/internal-engine-bridge.js';
+import type { InternalApprovalRecoveryFlow } from '../src/lib/internal-approval-recovery.js';
 import type { OpenClawCompatibilityDiscoveryResult } from '../src/lib/openclaw-compat-engine.js';
 
 const DEFAULT_COMPAT_ENGINE_ENDPOINT = 'ws://127.0.0.1:18789';
@@ -132,6 +135,14 @@ const desktopBridgeApi = {
     ipcRenderer.invoke('internal-engine:send-chat', sessionKey, text) as Promise<InternalEngineSendChatResult>,
   continueInternalCoworkRun: (payload: InternalEngineCoworkContinuationRequest) =>
     ipcRenderer.invoke('internal-engine:continue-cowork-run', payload) as Promise<InternalEngineCoworkContinuationResult>,
+  listInternalPendingApprovals: () =>
+    ipcRenderer.invoke('internal-engine:list-pending-approvals') as Promise<InternalApprovalRecoveryFlow[]>,
+  saveInternalPendingApproval: (flow: InternalApprovalRecoveryFlow) =>
+    ipcRenderer.invoke('internal-engine:save-pending-approval', flow) as Promise<void>,
+  clearInternalPendingApproval: (runId: string) =>
+    ipcRenderer.invoke('internal-engine:clear-pending-approval', runId) as Promise<void>,
+  applyInternalPendingApprovalDecision: (runId: string, decision: InternalEnginePendingApprovalDecision) =>
+    ipcRenderer.invoke('internal-engine:apply-pending-approval-decision', runId, decision) as Promise<InternalEnginePendingApprovalDecisionResult>,
   getEngineConfig: async () =>
     parseDesktopBridgeEngineConfig(await ipcRenderer.invoke('config:get') as AppConfig, DEFAULT_COMPAT_ENGINE_ENDPOINT) as DesktopBridgeEngineConfig,
   saveEngineConfig: async (draft: EngineDraftConfig) => {

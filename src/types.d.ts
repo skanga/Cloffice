@@ -19,10 +19,13 @@ import type { EngineChatMessage, EngineConnectOptions, EngineModelChoice, Engine
 import type {
   InternalEngineCoworkContinuationRequest,
   InternalEngineCoworkContinuationResult,
+  InternalEnginePendingApprovalDecision,
+  InternalEnginePendingApprovalDecisionResult,
   InternalEngineRuntimeInfo,
   InternalEngineSendChatResult,
   InternalEngineShellStatus,
 } from './lib/internal-engine-bridge';
+import type { InternalApprovalRecoveryFlow } from './lib/internal-approval-recovery';
 import type { OpenClawCompatibilityDiscoveryResult } from './lib/openclaw-compat-engine';
 
 type DesktopBridgeApi = {
@@ -45,6 +48,13 @@ type DesktopBridgeApi = {
   getInternalHistory: (sessionKey: string, limit?: number) => Promise<EngineChatMessage[]>;
   sendInternalChat: (sessionKey: string, text: string) => Promise<InternalEngineSendChatResult>;
   continueInternalCoworkRun: (payload: InternalEngineCoworkContinuationRequest) => Promise<InternalEngineCoworkContinuationResult>;
+  listInternalPendingApprovals: () => Promise<InternalApprovalRecoveryFlow[]>;
+  saveInternalPendingApproval: (flow: InternalApprovalRecoveryFlow) => Promise<void>;
+  clearInternalPendingApproval: (runId: string) => Promise<void>;
+  applyInternalPendingApprovalDecision: (
+    runId: string,
+    decision: InternalEnginePendingApprovalDecision,
+  ) => Promise<InternalEnginePendingApprovalDecisionResult>;
   getEngineConfig: () => Promise<DesktopBridgeEngineConfig>;
   saveEngineConfig: (draft: EngineDraftConfig) => Promise<DesktopBridgeEngineConfig>;
   healthCheck: (baseUrl: string) => Promise<HealthCheckResult>;

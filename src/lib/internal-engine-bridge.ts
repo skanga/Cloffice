@@ -11,6 +11,7 @@ import type {
   EngineWorkspaceStatResult,
 } from './engine-runtime-types.js';
 import type { ChatActivityItem, EngineRequestedAction, LocalActionReceipt } from '../app-types.js';
+import type { InternalApprovalRecoveryFlow } from './internal-approval-recovery.js';
 
 export type InternalEngineShellCapabilities = {
   connection: boolean;
@@ -37,6 +38,7 @@ export type InternalEngineRuntimeInfo = {
   readiness: 'unavailable' | 'idle' | 'ready';
   sessionCount: number;
   runCount: number;
+  artifactCount: number;
   interruptedRunCount: number;
   activeSessionKey: string | null;
   defaultModel: string;
@@ -95,6 +97,16 @@ export type InternalEngineActionExecutionResult = {
 export type InternalEngineCoworkContinuationResult = InternalEngineSendChatResult & {
   execution: InternalEngineActionExecutionResult;
 };
+
+export type InternalEnginePendingApprovalDecision = {
+  approved: boolean;
+  reason?: string;
+};
+
+export type InternalEnginePendingApprovalDecisionResult =
+  | { kind: 'missing' }
+  | { kind: 'next'; flow: InternalApprovalRecoveryFlow }
+  | { kind: 'complete'; payload: InternalEngineCoworkContinuationRequest };
 
 export type InternalEngineLifecycleBridge = {
   connect(options: EngineConnectOptions): Promise<void>;
@@ -162,6 +174,13 @@ export type InternalEngineDesktopBridge = {
   getInternalHistory(sessionKey: string, limit?: number): Promise<EngineChatMessage[]>;
   sendInternalChat(sessionKey: string, text: string): Promise<InternalEngineSendChatResult>;
   continueInternalCoworkRun(payload: InternalEngineCoworkContinuationRequest): Promise<InternalEngineCoworkContinuationResult>;
+  listInternalPendingApprovals(): Promise<InternalApprovalRecoveryFlow[]>;
+  saveInternalPendingApproval(flow: InternalApprovalRecoveryFlow): Promise<void>;
+  clearInternalPendingApproval(runId: string): Promise<void>;
+  applyInternalPendingApprovalDecision(
+    runId: string,
+    decision: InternalEnginePendingApprovalDecision,
+  ): Promise<InternalEnginePendingApprovalDecisionResult>;
 };
 
 function createUnavailableInternalEngineError(message: string): Error {

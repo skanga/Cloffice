@@ -1,4 +1,4 @@
-import type { ChatActivityItem, EngineRequestedAction } from '@/app-types';
+import type { ChatActivityItem, EngineRequestedAction } from '../app-types.js';
 
 export type OpenClawCompatibilityRequestedAction = EngineRequestedAction;
 

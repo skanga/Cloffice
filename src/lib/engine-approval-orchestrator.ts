@@ -1,9 +1,9 @@
-import type { EngineRequestedAction, PendingApprovalAction, SafetyRiskLevel } from '@/app-types';
+import type { EngineRequestedAction, PendingApprovalAction, SafetyRiskLevel } from '../app-types.js';
 import {
   buildEngineApprovalPreview,
   resolveEngineApprovalTaskTransition,
   summarizeEngineRequestedAction,
-} from './engine-action-protocol';
+} from './engine-action-protocol.js';
 
 export type EngineApprovalDecision = {
   approved: boolean;

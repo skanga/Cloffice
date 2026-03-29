@@ -29,10 +29,13 @@ import { describeInternalEngineShell } from '../src/lib/internal-engine-placehol
 import type { EngineChatMessage, EngineConnectOptions, EngineModelChoice, EngineSessionSummary } from '../src/lib/engine-runtime-types.js';
 import type {
   InternalEngineCoworkContinuationRequest,
+  InternalEnginePendingApprovalDecision,
+  InternalEnginePendingApprovalDecisionResult,
   InternalEngineRuntimeInfo,
   InternalEngineSendChatResult,
 } from '../src/lib/internal-engine-bridge.js';
 import type { ChatActivityItem, EngineRequestedAction } from '../src/app-types.js';
+import { applyInternalApprovalRecoveryDecision, type InternalApprovalRecoveryFlow } from '../src/lib/internal-approval-recovery.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -138,14 +141,38 @@ function createInternalEngineMainService() {
     version: 1;
     runs: PersistedInternalRunRecord[];
   };
+  type PersistedInternalArtifactRecord = {
+    id: string;
+    runId: string;
+    sessionKey: string;
+    kind: 'cowork_execution';
+    createdAt: number;
+    receiptCount: number;
+    receipts: LocalActionReceipt[];
+    previews: string[];
+    errors: string[];
+    summary?: string;
+  };
+  type PersistedInternalArtifactJournal = {
+    version: 1;
+    artifacts: PersistedInternalArtifactRecord[];
+  };
+  type PersistedInternalPendingApprovalJournal = {
+    version: 1;
+    flows: InternalApprovalRecoveryFlow[];
+  };
   const stateFilePath = path.join(runtimeHome, 'state.v1.json');
   const runJournalFilePath = path.join(runtimeHome, 'runs.v1.json');
+  const artifactJournalFilePath = path.join(runtimeHome, 'artifacts.v1.json');
+  const pendingApprovalJournalFilePath = path.join(runtimeHome, 'pending-approvals.v1.json');
   let stateLoaded = false;
   let stateWriteChain: Promise<void> = Promise.resolve();
   let stateRestoreStatus: 'fresh' | 'restored' | 'recovered_after_interruption' | 'load_failed' = 'fresh';
   let lastRecoveryNote: string | null = null;
   let interruptedRunCount = 0;
   const runs = new Map<string, PersistedInternalRunRecord>();
+  let artifacts: PersistedInternalArtifactRecord[] = [];
+  let pendingApprovalFlows: InternalApprovalRecoveryFlow[] = [];
 
   const unavailable = () => new Error(shellStatus.unavailableReason);
   const requireConnected = () => {
@@ -522,6 +549,53 @@ function createInternalEngineMainService() {
         : {}),
     };
   };
+  const parsePersistedArtifact = (value: unknown): PersistedInternalArtifactRecord | null => {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+    const candidate = value as Record<string, unknown>;
+    const id = typeof candidate.id === 'string' && candidate.id.trim() ? candidate.id.trim() : null;
+    const runId = typeof candidate.runId === 'string' && candidate.runId.trim() ? candidate.runId.trim() : null;
+    const sessionKey =
+      typeof candidate.sessionKey === 'string' && candidate.sessionKey.trim() ? candidate.sessionKey.trim() : null;
+    if (!id || !runId || !sessionKey) {
+      return null;
+    }
+    return {
+      id,
+      runId,
+      sessionKey,
+      kind: 'cowork_execution',
+      createdAt: Number.isFinite(candidate.createdAt) ? Number(candidate.createdAt) : now(),
+      receiptCount: Number.isFinite(candidate.receiptCount) ? Number(candidate.receiptCount) : 0,
+      receipts: Array.isArray(candidate.receipts) ? candidate.receipts.filter(Boolean) as LocalActionReceipt[] : [],
+      previews: Array.isArray(candidate.previews) ? candidate.previews.filter((entry): entry is string => typeof entry === 'string') : [],
+      errors: Array.isArray(candidate.errors) ? candidate.errors.filter((entry): entry is string => typeof entry === 'string') : [],
+      ...(typeof candidate.summary === 'string' && candidate.summary.trim()
+        ? { summary: candidate.summary.trim() }
+        : {}),
+    };
+  };
+  const parsePersistedPendingApprovalFlow = (value: unknown): InternalApprovalRecoveryFlow | null => {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+    const candidate = value as Record<string, unknown>;
+    if (
+      typeof candidate.runId !== 'string'
+      || typeof candidate.sessionKey !== 'string'
+      || typeof candidate.rootPath !== 'string'
+      || !candidate.context
+      || !Array.isArray(candidate.requestedActions)
+      || !Array.isArray(candidate.approvedActions)
+      || !Array.isArray(candidate.rejectedActions)
+      || !candidate.currentApproval
+      || !Number.isFinite(candidate.currentIndex)
+    ) {
+      return null;
+    }
+    return candidate as unknown as InternalApprovalRecoveryFlow;
+  };
   const buildPersistedState = (): PersistedInternalEngineState => ({
     version: 1,
     activeSessionKey,
@@ -536,6 +610,14 @@ function createInternalEngineMainService() {
     runs: Array.from(runs.values())
       .sort((left, right) => left.updatedAt - right.updatedAt),
   });
+  const buildPersistedArtifactJournal = (): PersistedInternalArtifactJournal => ({
+    version: 1,
+    artifacts,
+  });
+  const buildPersistedPendingApprovalJournal = (): PersistedInternalPendingApprovalJournal => ({
+    version: 1,
+    flows: pendingApprovalFlows,
+  });
   const writePersistedState = async (override?: Partial<Pick<PersistedInternalEngineState, 'cleanShutdown'>>): Promise<void> => {
     await fs.mkdir(runtimeHome, { recursive: true });
     await fs.writeFile(stateFilePath, JSON.stringify({
@@ -543,6 +625,8 @@ function createInternalEngineMainService() {
       ...override,
     }, null, 2), 'utf8');
     await fs.writeFile(runJournalFilePath, JSON.stringify(buildPersistedRunJournal(), null, 2), 'utf8');
+    await fs.writeFile(artifactJournalFilePath, JSON.stringify(buildPersistedArtifactJournal(), null, 2), 'utf8');
+    await fs.writeFile(pendingApprovalJournalFilePath, JSON.stringify(buildPersistedPendingApprovalJournal(), null, 2), 'utf8');
   };
   const persistState = async (override?: Partial<Pick<PersistedInternalEngineState, 'cleanShutdown'>>): Promise<void> => {
     stateWriteChain = stateWriteChain.then(() => writePersistedState(override));
@@ -650,6 +734,34 @@ function createInternalEngineMainService() {
       }
       runs.clear();
     }
+    try {
+      const rawArtifacts = await fs.readFile(artifactJournalFilePath, 'utf8');
+      const parsedArtifacts = JSON.parse(rawArtifacts) as Record<string, unknown>;
+      artifacts = Array.isArray(parsedArtifacts.artifacts)
+        ? parsedArtifacts.artifacts
+            .map((entry) => parsePersistedArtifact(entry))
+            .filter((entry): entry is PersistedInternalArtifactRecord => Boolean(entry))
+        : [];
+    } catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || (error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.warn('[Cloffice] Failed to load internal artifact journal, starting with an empty artifact journal.', error);
+      }
+      artifacts = [];
+    }
+    try {
+      const rawPendingApprovals = await fs.readFile(pendingApprovalJournalFilePath, 'utf8');
+      const parsedPendingApprovals = JSON.parse(rawPendingApprovals) as Record<string, unknown>;
+      pendingApprovalFlows = Array.isArray(parsedPendingApprovals.flows)
+        ? parsedPendingApprovals.flows
+            .map((entry) => parsePersistedPendingApprovalFlow(entry))
+            .filter((entry): entry is InternalApprovalRecoveryFlow => Boolean(entry))
+        : [];
+    } catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || (error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.warn('[Cloffice] Failed to load internal pending approval journal, starting with an empty pending approval journal.', error);
+      }
+      pendingApprovalFlows = [];
+    }
 
     ensureSession(mainSessionKey, 'main');
     activeSessionKey = activeSessionKey && sessions.has(activeSessionKey) ? activeSessionKey : mainSessionKey;
@@ -718,6 +830,7 @@ function createInternalEngineMainService() {
         readiness: !shellStatus.availableInBuild ? 'unavailable' : connected ? 'ready' : 'idle',
         sessionCount: sessions.size,
         runCount: runs.size,
+        artifactCount: artifacts.length,
         interruptedRunCount,
         activeSessionKey,
         defaultModel,
@@ -805,6 +918,8 @@ function createInternalEngineMainService() {
             runs.delete(runId);
           }
         }
+        artifacts = artifacts.filter((artifact) => artifact.sessionKey !== mainSessionKey);
+        pendingApprovalFlows = pendingApprovalFlows.filter((flow) => flow.sessionKey !== mainSessionKey);
         sessions.set(mainSessionKey, {
           ...mainSession,
           title: 'Main chat',
@@ -821,6 +936,8 @@ function createInternalEngineMainService() {
           runs.delete(runId);
         }
       }
+      artifacts = artifacts.filter((artifact) => artifact.sessionKey !== sessionKey);
+      pendingApprovalFlows = pendingApprovalFlows.filter((flow) => flow.sessionKey !== sessionKey);
       if (activeSessionKey === sessionKey) {
         activeSessionKey = mainSessionKey;
       }
@@ -966,6 +1083,25 @@ function createInternalEngineMainService() {
             ? 'Internal cowork continuation completed with blocking errors.'
             : 'Internal cowork continuation completed.',
       });
+      artifacts = [
+        ...artifacts.filter((artifact) => artifact.runId !== payload.runId),
+        {
+          id: `artifact:${payload.runId}`,
+          runId: payload.runId,
+          sessionKey: session.key,
+          kind: 'cowork_execution' as const,
+          createdAt: now(),
+          receiptCount: execution.receipts.length,
+          receipts: execution.receipts,
+          previews: execution.previews,
+          errors: execution.errors,
+          summary:
+            execution.errors.length > 0 && approvedExecution.receipts.every((receipt) => receipt.status === 'error')
+              ? 'Internal cowork continuation recorded blocking execution errors.'
+              : 'Internal cowork continuation recorded execution receipts.',
+        },
+      ].sort((left, right) => left.createdAt - right.createdAt).slice(-200);
+      pendingApprovalFlows = pendingApprovalFlows.filter((flow) => flow.runId !== payload.runId);
       interruptedRunCount = Array.from(runs.values()).filter((run) => run.status === 'interrupted').length;
       await persistState();
 
@@ -988,6 +1124,47 @@ function createInternalEngineMainService() {
         engineActionMode: 'none',
         execution,
       };
+    },
+    async listPendingApprovals(): Promise<InternalApprovalRecoveryFlow[]> {
+      requireConnected();
+      return pendingApprovalFlows;
+    },
+    async savePendingApproval(flow: InternalApprovalRecoveryFlow): Promise<void> {
+      requireConnected();
+      pendingApprovalFlows = [
+        ...pendingApprovalFlows.filter((entry) => entry.runId !== flow.runId),
+        flow,
+      ];
+      await persistState();
+    },
+    async clearPendingApproval(runId: string): Promise<void> {
+      requireConnected();
+      pendingApprovalFlows = pendingApprovalFlows.filter((entry) => entry.runId !== runId);
+      await persistState();
+    },
+    async applyPendingApprovalDecision(
+      runId: string,
+      decision: InternalEnginePendingApprovalDecision,
+    ): Promise<InternalEnginePendingApprovalDecisionResult> {
+      requireConnected();
+      const flow = pendingApprovalFlows.find((entry) => entry.runId === runId);
+      if (!flow) {
+        return { kind: 'missing' };
+      }
+
+      const next = applyInternalApprovalRecoveryDecision(flow, decision);
+      if (next.kind === 'next') {
+        pendingApprovalFlows = [
+          ...pendingApprovalFlows.filter((entry) => entry.runId !== runId),
+          next.flow,
+        ];
+        await persistState();
+        return next;
+      }
+
+      pendingApprovalFlows = pendingApprovalFlows.filter((entry) => entry.runId !== runId);
+      await persistState();
+      return next;
     },
     isConnected() {
       return connected;
@@ -1942,6 +2119,14 @@ app.whenReady().then(async () => {
   ipcMain.handle('internal-engine:get-history', async (_event, sessionKey: string, limit?: number) => internalEngineService.getHistory(sessionKey, limit));
   ipcMain.handle('internal-engine:send-chat', async (_event, sessionKey: string, text: string) => internalEngineService.sendChat(sessionKey, text));
   ipcMain.handle('internal-engine:continue-cowork-run', async (_event, payload: InternalEngineCoworkContinuationRequest) => internalEngineService.continueCoworkRun(payload));
+  ipcMain.handle('internal-engine:list-pending-approvals', async () => internalEngineService.listPendingApprovals());
+  ipcMain.handle('internal-engine:save-pending-approval', async (_event, flow: InternalApprovalRecoveryFlow) => internalEngineService.savePendingApproval(flow));
+  ipcMain.handle('internal-engine:clear-pending-approval', async (_event, runId: string) => internalEngineService.clearPendingApproval(runId));
+  ipcMain.handle(
+    'internal-engine:apply-pending-approval-decision',
+    async (_event, runId: string, decision: InternalEnginePendingApprovalDecision) =>
+      internalEngineService.applyPendingApprovalDecision(runId, decision),
+  );
   ipcMain.handle('backend:health-check', async (_event, baseUrl: string) => runHealthCheck(baseUrl));
   ipcMain.handle('gateway:discover', async () => discoverGateway());
   ipcMain.handle('plugin:check-workspace', async () => {
