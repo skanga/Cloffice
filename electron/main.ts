@@ -583,6 +583,8 @@ function createInternalEngineMainService() {
       session.model = nextModel;
       ensureModeBootstrap(session);
 
+      await delay(250);
+
       const approvedExecution = await executeApprovedReadOnlyActions(payload.rootPath, payload.approvedActions);
       const rejectedReceipts: LocalActionReceipt[] = payload.rejectedActions.map((action) => ({
         id: action.actionId || action.id,

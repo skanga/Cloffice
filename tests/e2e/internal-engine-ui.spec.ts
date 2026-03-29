@@ -162,7 +162,7 @@ async function waitForFirstApproval(page: Page, timeout = 30000) {
   return { approvalCard, approvalId };
 }
 
-async function waitForPromptStatus(page: Page, promptTag: string, status: 'completed' | 'failed') {
+async function waitForPromptStatus(page: Page, promptTag: string, status: 'running' | 'completed' | 'failed') {
   await expect
     .poll(
       async () =>
@@ -253,6 +253,7 @@ test.describe('Internal engine UI flow', () => {
     }
     expect(resolvedApprovals).toBeGreaterThanOrEqual(2);
 
+    await waitForPromptStatus(page, 'UI-READ-ONLY-1', 'running');
     await expect(page.getByText('Listed: .')).toBeVisible({ timeout: 30000 });
     await waitForPromptStatus(page, 'UI-READ-ONLY-1', 'completed');
   });

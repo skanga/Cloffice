@@ -1,4 +1,4 @@
-import type { ChatActivityItem, EngineRequestedAction } from '@/app-types';
+import type { ChatActivityItem, CoworkProjectTaskStatus, EngineRequestedAction } from '@/app-types';
 import {
   parseRelayActivityItems,
   parseRelayFileActions,
@@ -126,4 +126,92 @@ export function buildInternalEngineActionInstruction(): string {
     'Prefer read-only actions first while the internal cowork action runner is still being developed.',
     'Start with list_dir, read_file, exists, or stat when you need more context before planning further work.',
   ].join('\n');
+}
+
+export function summarizeEngineRequestedAction(action: EngineRequestedAction): string {
+  if (action.type === 'list_dir') {
+    return `List directory ${action.path || '.'}`;
+  }
+  if (action.type === 'read_file') {
+    return `Read ${action.path}`;
+  }
+  if (action.type === 'stat') {
+    return `Inspect metadata for ${action.path}`;
+  }
+  if (action.type === 'exists') {
+    return `Check exists ${action.path}`;
+  }
+  if (action.type === 'create_file') {
+    return `Create ${action.path}${action.overwrite ? ' (overwrite)' : ''}`;
+  }
+  if (action.type === 'append_file') {
+    return `Append ${action.path}`;
+  }
+  if (action.type === 'rename') {
+    return `Rename ${action.path} -> ${action.newPath}`;
+  }
+  if (action.type === 'delete') {
+    return `Delete ${action.path}`;
+  }
+  return `Run ${action.type} on ${action.path}`;
+}
+
+export function buildEngineApprovalPreview(action: EngineRequestedAction): string {
+  const actionPath = action.path || '.';
+  if (action.type === 'list_dir') {
+    return [
+      'Cowork requested a read-only directory listing.',
+      `Path: ${actionPath}`,
+    ].join('\n');
+  }
+  if (action.type === 'read_file') {
+    return [
+      'Cowork requested a read-only file read.',
+      `Path: ${actionPath}`,
+    ].join('\n');
+  }
+  if (action.type === 'stat') {
+    return [
+      'Cowork requested a read-only file or folder metadata check.',
+      `Path: ${actionPath}`,
+    ].join('\n');
+  }
+  if (action.type === 'exists') {
+    return [
+      'Cowork requested a read-only existence check.',
+      `Path: ${actionPath}`,
+    ].join('\n');
+  }
+  return [
+    `Cowork requested ${action.type}.`,
+    `Path: ${actionPath}`,
+  ].join('\n');
+}
+
+export function resolveEngineApprovalTaskTransition(
+  stage: 'pending' | 'approved' | 'rejected',
+  action: EngineRequestedAction,
+  reason?: string,
+): { status: CoworkProjectTaskStatus; summary: string; outcome?: string } {
+  const actionSummary = summarizeEngineRequestedAction(action);
+
+  if (stage === 'approved') {
+    return {
+      status: 'approved',
+      summary: `Approved: ${actionSummary}`,
+    };
+  }
+
+  if (stage === 'rejected') {
+    return {
+      status: 'rejected',
+      summary: `Rejected: ${actionSummary}`,
+      outcome: reason,
+    };
+  }
+
+  return {
+    status: 'needs_approval',
+    summary: `Needs approval: ${actionSummary}`,
+  };
 }

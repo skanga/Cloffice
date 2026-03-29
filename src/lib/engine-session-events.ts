@@ -1,5 +1,6 @@
 import type {
   ChatActivityItem,
+  CoworkProjectTaskStatus,
   EngineActionExecutionResult,
   EngineChatEventState,
   EngineRequestedAction,
@@ -101,6 +102,13 @@ export type EngineSessionMessageIds = {
   activityId: string;
 };
 
+export type EngineCoworkUiTransition = {
+  runStatus: string;
+  progressDetails: string;
+  taskStatus: CoworkProjectTaskStatus;
+  taskSummary: string;
+};
+
 export function deriveEngineSessionArtifacts(event: EngineSessionEvent): EngineSessionArtifacts {
   const payload = event.payload;
   const message = event.payload.message ?? event.payload;
@@ -147,6 +155,61 @@ export function getEngineSessionMessageIds(scope: EngineSessionScope, runId: str
     streamId: `${prefix}stream-${runId}`,
     finalId: `${prefix}final-${runId}`,
     activityId: `${prefix}activity-${runId}`,
+  };
+}
+
+export function resolveEngineCoworkStreamingTransition(event: EngineSessionEvent): EngineCoworkUiTransition {
+  const actionPhase = normalizeEngineActionPhase(event.payload.engineActionPhase);
+  const actionMode = event.payload.engineActionMode === 'read-only' ? 'read-only' : 'none';
+
+  if (actionPhase === 'executing') {
+    return {
+      runStatus: 'Cowork is executing approved engine actions.',
+      progressDetails:
+        actionMode === 'read-only'
+          ? 'Cowork is executing approved read-only workspace inspection actions.'
+          : 'Cowork is executing approved engine actions.',
+      taskStatus: 'running',
+      taskSummary:
+        actionMode === 'read-only'
+          ? 'Executing approved read-only engine actions.'
+          : 'Executing approved engine actions.',
+    };
+  }
+
+  return {
+    runStatus: 'Cowork is streaming a response.',
+    progressDetails: 'Running workstreams and producing intermediate results.',
+    taskStatus: 'running',
+    taskSummary: 'Streaming response from cowork.',
+  };
+}
+
+export function resolveEngineCoworkApprovalTransition(
+  artifacts: Pick<EngineSessionArtifacts, 'actionPhase' | 'actionMode' | 'hasRequestedActions'>,
+): EngineCoworkUiTransition | null {
+  if (!artifacts.hasRequestedActions) {
+    return null;
+  }
+
+  if (artifacts.actionPhase !== 'approval_required' && artifacts.actionPhase !== 'awaiting_approval') {
+    return null;
+  }
+
+  return {
+    runStatus:
+      artifacts.actionMode === 'read-only'
+        ? 'Cowork is requesting approval for read-only engine actions.'
+        : 'Cowork is requesting approval for engine actions.',
+    progressDetails:
+      artifacts.actionMode === 'read-only'
+        ? 'Cowork requested scoped read-only inspection actions and is awaiting approval handling.'
+        : 'Cowork requested governed engine actions and is awaiting approval handling.',
+    taskStatus: 'needs_approval',
+    taskSummary:
+      artifacts.actionMode === 'read-only'
+        ? 'Awaiting approval for read-only engine actions.'
+        : 'Awaiting approval for engine actions.',
   };
 }
 

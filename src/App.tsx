@@ -87,26 +87,31 @@ import {
   readEngineError,
   normalizeCoworkMessage,
 } from './lib/chat-utils';
-import {
-  buildEngineActionExecutionResult,
-  buildMissingEngineRequestedActionsMessage,
-  deriveEngineSessionArtifacts,
-  getEngineSessionMessageIds,
-  getEngineSessionResult,
-  isEngineSessionError,
-  isEngineSessionStreaming,
-  parseEngineChatEvent,
-} from './lib/engine-session-events';
+  import {
+    buildEngineActionExecutionResult,
+    buildMissingEngineRequestedActionsMessage,
+    deriveEngineSessionArtifacts,
+    getEngineSessionMessageIds,
+    getEngineSessionResult,
+    isEngineSessionError,
+    isEngineSessionStreaming,
+    parseEngineChatEvent,
+    resolveEngineCoworkApprovalTransition,
+    resolveEngineCoworkStreamingTransition,
+  } from './lib/engine-session-events';
 import {
   appendUniqueSystemMessage,
   deriveEngineActionRunKey,
   resolveEngineActionOutcome,
   resolveEngineActionTaskStatus,
 } from './lib/engine-run-coordinator';
-import {
-  buildInternalEngineActionInstruction,
-  buildOpenClawCompatEngineActionInstruction,
-} from './lib/engine-action-protocol';
+  import {
+    buildEngineApprovalPreview,
+    buildInternalEngineActionInstruction,
+    buildOpenClawCompatEngineActionInstruction,
+    resolveEngineApprovalTaskTransition,
+    summarizeEngineRequestedAction,
+  } from './lib/engine-action-protocol';
 
 const ChatPage = lazy(() => import('./features/chat/chat-page').then((module) => ({ default: module.ChatPage })));
 const CoworkPage = lazy(() => import('./features/cowork/cowork-page').then((module) => ({ default: module.CoworkPage })));
@@ -1992,16 +1997,17 @@ export default function App() {
           if (isEngineSessionStreaming(chatEvent)) {
             setCoworkAwaitingStream(false);
             setCoworkRunPhase('streaming');
-            setCoworkRunStatus('Cowork is streaming a response.');
+            const streamingTransition = resolveEngineCoworkStreamingTransition(chatEvent);
+            setCoworkRunStatus(streamingTransition.runStatus);
             setCoworkProgressStage('executing_workstreams', {
-              details: 'Running workstreams and producing intermediate results.',
+              details: streamingTransition.progressDetails,
             });
             setCoworkStreamingText(visibleText);
             const taskEntry = resolveCoworkTaskForRun(eventSessionKey || coworkSessionKeyRef.current, runId);
             if (taskEntry) {
-              setCoworkTaskStatus(taskEntry.taskId, 'running', {
+              setCoworkTaskStatus(taskEntry.taskId, streamingTransition.taskStatus, {
                 runId,
-                summary: 'Streaming response from cowork.',
+                summary: streamingTransition.taskSummary,
               });
             }
             const { streamId } = getEngineSessionMessageIds('cowork', runId);
@@ -2149,32 +2155,23 @@ export default function App() {
                 return next;
               });
             };
-            if (
-              providerId === 'internal' &&
-              (actionPhase === 'approval_required' || actionPhase === 'awaiting_approval') &&
-              hasRequestedActions
-            ) {
-              setCoworkRunStatus(
-                actionMode === 'read-only'
-                  ? 'Internal cowork is requesting approval for read-only actions.'
-                  : 'Internal cowork is requesting action approval.',
-              );
+            const approvalTransition = resolveEngineCoworkApprovalTransition({
+              hasRequestedActions,
+              actionPhase,
+              actionMode,
+            });
+            if (approvalTransition) {
+              setCoworkRunStatus(approvalTransition.runStatus);
               setCoworkProgressStage('executing_workstreams', {
-                details:
-                  actionMode === 'read-only'
-                    ? 'Internal cowork requested scoped inspection actions and is awaiting approval handling.'
-                    : 'Internal cowork requested governed actions and is awaiting approval handling.',
+                details: approvalTransition.progressDetails,
               });
               if (taskEntry) {
-                setCoworkTaskStatus(taskEntry.taskId, 'needs_approval', {
+                setCoworkTaskStatus(taskEntry.taskId, approvalTransition.taskStatus, {
                   runId,
-                  summary:
-                    actionMode === 'read-only'
-                      ? 'Awaiting approval for internal read-only actions.'
-                      : 'Awaiting approval for internal engine actions.',
-                  });
-                }
+                  summary: approvalTransition.taskSummary,
+                });
               }
+            }
             if (taskEntry && requestedActions.length === 0 && !internalExecution) {
               setCoworkTaskStatus(taskEntry.taskId, 'completed', {
                 runId,
@@ -2253,45 +2250,6 @@ export default function App() {
                     reason?: string;
                   }> = [];
 
-                  const summarizeInternalReadOnlyAction = (action: (typeof boundedActions)[number]) => {
-                    if (action.type === 'list_dir') {
-                      return `List directory ${action.path || '.'}`;
-                    }
-                    if (action.type === 'read_file') {
-                      return `Read ${action.path}`;
-                    }
-                    if (action.type === 'stat') {
-                      return `Inspect metadata for ${action.path}`;
-                    }
-                    return `Check exists ${action.path}`;
-                  };
-
-                  const buildInternalReadOnlyApprovalPreview = (action: (typeof boundedActions)[number]) => {
-                    const actionPath = action.path || '.';
-                    if (action.type === 'list_dir') {
-                      return [
-                        'Internal cowork requested a read-only directory listing.',
-                        `Path: ${actionPath}`,
-                      ].join('\n');
-                    }
-                    if (action.type === 'read_file') {
-                      return [
-                        'Internal cowork requested a read-only file read.',
-                        `Path: ${actionPath}`,
-                      ].join('\n');
-                    }
-                    if (action.type === 'stat') {
-                      return [
-                        'Internal cowork requested a read-only file or folder metadata check.',
-                        `Path: ${actionPath}`,
-                      ].join('\n');
-                    }
-                    return [
-                      'Internal cowork requested a read-only existence check.',
-                      `Path: ${actionPath}`,
-                    ].join('\n');
-                  };
-
                   if (requestedActions.length > MAX_LOCAL_ACTIONS_PER_RUN) {
                     console.warn(
                       `[Cloffice] internal cowork action limit exceeded: received ${requestedActions.length}, executing ${MAX_LOCAL_ACTIONS_PER_RUN}.`,
@@ -2303,16 +2261,17 @@ export default function App() {
                     const actionId = action.id || `action-${index + 1}`;
                     const actionPath = action.path || '.';
                     const approvalId = `${runId}-${actionId}-${index + 1}`;
-                    const actionSummary = summarizeInternalReadOnlyAction(action);
+                    const actionSummary = summarizeEngineRequestedAction(action);
 
                     setCoworkRunStatus(`Awaiting approval for ${actionSummary}...`);
                     setCoworkProgressStage('executing_workstreams', {
                       details: `Awaiting operator approval for internal read-only action on ${actionPath}.`,
                     });
                     if (taskEntry) {
-                      setCoworkTaskStatus(taskEntry.taskId, 'needs_approval', {
+                      const taskTransition = resolveEngineApprovalTaskTransition('pending', action);
+                      setCoworkTaskStatus(taskEntry.taskId, taskTransition.status, {
                         runId,
-                        summary: `Needs approval: ${actionSummary}`,
+                        summary: taskTransition.summary,
                       });
                     }
 
@@ -2329,7 +2288,7 @@ export default function App() {
                       scopeName: 'Workspace read',
                       riskLevel: 'medium',
                       summary: `${runContext.projectTitle ? `[${runContext.projectTitle}] ` : ''}${actionSummary}`,
-                      preview: buildInternalReadOnlyApprovalPreview(action),
+                      preview: buildEngineApprovalPreview(action),
                       createdAt: Date.now(),
                     });
 
@@ -2344,10 +2303,11 @@ export default function App() {
                         reason,
                       });
                       if (taskEntry) {
-                        setCoworkTaskStatus(taskEntry.taskId, 'rejected', {
+                        const taskTransition = resolveEngineApprovalTaskTransition('rejected', action, reason);
+                        setCoworkTaskStatus(taskEntry.taskId, taskTransition.status, {
                           runId,
-                          summary: `Rejected: ${actionSummary}`,
-                          outcome: reason,
+                          summary: taskTransition.summary,
+                          outcome: taskTransition.outcome,
                         });
                       }
                       continue;
@@ -2355,9 +2315,10 @@ export default function App() {
 
                     approvedActions.push(action);
                     if (taskEntry) {
-                      setCoworkTaskStatus(taskEntry.taskId, 'approved', {
+                      const taskTransition = resolveEngineApprovalTaskTransition('approved', action);
+                      setCoworkTaskStatus(taskEntry.taskId, taskTransition.status, {
                         runId,
-                        summary: `Approved: ${actionSummary}`,
+                        summary: taskTransition.summary,
                       });
                     }
                   }

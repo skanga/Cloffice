@@ -3,6 +3,7 @@ import type {
   EngineConnectOptions,
   EngineConnectionHandler,
   EngineCronJob,
+  EngineEventFrame,
   EngineEventHandler,
   EngineModelChoice,
   EngineRuntimeClient,
@@ -59,6 +60,10 @@ export class InternalEnginePlaceholderClient implements EngineRuntimeClient {
     this.bridge = bridge;
   }
 
+  private emitEvent(event: EngineEventFrame): void {
+    this.eventHandler?.(event);
+  }
+
   private emitInternalResult(internalResult: InternalEngineSendChatResult): void {
     if (!internalResult.assistantMessage) {
       return;
@@ -82,13 +87,46 @@ export class InternalEnginePlaceholderClient implements EngineRuntimeClient {
       payload.execution = (internalResult as InternalEngineCoworkContinuationResult).execution;
     }
 
-    this.eventHandler?.({
+    this.emitEvent({
       type: 'event',
       event: 'chat',
       stateVersion: {
         historyLength: internalResult.historyLength,
       },
       payload,
+    });
+  }
+
+  private emitExecutingCoworkPhase(payload: InternalEngineCoworkContinuationRequest): void {
+    const message: EngineChatMessage = {
+      id: `internal-executing-${payload.runId}`,
+      role: 'assistant',
+      text: 'Internal cowork is executing approved read-only actions...',
+    };
+
+    this.emitEvent({
+      type: 'event',
+      event: 'chat',
+      payload: {
+        providerId: this.providerId,
+        runtimeKind: this.runtimeKind,
+        sessionKind: 'cowork',
+        sessionKey: payload.sessionKey,
+        runId: payload.runId,
+        state: 'delta',
+        message,
+        requestedActions: [],
+        activityItems: [
+          {
+            id: `internal-executing-${payload.runId}`,
+            label: 'Internal cowork is executing approved read-only actions.',
+            details: `Approved actions: ${payload.approvedActions.length}`,
+            tone: 'neutral',
+          },
+        ],
+        engineActionPhase: 'executing',
+        engineActionMode: 'read-only',
+      },
     });
   }
 
@@ -155,6 +193,7 @@ export class InternalEnginePlaceholderClient implements EngineRuntimeClient {
   }
 
   continueCoworkRun(payload: InternalEngineCoworkContinuationRequest): Promise<{ sessionKey: string }> {
+    this.emitExecutingCoworkPhase(payload);
     return this.bridge.sessions.continueCoworkRun(payload).then((result) => {
       this.emitInternalResult(result);
       return { sessionKey: result.sessionKey };
