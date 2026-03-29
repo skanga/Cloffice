@@ -54,6 +54,21 @@ export type EngineCoworkReceiptPosting = EngineCoworkReceiptApplication & {
   receiptMessage: ChatMessage;
 };
 
+export type EngineCoworkTaskCommit = {
+  taskStatus: CoworkProjectTaskStatus;
+  taskSummary: string;
+  taskOutcome?: string;
+  shouldFinalize: boolean;
+};
+
+export type EngineCoworkReceiptCommit = {
+  runStatus: string;
+  progressDetails: string;
+  message: ChatMessage;
+  receipts: LocalActionReceipt[];
+  taskCommit?: EngineCoworkTaskCommit;
+};
+
 export type EngineCoworkFailureApplication = {
   runStatus: string;
   progressDetails: string;
@@ -183,6 +198,27 @@ export function resolveEngineCoworkReceiptPosting(
   };
 }
 
+export function resolveEngineCoworkReceiptCommit(params: {
+  result: EngineActionExecutionResult;
+  hasTaskEntry: boolean;
+}): EngineCoworkReceiptCommit {
+  const posting = resolveEngineCoworkReceiptPosting(params.result);
+  return {
+    runStatus: posting.runStatus,
+    progressDetails: posting.progressDetails,
+    message: posting.receiptMessage,
+    receipts: params.result.receipts,
+    taskCommit: params.hasTaskEntry
+      ? {
+          taskStatus: posting.taskStatus,
+          taskSummary: posting.taskSummary,
+          taskOutcome: posting.taskOutcome,
+          shouldFinalize: true,
+        }
+      : undefined,
+  };
+}
+
 export function appendEngineCoworkReceiptMessage(params: {
   current: ChatMessage[];
   result: EngineActionExecutionResult;
@@ -217,6 +253,14 @@ export type EngineCoworkNoActionCompletion = EngineCoworkNoActionApplication & {
   message: ChatMessage;
 };
 
+export type EngineCoworkNoActionCommit = {
+  progressDetails: string;
+  message: ChatMessage;
+  notificationTitle: string;
+  notificationBody: string;
+  taskCommit?: EngineCoworkTaskCommit;
+};
+
 export function resolveEngineCoworkNoActionApplication(params: {
   visibleText: string;
   projectTitle?: string;
@@ -247,6 +291,35 @@ export function resolveEngineCoworkNoActionCompletion(params: {
       projectTitle: params.projectTitle,
       rootPath: params.rootPath,
     }),
+  };
+}
+
+export function resolveEngineCoworkNoActionCommit(params: {
+  visibleText: string;
+  projectTitle?: string;
+  runId: string;
+  rootPath?: string;
+  hasTaskEntry: boolean;
+}): EngineCoworkNoActionCommit {
+  const completion = resolveEngineCoworkNoActionCompletion({
+    visibleText: params.visibleText,
+    projectTitle: params.projectTitle,
+    runId: params.runId,
+    rootPath: params.rootPath,
+  });
+  return {
+    progressDetails: completion.progressDetails,
+    message: completion.message,
+    notificationTitle: completion.notificationTitle,
+    notificationBody: completion.notificationBody,
+    taskCommit: params.hasTaskEntry
+      ? {
+          taskStatus: completion.taskStatus,
+          taskSummary: completion.taskSummary,
+          taskOutcome: completion.taskOutcome,
+          shouldFinalize: true,
+        }
+      : undefined,
   };
 }
 

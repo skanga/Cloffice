@@ -113,8 +113,8 @@ import {
   executeEngineCoworkActionExecution,
   resolveEngineCoworkFailureApplication,
   resolveEngineCoworkApprovalApplication,
-  resolveEngineCoworkNoActionCompletion,
-  resolveEngineCoworkReceiptPosting,
+  resolveEngineCoworkNoActionCommit,
+  resolveEngineCoworkReceiptCommit,
 } from './lib/engine-run-coordinator';
   import {
     buildInternalEngineActionInstruction,
@@ -2097,29 +2097,34 @@ export default function App() {
             const runContext = resolveCoworkRunContext(eventSessionKey || coworkSessionKeyRef.current, runId);
             const taskEntry = resolveCoworkTaskForRun(eventSessionKey || coworkSessionKeyRef.current, runId);
             const postCoworkActionReceipt = (result: ReturnType<typeof buildEngineActionExecutionResult>) => {
-              const receiptPosting = resolveEngineCoworkReceiptPosting(result);
-              setCoworkRunStatus(receiptPosting.runStatus);
+              const receiptCommit = resolveEngineCoworkReceiptCommit({
+                result,
+                hasTaskEntry: Boolean(taskEntry),
+              });
+              setCoworkRunStatus(receiptCommit.runStatus);
               setCoworkProgressStage('deliverables', {
                 completeThrough: true,
-                details: receiptPosting.progressDetails,
+                details: receiptCommit.progressDetails,
               });
-              setStatus(receiptPosting.runStatus);
-              pushLocalActionReceipts(result.receipts);
-              recordCoworkArtifactsFromReceipts(result.receipts, runId);
+              setStatus(receiptCommit.runStatus);
+              pushLocalActionReceipts(receiptCommit.receipts);
+              recordCoworkArtifactsFromReceipts(receiptCommit.receipts, runId);
 
-              if (taskEntry) {
-                setCoworkTaskStatus(taskEntry.taskId, receiptPosting.taskStatus, {
+              if (taskEntry && receiptCommit.taskCommit) {
+                setCoworkTaskStatus(taskEntry.taskId, receiptCommit.taskCommit.taskStatus, {
                   runId,
-                  summary: receiptPosting.taskSummary,
-                  outcome: receiptPosting.taskOutcome,
+                  summary: receiptCommit.taskCommit.taskSummary,
+                  outcome: receiptCommit.taskCommit.taskOutcome,
                 });
-                finalizeCoworkTaskRun(eventSessionKey || coworkSessionKeyRef.current, taskEntry.taskId);
+                if (receiptCommit.taskCommit.shouldFinalize) {
+                  finalizeCoworkTaskRun(eventSessionKey || coworkSessionKeyRef.current, taskEntry.taskId);
+                }
               }
 
               setCoworkMessages((current) => {
                 const next = appendEngineCoworkSystemMessage({
                   current,
-                  message: receiptPosting.receiptMessage,
+                  message: receiptCommit.message,
                 });
                 if (eventSessionKey) {
                   coworkMessageCache.current.set(eventSessionKey, next);
@@ -2146,17 +2151,20 @@ export default function App() {
               }
             }
             if (taskEntry && requestedActions.length === 0 && !internalExecution) {
-              const noActionCompletion = resolveEngineCoworkNoActionCompletion({
+              const noActionCommit = resolveEngineCoworkNoActionCommit({
                 visibleText,
                 projectTitle: runContext.projectTitle,
                 runId,
                 rootPath: runContext.rootFolder,
+                hasTaskEntry: true,
               });
-              setCoworkTaskStatus(taskEntry.taskId, noActionCompletion.taskStatus, {
-                runId,
-                summary: noActionCompletion.taskSummary,
-                outcome: noActionCompletion.taskOutcome,
-              });
+              if (noActionCommit.taskCommit) {
+                setCoworkTaskStatus(taskEntry.taskId, noActionCommit.taskCommit.taskStatus, {
+                  runId,
+                  summary: noActionCommit.taskCommit.taskSummary,
+                  outcome: noActionCommit.taskCommit.taskOutcome,
+                });
+              }
             }
             if (
               requestedActions.length > 0 &&
@@ -2225,33 +2233,36 @@ export default function App() {
                 }),
               );
             } else if (requestedActions.length === 0) {
-              const noActionCompletion = resolveEngineCoworkNoActionCompletion({
+              const noActionCommit = resolveEngineCoworkNoActionCommit({
                 visibleText,
                 projectTitle: runContext.projectTitle,
                 runId,
                 rootPath: runContext.rootFolder,
+                hasTaskEntry: Boolean(taskEntry),
               });
               setCoworkProgressStage('deliverables', {
                 completeThrough: true,
-                details: noActionCompletion.progressDetails,
+                details: noActionCommit.progressDetails,
               });
-              if (taskEntry) {
-                setCoworkTaskStatus(taskEntry.taskId, noActionCompletion.taskStatus, {
+              if (taskEntry && noActionCommit.taskCommit) {
+                setCoworkTaskStatus(taskEntry.taskId, noActionCommit.taskCommit.taskStatus, {
                   runId,
-                  summary: noActionCompletion.taskSummary,
-                  outcome: noActionCompletion.taskOutcome,
+                  summary: noActionCommit.taskCommit.taskSummary,
+                  outcome: noActionCommit.taskCommit.taskOutcome,
                 });
-                finalizeCoworkTaskRun(eventSessionKey || coworkSessionKeyRef.current, taskEntry.taskId);
+                if (noActionCommit.taskCommit.shouldFinalize) {
+                  finalizeCoworkTaskRun(eventSessionKey || coworkSessionKeyRef.current, taskEntry.taskId);
+                }
 
                 if (bridge?.notify) {
-                  bridge.notify(noActionCompletion.notificationTitle, noActionCompletion.notificationBody).catch(() => {});
+                  bridge.notify(noActionCommit.notificationTitle, noActionCommit.notificationBody).catch(() => {});
                 }
               }
 
               setCoworkMessages((current) => {
                 const next = appendEngineCoworkSystemMessage({
                   current,
-                  message: noActionCompletion.message,
+                  message: noActionCommit.message,
                 });
                 if (eventSessionKey) {
                   coworkMessageCache.current.set(eventSessionKey, next);
