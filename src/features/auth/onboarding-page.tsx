@@ -167,6 +167,19 @@ export function OnboardingPage({
     () => effectiveEngineProviders.find((provider) => provider.id === draftEngineProviderId) ?? selectedEngineProvider,
     [draftEngineProviderId, effectiveEngineProviders, selectedEngineProvider],
   );
+  const compatibilityProviderSelected = draftEngineProviderId === 'openclaw-compat';
+  const runtimeUrlHelpText = compatibilityProviderSelected
+    ? buildOpenClawCompatibilityEndpointHelpText()
+    : 'The internal engine uses the built-in desktop runtime. Leave this as internal://dev-runtime unless you are debugging a custom internal endpoint.';
+  const runtimeUrlPlaceholder = compatibilityProviderSelected
+    ? 'e.g. ws://127.0.0.1:18789 or wss://your-runtime.example.com'
+    : 'internal://dev-runtime';
+  const runtimeTokenHelpText = compatibilityProviderSelected
+    ? buildOpenClawCompatibilityTokenHelpText()
+    : 'The internal engine does not require a runtime access token.';
+  const runtimeTokenPlaceholder = compatibilityProviderSelected
+    ? 'Paste your access token'
+    : 'Not used for the internal engine';
 
   // Auto-discover a local runtime on mount.
   useEffect(() => {
@@ -485,14 +498,14 @@ export function OnboardingPage({
                       ?
                     </span>
                     <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-64 -translate-x-1/2 rounded-lg border border-border bg-popover px-3 py-2.5 font-normal text-[12px] leading-relaxed text-popover-foreground shadow-md opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-                      {buildOpenClawCompatibilityEndpointHelpText().split('ws://127.0.0.1:18789')[0]}<code className="rounded bg-muted px-1 font-mono text-[11px]">ws://127.0.0.1:18789</code>{buildOpenClawCompatibilityEndpointHelpText().split('ws://127.0.0.1:18789')[1]}
+                      {runtimeUrlHelpText}
                     </span>
                   </span>
                 </label>
                 <Input
                   value={draftEngineUrl}
                   onChange={(event) => onDraftEngineUrlChange(event.target.value)}
-                  placeholder="e.g. ws://127.0.0.1:18789 or wss://your-runtime.example.com"
+                  placeholder={runtimeUrlPlaceholder}
                   className="h-10 font-mono text-[13px]"
                 />
               </div>
@@ -506,7 +519,7 @@ export function OnboardingPage({
                       ?
                     </span>
                     <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-64 -translate-x-1/2 rounded-lg border border-border bg-popover px-3 py-2.5 font-normal text-[12px] leading-relaxed text-popover-foreground shadow-md opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-                      {buildOpenClawCompatibilityTokenHelpText().split('openclaw.json')[0]}<code className="rounded bg-muted px-1 font-mono text-[11px]">openclaw.json</code>{buildOpenClawCompatibilityTokenHelpText().split('openclaw.json')[1].split('gateway -> auth -> token')[0]}<code className="rounded bg-muted px-1 font-mono text-[11px]">gateway -&gt; auth -&gt; token</code>{buildOpenClawCompatibilityTokenHelpText().split('gateway -> auth -> token')[1]}
+                      {runtimeTokenHelpText}
                     </span>
                   </span>
                 </label>
@@ -515,13 +528,15 @@ export function OnboardingPage({
                     type={showToken ? 'text' : 'password'}
                     value={draftEngineToken}
                     onChange={(event) => onDraftEngineTokenChange(event.target.value)}
-                    placeholder="Paste your access token"
+                    placeholder={runtimeTokenPlaceholder}
+                    disabled={!compatibilityProviderSelected}
                     className="h-10 pr-10 font-mono text-[13px]"
                   />
                   <button
                     type="button"
                     tabIndex={-1}
                     onClick={() => setShowToken((v) => !v)}
+                    disabled={!compatibilityProviderSelected}
                     className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
                     aria-label={showToken ? 'Hide token' : 'Show token'}
                   >

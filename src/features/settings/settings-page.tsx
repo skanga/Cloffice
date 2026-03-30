@@ -76,8 +76,8 @@ const sectionDescriptions: Record<SettingsSection, { en: string; de: string }> =
     de: 'Standardanweisungen fuer jede Konversation.',
   },
   Gateway: {
-    en: 'Engine/runtime connection, device authorization, and compatibility settings.',
-    de: 'Engine-Laufzeit, Geraeteautorisierung und Kompatibilitaetseinstellungen.',
+    en: 'Engine/runtime connection, internal provider setup, and optional legacy compatibility settings.',
+    de: 'Engine-Laufzeit, interne Provider-Einrichtung und optionale Legacy-Kompatibilitaetseinstellungen.',
   },
   Connectors: {
     en: 'Connect external services to Cloffice.',
@@ -326,6 +326,13 @@ export function SettingsPage({
     [draftEngineProviderId, effectiveEngineProviders, selectedEngineProvider],
   );
   const t = useCallback((en: string, de: string) => (preferences.language === 'de' ? de : en), [preferences.language]);
+  const compatibilityProviderSelected = draftEngineProviderId === 'openclaw-compat';
+  const runtimeEndpointPlaceholder = compatibilityProviderSelected
+    ? buildOpenClawCompatibilityDefaultEndpoint()
+    : 'internal://dev-runtime';
+  const runtimeTokenPlaceholder = compatibilityProviderSelected
+    ? t(buildOpenClawCompatibilityTokenPlaceholder(), 'Token aus dem OpenClaw-Setup einfuegen')
+    : t('Not used for the internal engine', 'Wird fuer die interne Engine nicht verwendet');
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -800,7 +807,7 @@ export function SettingsPage({
                 <Input
                   value={draftEngineUrl}
                   onChange={(event) => onDraftEngineUrlChange(event.target.value)}
-                  placeholder={buildOpenClawCompatibilityDefaultEndpoint()}
+                  placeholder={runtimeEndpointPlaceholder}
                   className="font-sans"
                 />
               </label>
@@ -811,7 +818,8 @@ export function SettingsPage({
                   type="password"
                   value={draftEngineToken}
                   onChange={(event) => onDraftEngineTokenChange(event.target.value)}
-                  placeholder={t(buildOpenClawCompatibilityTokenPlaceholder(), 'Token aus dem OpenClaw-Setup einfuegen')}
+                  placeholder={runtimeTokenPlaceholder}
+                  disabled={!compatibilityProviderSelected}
                   className="font-sans"
                 />
               </label>

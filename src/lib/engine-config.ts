@@ -11,7 +11,8 @@ import {
 
 export type InternalProviderConfig = StoredInternalProviderConfig;
 
-export const DEFAULT_ENGINE_PROVIDER_ID: EngineProviderId = 'openclaw-compat';
+export const DEFAULT_ENGINE_PROVIDER_ID: EngineProviderId = 'internal';
+export const DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL = 'internal://dev-runtime';
 export const DEFAULT_OPENCLAW_COMPAT_ENDPOINT_URL = 'ws://127.0.0.1:18789';
 
 export const EMPTY_INTERNAL_PROVIDER_CONFIG: InternalProviderConfig = {
@@ -57,7 +58,7 @@ export function normalizeEngineEndpointUrl(
 }
 
 export function createDefaultAppConfig(
-  fallbackEndpointUrl: string = DEFAULT_OPENCLAW_COMPAT_ENDPOINT_URL,
+  fallbackEndpointUrl: string = DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL,
 ): AppConfig {
   return {
     gatewayUrl: fallbackEndpointUrl,
@@ -66,7 +67,7 @@ export function createDefaultAppConfig(
 }
 
 export function createDefaultEngineDraft(
-  fallbackEndpointUrl: string = DEFAULT_OPENCLAW_COMPAT_ENDPOINT_URL,
+  fallbackEndpointUrl: string = DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL,
 ): EngineDraftConfig {
   return buildEngineDraftConfig({
     providerId: DEFAULT_ENGINE_PROVIDER_ID,

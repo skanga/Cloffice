@@ -336,7 +336,7 @@ export function buildOpenClawCompatibilityChatDispatchStatus(sessionKey: string)
 }
 
 export function buildOpenClawCompatibilityOnboardingIntro(): string {
-  return 'Connect a runtime endpoint to get started. OpenClaw compatibility remains the default path, while the internal engine development runtime is available in developer builds.';
+  return 'The internal engine is the recommended default path. Use OpenClaw compatibility only when you need to connect to an existing external OpenClaw runtime.';
 }
 
 export function buildOpenClawCompatibilityDiscoveryScanningLabel(): string {
@@ -354,7 +354,7 @@ export function buildOpenClawCompatibilityDiscoveryInstalledButNotRunning(): {
 }
 
 export function buildOpenClawCompatibilityEndpointHelpText(): string {
-  return 'The URL of your runtime endpoint. Use ws://127.0.0.1:18789 for the current local OpenClaw compatibility path, or enter another runtime address.';
+  return 'The URL of your legacy compatibility runtime endpoint. Use ws://127.0.0.1:18789 for a local OpenClaw runtime, or enter another runtime address.';
 }
 
 export function buildOpenClawCompatibilityDefaultEndpoint(): string {
@@ -362,7 +362,7 @@ export function buildOpenClawCompatibilityDefaultEndpoint(): string {
 }
 
 export function buildOpenClawCompatibilityTokenHelpText(): string {
-  return 'For the current OpenClaw compatibility path, this is in openclaw.json under gateway -> auth -> token. Leave blank if token auth is disabled.';
+  return 'For the legacy OpenClaw compatibility path, this is in openclaw.json under gateway -> auth -> token. Leave blank if token auth is disabled.';
 }
 
 export function buildOpenClawCompatibilityTokenPlaceholder(): string {
@@ -394,7 +394,7 @@ export function buildOpenClawCompatibilitySettingsPairingCopy(requestId: string)
 }
 
 export function buildOpenClawCompatibilityUnavailableProviderMessage(displayName: string, availabilityReason?: string | null): string {
-  return `${displayName} is registered in Cloffice, but this build is currently connected through the OpenClaw compatibility runtime. ${availabilityReason ?? ''}`.trim();
+  return `${displayName} is registered in Cloffice, but this build is currently using the legacy OpenClaw compatibility runtime. ${availabilityReason ?? ''}`.trim();
 }
 
 export { GatewayRequestError as OpenClawCompatibilityRequestError };

@@ -30,11 +30,20 @@ async function clearStoredState(page: Page) {
       gatewayToken: '',
     });
     await bridge?.saveEngineConfig?.({
-      providerId: 'openclaw-compat',
-      runtimeKind: 'openclaw-compat',
-      transport: 'websocket-gateway',
-      endpointUrl: 'ws://127.0.0.1:65534',
+      providerId: 'internal',
+      runtimeKind: 'internal',
+      transport: 'internal-ipc',
+      endpointUrl: 'internal://dev-runtime',
       accessToken: '',
+      internalProviderConfig: {
+        openaiApiKey: '',
+        openaiBaseUrl: '',
+        openaiModels: '',
+        anthropicApiKey: '',
+        anthropicModels: '',
+        geminiApiKey: '',
+        geminiModels: '',
+      },
     });
   }, [
     ONBOARDING_COMPLETE_KEY,
@@ -83,6 +92,20 @@ async function openProjectCowork(page: Page, projectTitle: string) {
 }
 
 async function connectInternalProviderFromOnboarding(page: Page) {
+  const readyHeading = page.getByRole('heading', { name: "You're all set" });
+  const diagnosticsPanel = page.getByText('Internal runtime diagnostics');
+  const addProjectButton = page.getByTitle('Add project');
+  if (await readyHeading.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await expect(diagnosticsPanel).toBeVisible({ timeout: 10000 });
+    return;
+  }
+  if (await diagnosticsPanel.isVisible({ timeout: 3000 }).catch(() => false)) {
+    return;
+  }
+  if (await addProjectButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+    return;
+  }
+
   await expect(page.getByRole('heading', { name: 'Welcome to Cloffice' })).toBeVisible();
   await page.getByRole('button', { name: 'Get started' }).click();
 
@@ -153,6 +176,15 @@ async function markOnboardingComplete(page: Page) {
 }
 
 async function connectInternalProviderFromSettings(page: Page) {
+  if (await page.getByTitle('Add project').isVisible({ timeout: 5000 }).catch(() => false)) {
+    return;
+  }
+  if (await page.getByText('Internal runtime diagnostics').isVisible({ timeout: 5000 }).catch(() => false)) {
+    await page.getByRole('button', { name: 'Back' }).click();
+    await page.getByRole('tab', { name: /cowork/i }).click();
+    return;
+  }
+
   await expect(page.getByText('Cowork is offline')).toBeVisible({ timeout: 15000 });
   await page.getByRole('button', { name: 'Open Engine Settings' }).click();
   const settingsProviderButton = page.getByTestId('settings-provider-internal');

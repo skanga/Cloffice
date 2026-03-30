@@ -17,20 +17,11 @@ const migrationPlan = getProviderAwareEngineConfigMigrationPlan();
 const internalEngineShell = describeInternalEngineShell();
 
 const ENGINE_PROVIDER_REGISTRY: Record<EngineProviderId, EngineProviderDefinition> = {
-  'openclaw-compat': {
-    id: 'openclaw-compat',
-    displayName: 'OpenClaw compatibility',
-    summary: "Current runtime path. Use this for today's connection flow.",
-    runtimeKind: 'openclaw-compat',
-    transport: 'websocket-gateway',
-    availableInBuild: true,
-    selectionEnabled: true,
-  },
   internal: {
     id: 'internal',
     displayName: 'Internal engine',
     summary: internalEngineShell.availableInBuild
-      ? 'Built-in provider-neutral runtime available in this build.'
+      ? 'Built-in provider-neutral runtime. Recommended default path.'
       : 'Internal runtime shell is registered, but this build still routes through the compatibility runtime.',
     runtimeKind: internalEngineShell.runtime.runtimeKind,
     transport: internalEngineShell.runtime.transport,
@@ -40,6 +31,15 @@ const ENGINE_PROVIDER_REGISTRY: Record<EngineProviderId, EngineProviderDefinitio
       ? undefined
       : migrationPlan.blockers.internal ?? internalEngineShell.unavailableReason,
   },
+  'openclaw-compat': {
+    id: 'openclaw-compat',
+    displayName: 'OpenClaw compatibility',
+    summary: 'Legacy/manual runtime endpoint for existing OpenClaw deployments.',
+    runtimeKind: 'openclaw-compat',
+    transport: 'websocket-gateway',
+    availableInBuild: true,
+    selectionEnabled: true,
+  },
 };
 
 export function listEngineProviders(): EngineProviderDefinition[] {
@@ -47,7 +47,7 @@ export function listEngineProviders(): EngineProviderDefinition[] {
 }
 
 export function getEngineProvider(providerId: EngineProviderId): EngineProviderDefinition {
-  return ENGINE_PROVIDER_REGISTRY[providerId] ?? ENGINE_PROVIDER_REGISTRY['openclaw-compat'];
+  return ENGINE_PROVIDER_REGISTRY[providerId] ?? ENGINE_PROVIDER_REGISTRY.internal;
 }
 
 export function isInternalEngineProvider(providerId: string | null | undefined): boolean {

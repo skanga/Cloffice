@@ -55,7 +55,7 @@ export function resolveAvailableEngineProviderId(providerId: EngineProviderId): 
   return provider.availableInBuild ? provider.id : 'openclaw-compat';
 }
 
-export function getEngineRuntimeDescriptor(providerId: EngineProviderId = 'openclaw-compat'): EngineRuntimeDescriptor {
+export function getEngineRuntimeDescriptor(providerId: EngineProviderId = 'internal'): EngineRuntimeDescriptor {
   const resolvedProviderId = resolveAvailableEngineProviderId(providerId);
   if (resolvedProviderId === 'internal') {
     return INTERNAL_ENGINE_RUNTIME_DESCRIPTOR;
@@ -63,7 +63,7 @@ export function getEngineRuntimeDescriptor(providerId: EngineProviderId = 'openc
   return OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR;
 }
 
-export function createEngineClient(providerId: EngineProviderId = 'openclaw-compat'): EngineClientInstance {
+export function createEngineClient(providerId: EngineProviderId = 'internal'): EngineClientInstance {
   if (providerId === 'internal') {
     const desktopBridge = getDesktopBridge();
     if (desktopBridge) {

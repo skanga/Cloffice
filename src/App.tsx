@@ -1,6 +1,7 @@
 import {
   createDefaultAppConfig,
   DEFAULT_ENGINE_PROVIDER_ID,
+  DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL,
   DEFAULT_OPENCLAW_COMPAT_ENDPOINT_URL,
   EMPTY_INTERNAL_PROVIDER_CONFIG,
   appConfigFromEngineDraft,
@@ -567,7 +568,7 @@ export default function App() {
 
   const [config, setConfig] = useState<AppConfig>(() => createDefaultAppConfig());
   const [configReady, setConfigReady] = useState(false);
-  const [draftEngineUrl, setDraftEngineUrl] = useState(DEFAULT_OPENCLAW_COMPAT_ENDPOINT_URL);
+  const [draftEngineUrl, setDraftEngineUrl] = useState(DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL);
   const [draftEngineToken, setDraftEngineToken] = useState('');
   const [draftEngineProviderId, setDraftEngineProviderId] = useState<EngineProviderId>(DEFAULT_ENGINE_PROVIDER_ID);
   const [draftInternalProviderConfig, setDraftInternalProviderConfig] = useState<InternalProviderConfig>(EMPTY_INTERNAL_PROVIDER_CONFIG);
@@ -1786,7 +1787,7 @@ export default function App() {
         return null;
       }
 
-        return parseStoredEngineConfig(JSON.parse(raw), DEFAULT_OPENCLAW_COMPAT_ENDPOINT_URL);
+        return parseStoredEngineConfig(JSON.parse(raw), DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL);
     } catch {
       return null;
     }
