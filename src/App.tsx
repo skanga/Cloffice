@@ -96,9 +96,7 @@ import {
   buildCoworkEmptyPromptStatus,
   buildCoworkSendFailureStatus,
   buildLoadedPreviousCoworkPromptStatus,
-  buildMissingCoworkSessionKeyError,
   buildMissingPreviousCoworkPromptStatus,
-  buildRecoveredApprovalAwaitingStatus,
   buildRecoveredApprovalContinuationFailureStatus,
   buildRecoveredApprovalContinuationUnavailableStatus,
   buildRecoveredApprovalSubmittingProgressDetails,
@@ -202,6 +200,11 @@ import {
   prepareEngineRecentSessionOpen,
   resolveEngineActiveSession,
 } from './lib/engine-session-controller';
+import {
+  ensureEngineCoworkSession,
+  prepareEngineCoworkTaskDispatch,
+  resolveRecoveredEngineApprovalDecision,
+} from './lib/engine-cowork-controller';
 import { createFileService, LocalFileService } from './lib/file-service';
 import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
 import {
@@ -1255,18 +1258,19 @@ export default function App() {
     setPendingApprovals((current) => current.filter((item) => item.id !== approvalId));
     const bridge = getDesktopBridge();
     const next = await bridge?.applyInternalPendingApprovalDecision?.(flow.runId, decision);
-    if (!next || next.kind === 'missing') {
+    const resolvedNext = resolveRecoveredEngineApprovalDecision({
+      currentFlows: internalApprovalRecoveryFlowsRef.current.values(),
+      runId: flow.runId,
+      next,
+    });
+    if (resolvedNext.kind === 'missing') {
       return false;
     }
 
-    if (next.kind === 'next') {
-      const flows = [
-        ...Array.from(internalApprovalRecoveryFlowsRef.current.values()).filter((entry) => entry.runId !== flow.runId),
-        next.flow,
-      ];
-      writeInternalApprovalRecoveryFlows(flows);
-      syncRecoveredApprovalCards(flows);
-      setStatus(buildRecoveredApprovalAwaitingStatus(next.flow.currentApproval.summary));
+    if (resolvedNext.kind === 'next') {
+      writeInternalApprovalRecoveryFlows(resolvedNext.flows);
+      syncRecoveredApprovalCards(resolvedNext.flows);
+      setStatus(resolvedNext.statusMessage);
       return true;
     }
 
@@ -1286,7 +1290,7 @@ export default function App() {
     });
 
     try {
-      await client.continueCoworkRun(next.payload);
+      await client.continueCoworkRun(resolvedNext.payload);
     } catch (error) {
       const info = readEngineError(error);
       setStatus(buildRecoveredApprovalContinuationFailureStatus(info.message));
@@ -2784,40 +2788,28 @@ export default function App() {
     }
 
     try {
-      await ensureConnectedEngineClient(client, engineConnectOptionsFromDraft(getCurrentEngineDraft()));
-
-      let sessionKey = normalizeSessionKey(coworkSessionKeyRef.current);
-      if (!sessionKey) {
-        sessionKey = normalizeSessionKey(await client.createCoworkSession());
-        if (!sessionKey) {
-          throw new Error(buildMissingCoworkSessionKeyError());
-        }
+      const sessionKey = await ensureEngineCoworkSession({
+        client,
+        connectOptions: engineConnectOptionsFromDraft(getCurrentEngineDraft()),
+        currentSessionKey: coworkSessionKeyRef.current,
+      });
+      if (sessionKey !== normalizeSessionKey(coworkSessionKeyRef.current)) {
         commitCoworkSessionKey(sessionKey);
       }
 
-      const now = Date.now();
-      const queuedTaskId = `task-${now}-${Math.random().toString(36).slice(2, 8)}`;
       const projectId = activeCoworkProject?.id ?? 'unscoped';
       const projectTitle = activeCoworkProject?.name ?? 'Unscoped';
+      const preparedTask = prepareEngineCoworkTaskDispatch({
+        sessionKey,
+        prompt: text,
+        projectId,
+        projectTitle,
+      });
 
       setCoworkTasks((current) => {
-        const next: CoworkProjectTask = {
-          id: queuedTaskId,
-          projectId,
-          projectTitle,
-          sessionKey,
-          prompt: text,
-          status: 'queued',
-          summary: 'Task queued for execution.',
-          createdAt: now,
-          updatedAt: now,
-        };
-        return [next, ...current].slice(0, 250);
+        return [preparedTask.task, ...current].slice(0, 250);
       });
-      queueCoworkTask(sessionKey, {
-        taskId: queuedTaskId,
-        status: 'queued',
-      });
+      queueCoworkTask(sessionKey, preparedTask.queueEntry);
 
       setTaskState('planned');
       setCoworkAwaitingStream(true);
@@ -2898,7 +2890,7 @@ export default function App() {
         }
       }
 
-      setCoworkTaskStatus(queuedTaskId, 'running', {
+      setCoworkTaskStatus(preparedTask.queuedTaskId, 'running', {
         summary: 'Sending task to cowork.',
       });
 
