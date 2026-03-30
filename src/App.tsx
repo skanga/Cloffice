@@ -2,7 +2,6 @@ import {
   createDefaultAppConfig,
   DEFAULT_ENGINE_PROVIDER_ID,
   DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL,
-  DEFAULT_OPENCLAW_COMPAT_ENDPOINT_URL,
   EMPTY_INTERNAL_PROVIDER_CONFIG,
   appConfigFromEngineDraft,
   buildEngineDraftConfig,
@@ -211,9 +210,6 @@ import {
 } from './lib/engine-cowork-prompt-controller';
 import { createFileService, LocalFileService } from './lib/file-service';
 import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
-import {
-  OPENCLAW_COMPAT_DEVICE_IDENTITY_STORAGE_KEY,
-} from './lib/openclaw-compat-engine';
 import { accumulateTodayUsage, addUsage, loadTodayUsage } from './lib/token-usage';
 import { registerConnector, hydrateConnectors } from './lib/connectors';
 import { createFilesystemConnector } from './lib/connectors/filesystem';
@@ -259,9 +255,6 @@ import {
 } from './lib/internal-approval-recovery';
 import type { InternalEngineCoworkContinuationRequest } from './lib/internal-engine-bridge';
 import { buildEngineActionInstruction } from './lib/engine-action-protocol';
-import {
-  isOpenClawCompatibilityProvider,
-} from './lib/engine-provider-registry';
 
 const ChatPage = lazy(() => import('./features/chat/chat-page').then((module) => ({ default: module.ChatPage })));
 const CoworkPage = lazy(() => import('./features/cowork/cowork-page').then((module) => ({ default: module.CoworkPage })));
@@ -2363,8 +2356,6 @@ export default function App() {
           };
           if (typeof clientWithReset.resetDeviceIdentity === 'function') {
             clientWithReset.resetDeviceIdentity();
-          } else {
-            localStorage.removeItem(OPENCLAW_COMPAT_DEVICE_IDENTITY_STORAGE_KEY);
           }
         },
       });

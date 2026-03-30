@@ -4,13 +4,6 @@
  */
 import type { ChatActivityItem, ChatMessage } from '@/app-types';
 import type { EngineErrorInfo } from './engine-runtime-types';
-import { readOpenClawCompatibilityError } from './openclaw-compat-engine';
-export {
-  parseOpenClawCompatibilityActivityItems as parseRelayActivityItems,
-  parseOpenClawCompatibilityFileActions as parseRelayFileActions,
-  stripOpenClawCompatibilityActionPayloadFromText as stripRelayActionPayloadFromText,
-} from './openclaw-compat-parser';
-export type { OpenClawCompatibilityRequestedAction as RelayFileAction } from './openclaw-compat-parser';
 
 /* ── Exported types ──────────────────────────────────────────────────────── */
 
@@ -309,14 +302,6 @@ function extractUuidFromMessage(msg?: string): string | undefined {
 export function readEngineError(error: unknown): EngineErrorInfo {
   if (!(error instanceof Error)) {
     return { message: 'Runtime connection failed.' };
-  }
-
-  const compatibilityError = readOpenClawCompatibilityError(error);
-  if (compatibilityError) {
-    return {
-      ...compatibilityError,
-      requestId: compatibilityError.requestId || extractUuidFromMessage(compatibilityError.message),
-    };
   }
 
   return {

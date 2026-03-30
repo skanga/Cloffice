@@ -29,12 +29,6 @@ import type {
 import type { InternalApprovalRecoveryFlow } from '../src/lib/internal-approval-recovery.js';
 
 const DEFAULT_INTERNAL_ENGINE_ENDPOINT = 'internal://dev-runtime';
-const DEFAULT_COMPAT_ENGINE_ENDPOINT = 'ws://127.0.0.1:18789';
-const OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR = {
-  providerId: 'openclaw-compat',
-  runtimeKind: 'openclaw-compat',
-  transport: 'websocket-gateway',
-} as const;
 const INTERNAL_ENGINE_RUNTIME_DESCRIPTOR = {
   providerId: 'internal',
   runtimeKind: 'internal',
@@ -80,9 +74,9 @@ function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpoint: string
         gatewayToken: typeof record.accessToken === 'string' ? record.accessToken : '',
       },
       engineDraft: {
-        providerId: record.providerId === 'internal' ? 'internal' : 'openclaw-compat',
-        runtimeKind: record.runtimeKind === 'internal' ? 'internal' : 'openclaw-compat',
-        transport: record.transport === 'internal-ipc' ? 'internal-ipc' : 'websocket-gateway',
+        providerId: 'internal',
+        runtimeKind: 'internal',
+        transport: 'internal-ipc',
         endpointUrl: typeof record.endpointUrl === 'string' && record.endpointUrl.trim() ? record.endpointUrl.trim() : fallbackEndpoint,
         accessToken: typeof record.accessToken === 'string' ? record.accessToken : '',
         internalProviderConfig: {
@@ -105,9 +99,9 @@ function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpoint: string
       gatewayToken: typeof record.gatewayToken === 'string' ? record.gatewayToken : '',
     },
     engineDraft: {
-      providerId: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.providerId,
-      runtimeKind: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind,
-      transport: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.transport,
+      providerId: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.providerId,
+      runtimeKind: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind,
+      transport: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.transport,
       endpointUrl: typeof record.gatewayUrl === 'string' && record.gatewayUrl.trim() ? record.gatewayUrl.trim() : fallbackEndpoint,
       accessToken: typeof record.gatewayToken === 'string' ? record.gatewayToken : '',
       internalProviderConfig: {
@@ -149,15 +143,28 @@ function prepareDesktopBridgeEngineConfigWrite(draft: EngineDraftConfig): { acti
 
   return {
     activeEntry: {
-      gatewayUrl: draft.endpointUrl?.trim() || DEFAULT_COMPAT_ENGINE_ENDPOINT,
-      gatewayToken: draft.accessToken ?? '',
+      version: 2,
+      providerId: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.providerId,
+      runtimeKind: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind,
+      transport: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.transport,
+      endpointUrl: draft.endpointUrl?.trim() || DEFAULT_INTERNAL_ENGINE_ENDPOINT,
+      accessToken: draft.accessToken ?? '',
+      internalProviderConfig: {
+        openaiApiKey: draft.internalProviderConfig.openaiApiKey ?? '',
+        openaiBaseUrl: draft.internalProviderConfig.openaiBaseUrl ?? '',
+        openaiModels: draft.internalProviderConfig.openaiModels ?? '',
+        anthropicApiKey: draft.internalProviderConfig.anthropicApiKey ?? '',
+        anthropicModels: draft.internalProviderConfig.anthropicModels ?? '',
+        geminiApiKey: draft.internalProviderConfig.geminiApiKey ?? '',
+        geminiModels: draft.internalProviderConfig.geminiModels ?? '',
+      },
     },
   };
 }
 
 function normalizeEngineRuntimeHealthResult(
   result: HealthCheckResult,
-  runtime: typeof OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR,
+  runtime: typeof INTERNAL_ENGINE_RUNTIME_DESCRIPTOR,
 ): EngineRuntimeHealthResult {
   return {
     ...result,
@@ -244,7 +251,7 @@ const desktopBridgeApi = {
         'engine-config:save',
         preparedWrite.activeEntry,
       ),
-      draft.endpointUrl || DEFAULT_COMPAT_ENGINE_ENDPOINT,
+      draft.endpointUrl || DEFAULT_INTERNAL_ENGINE_ENDPOINT,
     ) as DesktopBridgeEngineConfig;
   },
   healthCheck: (baseUrl: string) =>
@@ -252,7 +259,7 @@ const desktopBridgeApi = {
   checkRuntimeHealth: async (baseUrl: string) =>
     normalizeEngineRuntimeHealthResult(
       await ipcRenderer.invoke('backend:health-check', baseUrl) as HealthCheckResult,
-      OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR,
+      INTERNAL_ENGINE_RUNTIME_DESCRIPTOR,
     ) as EngineRuntimeHealthResult,
   minimizeWindow: () => ipcRenderer.invoke('window:minimize') as Promise<void>,
   toggleMaximizeWindow: () => ipcRenderer.invoke('window:toggle-maximize') as Promise<boolean>,

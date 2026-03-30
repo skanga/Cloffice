@@ -17,11 +17,6 @@ import { loadAllowedDomains, saveAllowedDomains } from '@/lib/connectors/web-fet
 import { getEngineProvider, listEngineProviders } from '@/lib/engine-provider-registry';
 import type { InternalEngineRunRecord, InternalEngineRuntimeInfo } from '@/lib/internal-engine-bridge';
 import type { InternalProviderConnectionTestResult } from '@/lib/internal-provider-adapter';
-import {
-  buildOpenClawCompatibilityDefaultEndpoint,
-  buildOpenClawCompatibilitySettingsPairingCopy,
-  buildOpenClawCompatibilityTokenPlaceholder,
-} from '@/lib/openclaw-compat-engine';
 import type { ConnectorDefinition } from '@/lib/connectors/connector-types';
 
 type AppLanguage = 'en' | 'de';
@@ -76,8 +71,8 @@ const sectionDescriptions: Record<SettingsSection, { en: string; de: string }> =
     de: 'Standardanweisungen fuer jede Konversation.',
   },
   Gateway: {
-    en: 'Engine/runtime connection, internal provider setup, and optional legacy compatibility settings.',
-    de: 'Engine-Laufzeit, interne Provider-Einrichtung und optionale Legacy-Kompatibilitaetseinstellungen.',
+    en: 'Engine/runtime connection and internal provider setup.',
+    de: 'Engine-Laufzeit und interne Provider-Einrichtung.',
   },
   Connectors: {
     en: 'Connect external services to Cloffice.',
@@ -289,7 +284,6 @@ export function SettingsPage({
   const [highlightedRunId, setHighlightedRunId] = useState<string | null>(null);
   const [testingProviderId, setTestingProviderId] = useState<'openai' | 'anthropic' | 'gemini' | null>(null);
   const [providerTestResult, setProviderTestResult] = useState<InternalProviderConnectionTestResult | null>(null);
-  const [showLegacyCompatibility, setShowLegacyCompatibility] = useState(draftEngineProviderId === 'openclaw-compat');
   const engineProviders = useMemo(() => listEngineProviders(), []);
   const effectiveEngineProviders = useMemo(
     () => engineProviders.map((provider) => (
@@ -308,10 +302,7 @@ export function SettingsPage({
     [engineProviders, internalRuntimeInfo],
   );
   const selectedEngineProvider = useMemo(() => getEngineProvider(draftEngineProviderId), [draftEngineProviderId]);
-  const mainEngineProviders = useMemo(
-    () => effectiveEngineProviders.filter((provider) => provider.id !== 'openclaw-compat'),
-    [effectiveEngineProviders],
-  );
+  const mainEngineProviders = effectiveEngineProviders;
   const scheduledJobsById = useMemo(() => {
     const map = new Map<string, ScheduledJob>();
     for (const job of scheduledJobs) {
@@ -331,19 +322,8 @@ export function SettingsPage({
     [draftEngineProviderId, effectiveEngineProviders, selectedEngineProvider],
   );
   const t = useCallback((en: string, de: string) => (preferences.language === 'de' ? de : en), [preferences.language]);
-
-  useEffect(() => {
-    if (draftEngineProviderId === 'openclaw-compat') {
-      setShowLegacyCompatibility(true);
-    }
-  }, [draftEngineProviderId]);
-  const compatibilityProviderSelected = draftEngineProviderId === 'openclaw-compat';
-  const runtimeEndpointPlaceholder = compatibilityProviderSelected
-    ? buildOpenClawCompatibilityDefaultEndpoint()
-    : 'internal://dev-runtime';
-  const runtimeTokenPlaceholder = compatibilityProviderSelected
-    ? t(buildOpenClawCompatibilityTokenPlaceholder(), 'Token aus dem OpenClaw-Setup einfuegen')
-    : t('Not used for the internal engine', 'Wird fuer die interne Engine nicht verwendet');
+  const runtimeEndpointPlaceholder = 'internal://dev-runtime';
+  const runtimeTokenPlaceholder = t('Not used for the internal engine', 'Wird fuer die interne Engine nicht verwendet');
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -422,15 +402,6 @@ export function SettingsPage({
     }
     return null;
   }, [pairingRequestId, health]);
-
-  const copyCommand = useCallback(() => {
-    if (!effectivePairingId) return;
-    const cmd = buildOpenClawCompatibilitySettingsPairingCopy(effectivePairingId).command;
-    void navigator.clipboard.writeText(cmd).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }, [effectivePairingId]);
 
   const handleSaveCurrentConnection = useCallback(() => {
     const fallbackName = draftEngineUrl.trim() || (draftEngineProviderId === 'internal' ? 'Internal engine' : 'Runtime connection');
@@ -818,79 +789,32 @@ export function SettingsPage({
                   <p className="text-sm font-medium text-foreground">{t('Built-in internal runtime', 'Integrierte interne Laufzeit')}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {t(
-                      'Cloffice uses the built-in internal runtime by default. Runtime URL and token are only needed for the legacy OpenClaw compatibility path.',
-                      'Cloffice verwendet standardmaessig die integrierte interne Laufzeit. Runtime-URL und Token werden nur fuer den Legacy-OpenClaw-Kompatibilitaetspfad benoetigt.',
+                      'Cloffice uses the built-in internal runtime by default. Runtime URL is only needed for custom internal debugging endpoints, and the token field is unused.',
+                      'Cloffice verwendet standardmaessig die integrierte interne Laufzeit. Die Runtime-URL wird nur fuer benutzerdefinierte interne Debug-Endpunkte benoetigt, und das Token-Feld bleibt ungenutzt.',
                     )}
                   </p>
                 </div>
               ) : null}
-
-              <div className="rounded-lg border border-border/70 bg-card p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{t('Legacy OpenClaw compatibility', 'Legacy-OpenClaw-Kompatibilitaet')}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {t(
-                        'Optional manual path for existing OpenClaw deployments. Hidden from onboarding and no longer recommended for normal use.',
-                        'Optionaler manueller Pfad fuer bestehende OpenClaw-Bereitstellungen. Im Onboarding ausgeblendet und fuer die normale Nutzung nicht mehr empfohlen.',
-                      )}
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowLegacyCompatibility((current) => !current)}
-                  >
-                    {showLegacyCompatibility ? t('Hide', 'Ausblenden') : t('Show', 'Anzeigen')}
-                  </Button>
-                </div>
-
-                {showLegacyCompatibility ? (
-                  <div className="mt-3 grid gap-3 border-t border-border/60 pt-3">
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant={draftEngineProviderId === 'openclaw-compat' ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => onDraftEngineProviderIdChange('openclaw-compat')}
-                      >
-                        {t('Use legacy compatibility', 'Legacy-Kompatibilitaet verwenden')}
-                      </Button>
-                      {draftEngineProviderId === 'openclaw-compat' ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => onDraftEngineProviderIdChange('internal')}
-                        >
-                          {t('Return to internal engine', 'Zur internen Engine zurueckkehren')}
-                        </Button>
-                      ) : null}
-                    </div>
-
-                    <label className="grid gap-1">
-                      <span className="font-sans text-xs text-muted-foreground">Runtime URL (WebSocket)</span>
-                      <Input
-                        value={draftEngineUrl}
-                        onChange={(event) => onDraftEngineUrlChange(event.target.value)}
-                        placeholder={runtimeEndpointPlaceholder}
-                        className="font-sans"
-                      />
-                    </label>
-
-                    <label className="grid gap-1">
-                      <span className="font-sans text-xs text-muted-foreground">Runtime token</span>
-                      <Input
-                        type="password"
-                        value={draftEngineToken}
-                        onChange={(event) => onDraftEngineTokenChange(event.target.value)}
-                        placeholder={runtimeTokenPlaceholder}
-                        className="font-sans"
-                      />
-                    </label>
-                  </div>
-                ) : null}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1">
+                  <span className="font-sans text-xs text-muted-foreground">Runtime URL</span>
+                  <Input
+                    value={draftEngineUrl}
+                    onChange={(event) => onDraftEngineUrlChange(event.target.value)}
+                    placeholder={runtimeEndpointPlaceholder}
+                    className="font-sans"
+                  />
+                </label>
+                <label className="grid gap-1">
+                  <span className="font-sans text-xs text-muted-foreground">Runtime token</span>
+                  <Input
+                    type="password"
+                    value={draftEngineToken}
+                    onChange={(event) => onDraftEngineTokenChange(event.target.value)}
+                    placeholder={runtimeTokenPlaceholder}
+                    className="font-sans"
+                  />
+                </label>
               </div>
 
               {draftEngineProviderId === 'internal' ? (
@@ -1050,265 +974,12 @@ export function SettingsPage({
                 {saving ? t('Connecting...', 'Verbinde...') : t('Save and connect', 'Speichern und verbinden')}
               </Button>
             </form>
-
-            {draftEngineProviderId === 'openclaw-compat' && effectivePairingId ? (
-              <div className="mt-3 rounded-lg border border-amber-500/35 bg-amber-500/10 p-3">
-                <p className="font-sans text-xs font-medium text-amber-800 dark:text-amber-200">{t(buildOpenClawCompatibilitySettingsPairingCopy(effectivePairingId).title, 'Geraete-Pairing erforderlich')}</p>
-                <p className="mt-1 font-sans text-xs text-amber-800 dark:text-amber-200">
-                  {t(buildOpenClawCompatibilitySettingsPairingCopy(effectivePairingId).body, 'Fuehre diesen Befehl auf dem Runtime-Host aus:')}
-                </p>
-                <div className="mt-1 flex items-center gap-1">
-                  <code className="flex-1 rounded bg-background/70 px-2 py-1 font-mono text-xs text-amber-900 dark:text-amber-100 select-all">
-                    {buildOpenClawCompatibilitySettingsPairingCopy(effectivePairingId).command}
-                  </code>
-                  <button
-                    type="button"
-                    className="shrink-0 rounded bg-background/70 px-2 py-1 font-sans text-[10px] text-amber-900 dark:text-amber-100 hover:bg-background"
-                    onClick={copyCommand}
-                  >
-                    {copied ? t('Copied', 'Kopiert') : t('Copy', 'Kopieren')}
-                  </button>
-                </div>
-                <p className="mt-2 font-sans text-xs text-amber-900/80 dark:text-amber-100/80">
-                  {t('Click Save and connect again afterwards.', 'Klicke danach erneut auf Speichern und verbinden.')}
-                </p>
-              </div>
-            ) : health && !health.ok ? (
-              <div className="mt-3 rounded-lg border border-destructive/25 bg-destructive/10 p-3">
-                <p className="font-sans text-xs font-medium text-destructive">{t('Connection failed', 'Verbindung fehlgeschlagen')}</p>
-                <p className="mt-1 font-sans text-xs text-destructive/85">{health.message}</p>
-              </div>
-            ) : health?.ok ? (
-              <p className="mt-3 font-sans text-xs text-primary">{status}</p>
-            ) : status ? (
-              <p className="mt-3 font-sans text-xs text-muted-foreground">{status}</p>
-            ) : null}
-          </section>
-
-          <Separator />
-
-          <section>
-            <div className="mb-3">
-              <h2 className="text-base font-medium">{t('Saved connections', 'Gespeicherte Verbindungen')}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t('Store multiple runtime endpoints and switch between them quickly.', 'Speichere mehrere Runtime-Endpunkte und wechsle schnell zwischen ihnen.')}
-              </p>
-            </div>
-            <div className="grid gap-3">
-              <div className="rounded-lg border border-border/70 bg-card p-3">
-                <p className="mb-2 font-sans text-xs text-muted-foreground">
-                  {t('Save the current runtime URL/token as a reusable profile.', 'Speichere die aktuelle URL/den Token als wiederverwendbares Profil.')}
-                </p>
-                <div className="flex gap-2">
-                  <Input
-                    value={connectionNameDraft}
-                    onChange={(event) => setConnectionNameDraft(event.target.value)}
-                    placeholder={t('Connection name (e.g. Local dev)', 'Verbindungsname (z. B. Local dev)')}
-                    className="font-sans text-sm"
-                  />
-                  <Button type="button" variant="outline" onClick={handleSaveCurrentConnection}>
-                    {t('Save current', 'Aktuelle speichern')}
-                  </Button>
-                </div>
-              </div>
-
-              <div className="grid gap-2">
-                {engineConnections.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-border px-3 py-2.5">
-                    <p className="font-sans text-xs text-muted-foreground">
-                      {t('No saved connections yet.', 'Noch keine gespeicherten Verbindungen.')}
-                    </p>
-                  </div>
-                ) : (
-                  engineConnections.map((connection) => {
-                    const isSelected = selectedEngineConnectionId === connection.id;
-                    return (
-                      <div
-                        key={connection.id}
-                        className={`rounded-lg border px-3 py-2.5 ${
-                          isSelected ? 'border-primary/45 bg-primary/10' : 'border-border bg-card'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium">{connection.name}</p>
-                            <p className="truncate text-[11px] text-muted-foreground">
-                              {getEngineProvider(connection.providerId).displayName}
-                            </p>
-                            <p className="truncate font-mono text-[11px] text-muted-foreground">{connection.endpointUrl}</p>
-                            <p className="mt-0.5 font-sans text-[11px] text-muted-foreground">
-                              {connection.accessToken ? t('Token saved', 'Token gespeichert') : t('No token', 'Kein Token')}
-                              {connection.lastUsedAt
-                                ? ` Ã¢â‚¬Â¢ ${t('Last used', 'Zuletzt verwendet')} ${new Date(connection.lastUsedAt).toLocaleString()}`
-                                : ''}
-                            </p>
-                          </div>
-                          {isSelected ? (
-                            <Badge variant="outline" className="rounded-full font-sans text-[10px]">
-                              {t('Selected', 'Ausgewaehlt')}
-                            </Badge>
-                          ) : null}
-                        </div>
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                          <Button type="button" size="sm" variant="outline" onClick={() => onSelectEngineConnection(connection.id)}>
-                            {t('Use', 'Verwenden')}
-                          </Button>
-                          <Button type="button" size="sm" variant="outline" onClick={() => onOverwriteEngineConnection(connection.id)}>
-                            {t('Update', 'Aktualisieren')}
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => onDeleteEngineConnection(connection.id)}
-                          >
-                            <Trash2 className="mr-1 h-3.5 w-3.5" />
-                            {t('Delete', 'Loeschen')}
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </section>
-
-          <Separator />
-
-          <section>
-            <div className="mb-3">
-              <h2 className="text-base font-medium">{t('Device management', 'Geraeteverwaltung')}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">{t('Device identity and pairing status.', 'Geraeteidentitaet und Pairing-Status.')}</p>
-            </div>
-            <div className="grid gap-3">
-              <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5">
-                <div>
-                  <p className="text-sm font-medium">{t('Reset device identity', 'Geraeteidentitaet zuruecksetzen')}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t('Resets Ed25519 keys. Pairing must be approved again afterwards.', 'Setzt die Ed25519-Schluessel zurueck. Danach muss Pairing erneut bestaetigt werden.')}
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  type="button"
-                  className="shrink-0 font-sans text-xs"
-                  onClick={() => void onResetPairing()}
-                >
-                  {t('Reset', 'Zuruecksetzen')}
-                </Button>
-              </div>
-            </div>
-          </section>
-
-          <Separator />
-
-          <section className="pb-2">
-            <button
-              type="button"
-              className="font-sans text-xs text-muted-foreground/70 underline-offset-2 hover:text-muted-foreground hover:underline"
-              onClick={() => setShowAdvanced(!showAdvanced)}
-            >
-              {showAdvanced ? t('Hide advanced options', 'Erweiterte Optionen ausblenden') : t('Advanced options', 'Erweiterte Optionen')}
-            </button>
-
-            {showAdvanced && (
-              <div className="mt-3 grid gap-3">
-                <label className="grid gap-1">
-                  <span className="font-sans text-xs text-muted-foreground">{t('Reconnect attempts (max)', 'Reconnect-Versuche (max)')}</span>
-                  <Input type="number" className="font-sans w-32" placeholder="6" defaultValue="6" />
-                </label>
-                <label className="grid gap-1">
-                  <span className="font-sans text-xs text-muted-foreground">{t('Reconnect base interval (ms)', 'Reconnect-Basisintervall (ms)')}</span>
-                  <Input type="number" className="font-sans w-32" placeholder="1000" defaultValue="1000" />
-                </label>
-                <label className="grid gap-1">
-                  <span className="font-sans text-xs text-muted-foreground">WebSocket timeout (ms)</span>
-                  <Input type="number" className="font-sans w-32" placeholder="30000" defaultValue="30000" />
-                </label>
-              </div>
-            )}
           </section>
         </div>
       )}
 
-      {activeSection === 'Connectors' && <ConnectorsSection language={preferences.language ?? 'en'} />}
-      {activeSection === 'Account' && renderPlaceholder(<KeyRound className="size-5" />, t('Email, password, and two-factor authentication.', 'E-Mail, Passwort und Zwei-Faktor-Authentifizierung.'))}
-      {activeSection === 'Privacy' && renderPlaceholder(<Shield className="size-5" />, t('Data sharing, retention, and deletion policies.', 'Datenfreigaben, Aufbewahrung und Loeschrichtlinien.'))}
       {activeSection === 'Developer' && (
-        <div className="space-y-6">
-          <section>
-            <div className="mb-3">
-              <h2 className="text-base font-medium">{t('Internal runtime history', 'Interne Runtime-Historie')}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t(
-                  'Inspect recent internal engine runs, recovery state, and action-level approval/execution history.',
-                  'Pruefe aktuelle interne Engine-Laeufe, Wiederherstellungsstatus und die Genehmigungs-/Ausfuehrungshistorie auf Aktionsebene.',
-                )}
-              </p>
-            </div>
-
-            {!internalRuntimeInfo ? (
-              renderPlaceholder(
-                <Code2 className="size-5" />,
-                t(
-                  'Internal runtime diagnostics are unavailable in this build or desktop session.',
-                  'Interne Runtime-Diagnosen sind in diesem Build oder in dieser Desktop-Sitzung nicht verfuegbar.',
-                ),
-              )
-            ) : !internalRuntimeInfo.status.availableInBuild ? (
-              renderPlaceholder(
-                <Code2 className="size-5" />,
-                internalRuntimeInfo.status.unavailableReason,
-              )
-            ) : (
-              <div className="space-y-4">
-                <div className="rounded-xl border border-border/60 bg-card p-4">
-                  <p className="text-sm font-medium text-foreground">{t('Runtime summary', 'Runtime-Zusammenfassung')}</p>
-                  <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-                    <p><span className="font-medium text-foreground">{t('Readiness', 'Bereitschaft')}:</span> {internalRuntimeInfo.readiness}</p>
-                    <p><span className="font-medium text-foreground">{t('Restore', 'Wiederherstellung')}:</span> {internalRuntimeInfo.stateRestoreStatus}</p>
-                    <p><span className="font-medium text-foreground">{t('Runs', 'Laeufe')}:</span> {internalRuntimeInfo.runCount}</p>
-                    <p><span className="font-medium text-foreground">{t('Schedules', 'Zeitplaene')}:</span> {internalRuntimeInfo.scheduleCount}</p>
-                    <p><span className="font-medium text-foreground">{t('Pending approvals', 'Ausstehende Freigaben')}:</span> {internalRuntimeInfo.pendingApprovalCount}</p>
-                    <p><span className="font-medium text-foreground">{t('Artifacts', 'Artefakte')}:</span> {internalRuntimeInfo.artifactCount}</p>
-                    <p><span className="font-medium text-foreground">{t('Interrupted runs', 'Unterbrochene Laeufe')}:</span> {internalRuntimeInfo.interruptedRunCount}</p>
-                    <p><span className="font-medium text-foreground">{t('Provider-backed models', 'Provider-Modelle')}:</span> {internalRuntimeInfo.providerBackedModelCount}</p>
-                    <p><span className="font-medium text-foreground">{t('Latest run event', 'Letztes Laufereignis')}:</span> {internalRuntimeInfo.latestRunTimelinePhase ?? t('none', 'keine')}</p>
-                    <p><span className="font-medium text-foreground">{t('Latest artifact', 'Letztes Artefakt')}:</span> {internalRuntimeInfo.latestArtifactSummary ?? t('none', 'keines')}</p>
-                  </div>
-                  {internalRuntimeInfo.chatProviders.length > 0 ? (
-                    <p className="mt-3 text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground">{t('Chat providers', 'Chat-Anbieter')}:</span>{' '}
-                      {internalRuntimeInfo.chatProviders
-                        .map((provider) => `${provider.label} (${provider.configured ? `${provider.modelCount} models` : 'not configured'})`)
-                        .join(' · ')}
-                    </p>
-                  ) : null}
-                  {internalRuntimeInfo.lastProviderError ? (
-                    <p className="mt-3 text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground">{t('Last provider error', 'Letzter Provider-Fehler')}:</span> {internalRuntimeInfo.lastProviderError}
-                    </p>
-                  ) : null}
-                  {internalRuntimeInfo.lastScheduledJobName ? (
-                    <p className="mt-3 text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground">{t('Last schedule', 'Letzter Zeitplan')}:</span> {internalRuntimeInfo.lastScheduledJobName}
-                    </p>
-                  ) : null}
-                  {internalRuntimeInfo.lastScheduleError ? (
-                    <p className="mt-3 text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground">{t('Last schedule error', 'Letzter Zeitplanfehler')}:</span> {internalRuntimeInfo.lastScheduleError}
-                    </p>
-                  ) : null}
-                  {internalRuntimeInfo.lastRecoveryNote ? (
-                    <p className="mt-3 text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground">{t('Recovery note', 'Wiederherstellungshinweis')}:</span> {internalRuntimeInfo.lastRecoveryNote}
-                    </p>
-                  ) : null}
-                </div>
-
+        <div className="flex flex-col gap-6">
                 <section className="rounded-xl border border-border/60 bg-card p-4">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
@@ -1563,9 +1234,6 @@ export function SettingsPage({
                 </section>
               </div>
             )}
-          </section>
-        </div>
-      )}
     </section>
   );
 }
@@ -1715,6 +1383,8 @@ function ConnectorsSection({ language }: { language: 'en' | 'de' }) {
     </div>
   );
 }
+
+
 
 
 

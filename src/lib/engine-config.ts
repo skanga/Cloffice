@@ -13,7 +13,6 @@ export type InternalProviderConfig = StoredInternalProviderConfig;
 
 export const DEFAULT_ENGINE_PROVIDER_ID: EngineProviderId = 'internal';
 export const DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL = 'internal://dev-runtime';
-export const DEFAULT_OPENCLAW_COMPAT_ENDPOINT_URL = 'ws://127.0.0.1:18789';
 
 export const EMPTY_INTERNAL_PROVIDER_CONFIG: InternalProviderConfig = {
   openaiApiKey: '',
@@ -52,7 +51,7 @@ export type PreparedEngineConfigWrite = {
 
 export function normalizeEngineEndpointUrl(
   endpointUrl: string | null | undefined,
-  fallbackEndpointUrl: string = DEFAULT_OPENCLAW_COMPAT_ENDPOINT_URL,
+  fallbackEndpointUrl: string = DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL,
 ): string {
   return typeof endpointUrl === 'string' && endpointUrl.trim() ? endpointUrl.trim() : fallbackEndpointUrl;
 }
@@ -83,9 +82,9 @@ export function buildEngineDraftConfig(params: {
   internalProviderConfig?: Partial<InternalProviderConfig>;
 }): EngineDraftConfig {
   return {
-    runtimeKind: params.providerId === 'internal' ? 'internal' : 'openclaw-compat',
+    runtimeKind: 'internal',
     providerId: params.providerId,
-    transport: params.providerId === 'internal' ? 'internal-ipc' : 'websocket-gateway',
+    transport: 'internal-ipc',
     endpointUrl: params.endpointUrl,
     accessToken: params.accessToken,
     internalProviderConfig: {
@@ -222,9 +221,9 @@ function parseStoredProviderAwareEngineConfigV2(
     return null;
   }
 
-  const providerId = record.providerId === 'internal' ? 'internal' : 'openclaw-compat';
-  const runtimeKind = record.runtimeKind === 'internal' ? 'internal' : 'openclaw-compat';
-  const transport = record.transport === 'internal-ipc' ? 'internal-ipc' : 'websocket-gateway';
+  const providerId = 'internal';
+  const runtimeKind = 'internal';
+  const transport = 'internal-ipc';
   const endpointUrl = normalizeEngineEndpointUrl(
     typeof record.endpointUrl === 'string' ? record.endpointUrl : null,
     fallbackEndpointUrl,

@@ -1,52 +1,122 @@
 import type { ChatActivityItem, CoworkProjectTaskStatus, EngineProviderId, EngineRequestedAction } from '../app-types.js';
-import {
-  parseOpenClawCompatibilityActivityItems,
-  parseOpenClawCompatibilityFileActions,
-  stripOpenClawCompatibilityActionPayloadFromText,
-} from './openclaw-compat-parser.js';
-
-export const OPENCLAW_COMPAT_ENGINE_ACTION_FIELD = 'relay_actions';
 export const INTERNAL_ENGINE_ACTION_FIELD = 'engine_actions';
 
-function normalizeEngineActionPayload(rawInput: unknown): unknown {
-  if (typeof rawInput === 'string') {
-    return rawInput
-      .replaceAll(`"${INTERNAL_ENGINE_ACTION_FIELD}"`, `"${OPENCLAW_COMPAT_ENGINE_ACTION_FIELD}"`)
-      .replaceAll('"engineActions"', '"relayActions"');
+function normalizeRequestedAction(action: unknown): EngineRequestedAction | null {
+  if (!action || typeof action !== 'object') {
+    return null;
   }
 
-  if (!rawInput || typeof rawInput !== 'object') {
-    return rawInput;
-  }
+  const record = action as Record<string, unknown>;
+  const id = typeof record.id === 'string' ? record.id : undefined;
+  const type = typeof record.type === 'string' ? record.type : '';
+  const path = typeof record.path === 'string' ? record.path : '';
 
+  switch (type) {
+    case 'create_file':
+      return path && typeof record.content === 'string'
+        ? { id, type, path, content: record.content, overwrite: record.overwrite === true }
+        : null;
+    case 'append_file':
+      return path && typeof record.content === 'string'
+        ? { id, type, path, content: record.content }
+        : null;
+    case 'read_file':
+    case 'exists':
+    case 'stat':
+    case 'delete':
+      return path ? { id, type, path } as EngineRequestedAction : null;
+    case 'list_dir':
+      return { id, type, path: path || undefined };
+    case 'rename':
+      return path && typeof record.newPath === 'string'
+        ? { id, type, path, newPath: record.newPath }
+        : null;
+    case 'shell_exec':
+      return path && typeof record.command === 'string'
+        ? { id, type, path, command: record.command, timeoutMs: typeof record.timeoutMs === 'number' ? record.timeoutMs : undefined }
+        : null;
+    case 'web_fetch':
+      return path && typeof record.url === 'string'
+        ? {
+            id,
+            type,
+            path,
+            url: record.url,
+            method: typeof record.method === 'string' ? record.method : undefined,
+            body: typeof record.body === 'string' ? record.body : undefined,
+            contentType: typeof record.contentType === 'string' ? record.contentType : undefined,
+          }
+        : null;
+    default:
+      return null;
+  }
+}
+
+function parseRequestedActionsCandidate(rawInput: unknown): EngineRequestedAction[] {
   if (Array.isArray(rawInput)) {
-    return rawInput.map((item) => normalizeEngineActionPayload(item));
+    return rawInput
+      .map((item) => normalizeRequestedAction(item))
+      .filter((item): item is EngineRequestedAction => item !== null);
   }
 
-  const record = rawInput as Record<string, unknown>;
-  const normalized: Record<string, unknown> = {};
-
-  for (const [key, value] of Object.entries(record)) {
-    normalized[key] = normalizeEngineActionPayload(value);
-  }
-
-  if (
-    normalized[OPENCLAW_COMPAT_ENGINE_ACTION_FIELD] === undefined
-    && normalized.relayActions === undefined
-  ) {
-    if (normalized[INTERNAL_ENGINE_ACTION_FIELD] !== undefined) {
-      normalized[OPENCLAW_COMPAT_ENGINE_ACTION_FIELD] = normalized[INTERNAL_ENGINE_ACTION_FIELD];
-    } else if (normalized.engineActions !== undefined) {
-      normalized.relayActions = normalized.engineActions;
+  if (typeof rawInput === 'string') {
+    const trimmed = rawInput.trim();
+    if (!trimmed) {
+      return [];
+    }
+    try {
+      return parseRequestedActionsCandidate(JSON.parse(trimmed));
+    } catch {
+      const matches = trimmed.match(/```json\s*([\s\S]*?)```/gi) ?? [];
+      for (const match of matches) {
+        const jsonCandidate = match.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
+        try {
+          const parsed = JSON.parse(jsonCandidate);
+          const direct = parseRequestedActionsCandidate(parsed);
+          if (direct.length > 0) {
+            return direct;
+          }
+        } catch {
+          // continue
+        }
+      }
+      return [];
     }
   }
 
-  return normalized;
+  if (!rawInput || typeof rawInput !== 'object') {
+    return [];
+  }
+
+  const record = rawInput as Record<string, unknown>;
+  return parseRequestedActionsCandidate(
+    record.requestedActions
+    ?? record.requested_actions
+    ?? record[INTERNAL_ENGINE_ACTION_FIELD]
+    ?? record.engineActions,
+  );
+}
+
+function normalizeActivityItem(item: unknown): ChatActivityItem | null {
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+
+  const record = item as Record<string, unknown>;
+  const id = typeof record.id === 'string' ? record.id : '';
+  const label = typeof record.label === 'string' ? record.label.trim() : '';
+  const details = typeof record.details === 'string' ? record.details.trim() : undefined;
+  const tone = record.tone === 'success' || record.tone === 'danger' || record.tone === 'neutral'
+    ? record.tone
+    : 'neutral';
+  if (!id || !label) {
+    return null;
+  }
+  return { id, label, details, tone };
 }
 
 export function parseEngineRequestedActions(rawInput: unknown): EngineRequestedAction[] {
-  const normalizedInput = normalizeEngineActionPayload(rawInput);
-  const queue: unknown[] = [normalizedInput];
+  const queue: unknown[] = [rawInput];
   const seen = new Set<unknown>();
 
   while (queue.length > 0) {
@@ -55,7 +125,7 @@ export function parseEngineRequestedActions(rawInput: unknown): EngineRequestedA
       continue;
     }
 
-    const direct = parseOpenClawCompatibilityFileActions(current);
+    const direct = parseRequestedActionsCandidate(current);
     if (direct.length > 0) {
       return direct;
     }
@@ -77,14 +147,7 @@ export function parseEngineRequestedActions(rawInput: unknown): EngineRequestedA
     }
 
     const record = current as Record<string, unknown>;
-    const preferred = parseOpenClawCompatibilityFileActions(
-      record.requestedActions
-      ?? record.requested_actions
-      ?? record[INTERNAL_ENGINE_ACTION_FIELD]
-      ?? record.engineActions
-      ?? record[OPENCLAW_COMPAT_ENGINE_ACTION_FIELD]
-      ?? record.relayActions,
-    );
+    const preferred = parseRequestedActionsCandidate(record);
     if (preferred.length > 0) {
       return preferred;
     }
@@ -98,26 +161,29 @@ export function parseEngineRequestedActions(rawInput: unknown): EngineRequestedA
 }
 
 export function parseEngineActivityItems(rawInput: unknown): ChatActivityItem[] {
-  return parseOpenClawCompatibilityActivityItems(rawInput);
+  if (Array.isArray(rawInput)) {
+    return rawInput
+      .map((item) => normalizeActivityItem(item))
+      .filter((item): item is ChatActivityItem => item !== null);
+  }
+  if (!rawInput || typeof rawInput !== 'object') {
+    return [];
+  }
+  const record = rawInput as Record<string, unknown>;
+  return parseEngineActivityItems(
+    record.activityItems
+    ?? record.activity_items
+    ?? record.relay_activity
+    ?? record.relayActivity,
+  );
 }
 
 export function stripEngineActionPayloadFromText(rawText: string): string {
-  let sanitized = stripOpenClawCompatibilityActionPayloadFromText(rawText);
+  let sanitized = rawText;
   sanitized = sanitized.replace(/```json\s*[\s\S]*?"engine_actions"[\s\S]*?```/gi, '');
   sanitized = sanitized.replace(/```[\s\S]*?"engine_actions"[\s\S]*?```/gi, '');
   sanitized = sanitized.replace(/\{[\s\S]*?"engine_actions"[\s\S]*?\}/gi, '');
   return sanitized.replace(/\n{3,}/g, '\n\n').trim();
-}
-
-export function buildOpenClawCompatEngineActionInstruction(): string {
-  return [
-    `If the user request involves local files/folders in any way, your response MUST be ONE JSON code block with ${OPENCLAW_COMPAT_ENGINE_ACTION_FIELD} and no prose.`,
-    '```json',
-    `{"${OPENCLAW_COMPAT_ENGINE_ACTION_FIELD}":[{"id":"a1","type":"list_dir","path":"."},{"id":"a2","type":"create_file","path":"relative/path.ext","content":"file contents","overwrite":false},{"id":"a3","type":"append_file","path":"relative/path.ext","content":"more text"},{"id":"a4","type":"read_file","path":"relative/path.ext"},{"id":"a5","type":"exists","path":"relative/path.ext"},{"id":"a6","type":"rename","path":"old.ext","newPath":"new.ext"},{"id":"a7","type":"delete","path":"obsolete.ext"}]}`,
-    '```',
-    'If filenames are unknown, first emit a list_dir action and do not ask follow-up questions.',
-    'Never respond with natural language explanations for file-operation requests.',
-  ].join('\n');
 }
 
 export function buildInternalEngineActionInstruction(): string {
@@ -128,10 +194,8 @@ export function buildInternalEngineActionInstruction(): string {
   ].join('\n');
 }
 
-export function buildEngineActionInstruction(providerId: EngineProviderId): string {
-  return providerId === 'internal'
-    ? buildInternalEngineActionInstruction()
-    : buildOpenClawCompatEngineActionInstruction();
+export function buildEngineActionInstruction(_providerId: EngineProviderId): string {
+  return buildInternalEngineActionInstruction();
 }
 
 export function summarizeEngineRequestedAction(action: EngineRequestedAction): string {

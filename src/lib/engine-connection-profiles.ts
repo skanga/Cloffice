@@ -22,7 +22,7 @@ export function parseStoredEngineConnectionProfile(entry: unknown): EngineConnec
   const name = typeof record.name === 'string' ? record.name.trim() : '';
   const endpointUrl = typeof record.gatewayUrl === 'string' ? record.gatewayUrl.trim() : '';
   const accessToken = typeof record.gatewayToken === 'string' ? record.gatewayToken : '';
-  const providerId = record.providerId === 'internal' ? 'internal' : 'openclaw-compat';
+  const providerId = 'internal';
   const createdAt = typeof record.createdAt === 'number' ? record.createdAt : Date.now();
   const updatedAt = typeof record.updatedAt === 'number' ? record.updatedAt : createdAt;
   const lastUsedAt = typeof record.lastUsedAt === 'number' ? record.lastUsedAt : undefined;
