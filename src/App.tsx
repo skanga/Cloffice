@@ -75,12 +75,17 @@ import {
   loadEngineScheduledJobsWithStatus,
   updateEngineScheduleWithStatus,
 } from './lib/engine-schedule-controller';
+import {
+  buildEngineChatDispatchStatus,
+  buildEngineConnectSuccessHealthMessage,
+  buildEngineResetPairingSuccess,
+  describeEngineConnectFailure,
+  describeEngineResetPairingFailure,
+  shouldRestoreInternalApprovalRecovery,
+} from './lib/engine-connection-status';
 import { createFileService, LocalFileService } from './lib/file-service';
 import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
 import {
-  buildOpenClawCompatibilityChatDispatchStatus,
-  describeOpenClawCompatibilityConnectFailure,
-  describeOpenClawCompatibilityResetPairingFailure,
   OPENCLAW_COMPAT_DEVICE_IDENTITY_STORAGE_KEY,
 } from './lib/openclaw-compat-engine';
 import { accumulateTodayUsage, addUsage, loadTodayUsage, parseUsageFromPayload } from './lib/token-usage';
@@ -2556,9 +2561,9 @@ export default function App() {
           return;
         }
         setEngineConnected(true);
-        setHealth({ ok: true, message: `Connected to runtime at ${runtimeEndpointUrl}` });
+        setHealth({ ok: true, message: buildEngineConnectSuccessHealthMessage(runtimeEndpointUrl) });
         markEngineConnectionLastUsed({ gatewayUrl: runtimeEndpointUrl, gatewayToken: runtimeAccessToken });
-        if (isInternalEngineProvider(draftEngineProviderId)) {
+        if (shouldRestoreInternalApprovalRecovery(draftEngineProviderId)) {
           await restoreInternalApprovalRecoveryFlows();
         } else {
           clearRecoveredApprovalCards();
@@ -2583,7 +2588,7 @@ export default function App() {
         }
         setEngineConnected(false);
         const info = readEngineError(error);
-        const description = describeOpenClawCompatibilityConnectFailure(info);
+        const description = describeEngineConnectFailure(draftEngineProviderId, info);
         setPairingRequestId(description.pairingRequestId);
         setHealth({ ok: false, message: description.healthMessage });
         setStatus(description.statusMessage);
@@ -2697,13 +2702,14 @@ export default function App() {
         commitActiveSessionKey(sessionKey);
       }
       setEngineConnected(true);
-      setHealth({ ok: true, message: `Re-paired and connected to ${getCurrentEngineDraft().endpointUrl}` });
-      setStatus('Re-pair complete. If operator.admin is still missing, approve the new request with admin scope on the runtime host.');
+      const success = buildEngineResetPairingSuccess(draftEngineProviderId, getCurrentEngineDraft().endpointUrl);
+      setHealth({ ok: true, message: success.healthMessage });
+      setStatus(success.statusMessage);
     } catch (error) {
       console.error('[Cloffice] reset pairing error:', error);
       setEngineConnected(false);
       const info = readEngineError(error);
-      const description = describeOpenClawCompatibilityResetPairingFailure(info);
+      const description = describeEngineResetPairingFailure(draftEngineProviderId, info);
       setPairingRequestId(description.pairingRequestId);
       setHealth({ ok: false, message: description.healthMessage });
       setStatus(description.statusMessage);
@@ -3569,11 +3575,7 @@ export default function App() {
       }
 
       commitActiveSessionKey(sessionKey);
-      setStatus(
-        isOpenClawCompatibilityProvider(draftEngineProviderId)
-          ? buildOpenClawCompatibilityChatDispatchStatus(sessionKey)
-          : `Message sent to the current runtime connection (session: ${sessionKey}). Waiting for streaming events...`,
-      );
+      setStatus(buildEngineChatDispatchStatus(draftEngineProviderId, sessionKey));
     } catch (error) {
       setAwaitingChatStream(false);
       const message = error instanceof Error ? error.message : 'Failed to send chat message.';
@@ -3876,7 +3878,7 @@ export default function App() {
   }, [activePage, configReady, engineConnected, loadScheduledJobs]);
 
   useEffect(() => {
-    if (!isInternalEngineProvider(draftEngineProviderId) || !engineConnected) {
+    if (!shouldRestoreInternalApprovalRecovery(draftEngineProviderId) || !engineConnected) {
       return;
     }
     void restoreInternalApprovalRecoveryFlows();
