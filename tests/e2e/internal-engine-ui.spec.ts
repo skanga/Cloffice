@@ -106,8 +106,16 @@ async function connectInternalProviderFromOnboarding(page: Page) {
     return;
   }
 
-  await expect(page.getByRole('heading', { name: 'Welcome to Cloffice' })).toBeVisible();
   await expect(async () => {
+    if (await page.getByTestId('onboarding-provider-internal').isVisible().catch(() => false)) {
+      return;
+    }
+    if (await page.getByRole('button', { name: 'Open Engine Settings' }).isVisible().catch(() => false)) {
+      return;
+    }
+    if (await page.getByText('Internal runtime diagnostics').isVisible().catch(() => false)) {
+      return;
+    }
     const getStartedButton = page.getByRole('button', { name: 'Get started' });
     await expect(getStartedButton).toBeVisible();
     await getStartedButton.click({ force: true });
@@ -552,6 +560,56 @@ test.describe('Internal engine UI flow', () => {
       const match = jobs.find((job: any) => job?.id === targetJobId);
       return Boolean(match?.lastRunAt);
     }, createdJobId), { timeout: 15000 }).toBe(true);
+  });
+
+  test('operator can group schedules by project and model on the Schedule page', async () => {
+    await markOnboardingComplete(page);
+    await connectInternalProviderFromSettings(page);
+    await clearInternalSchedules(page);
+    const rootFolder = await prepareProjectRoot(page);
+    await createProjectFromSidebar(page, {
+      title: 'Internal Grouped Schedule Project',
+      description: 'Exercise schedule grouping in the live UI.',
+      rootFolder,
+    });
+
+    await page.evaluate(async (selectedRootPath) => {
+      const bridge = window.cloffice ?? window.relay;
+      const rawProjects = localStorage.getItem('relay.cowork.projects.v1');
+      const parsedProjects = rawProjects ? JSON.parse(rawProjects) : [];
+      const project = Array.isArray(parsedProjects)
+        ? parsedProjects.find((entry) => entry?.name === 'Internal Grouped Schedule Project')
+        : null;
+      await bridge.createInternalPromptSchedule({
+        kind: 'cowork',
+        name: 'Grouped project schedule',
+        prompt: 'Inspect the grouped project root.',
+        intervalMinutes: 5,
+        projectId: project?.id,
+        projectTitle: project?.name,
+        rootPath: selectedRootPath,
+        model: 'internal/dev-planner',
+      });
+      await bridge.createInternalPromptSchedule({
+        kind: 'chat',
+        name: 'Ungrouped model schedule',
+        prompt: 'Summarize the latest scheduler changes.',
+        intervalMinutes: 15,
+        model: null,
+      });
+    }, rootFolder);
+
+    await openSchedulePage(page);
+    await expect(page.getByText('Grouped project schedule')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('Ungrouped model schedule')).toBeVisible({ timeout: 15000 });
+
+    await page.getByTestId('schedule-group-project').click();
+    await expect(page.getByTestId('schedule-group-section-internal-grouped-schedule-project')).toContainText('Grouped project schedule');
+    await expect(page.getByTestId('schedule-group-section-no-project')).toContainText('Ungrouped model schedule');
+
+    await page.getByTestId('schedule-group-model').click();
+    await expect(page.getByTestId('schedule-group-section-internal-dev-planner')).toContainText('Grouped project schedule');
+    await expect(page.getByTestId('schedule-group-section-default-model')).toContainText('Ungrouped model schedule');
   });
 
   test('operator can export and import internal schedules through the UI', async () => {

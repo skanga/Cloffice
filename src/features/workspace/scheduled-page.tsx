@@ -51,6 +51,7 @@ type ScheduledPageProps = {
 };
 
 type ViewMode = 'timeline' | 'calendar';
+type GroupMode = 'none' | 'project' | 'model';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTH_NAMES = [
@@ -76,6 +77,16 @@ function titleCase(value: string): string {
   if (!value.trim()) return 'Unknown';
   const lower = value.trim().toLowerCase();
   return `${lower.charAt(0).toUpperCase()}${lower.slice(1)}`;
+}
+
+function getScheduleGroupLabel(job: ScheduledJob, groupMode: GroupMode): string {
+  if (groupMode === 'project') {
+    return job.projectTitle?.trim() || 'No project';
+  }
+  if (groupMode === 'model') {
+    return job.model?.trim() || 'Default model';
+  }
+  return 'All schedules';
 }
 
 function buildArtifactSummaryText(job: ScheduledJob): string {
@@ -189,6 +200,7 @@ export function ScheduledPage({
   const [editModel, setEditModel] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [stateFilter, setStateFilter] = useState<'all' | 'active' | 'paused' | 'pending'>('all');
+  const [groupMode, setGroupMode] = useState<GroupMode>('none');
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -257,6 +269,23 @@ export function ScheduledPage({
     return Array.from(groups.entries());
   }, [scheduleModels]);
   const visibleJobIds = useMemo(() => visibleJobs.map((job) => job.id), [visibleJobs]);
+  const groupedVisibleJobs = useMemo(() => {
+    if (groupMode === 'none') {
+      return [{ key: 'all', label: 'All schedules', jobs: visibleJobs }];
+    }
+    const groups = new Map<string, ScheduledJob[]>();
+    for (const job of visibleJobs) {
+      const label = getScheduleGroupLabel(job, groupMode);
+      const current = groups.get(label) ?? [];
+      current.push(job);
+      groups.set(label, current);
+    }
+    return Array.from(groups.entries()).map(([label, groupedJobs]) => ({
+      key: label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'group',
+      label,
+      jobs: groupedJobs,
+    }));
+  }, [groupMode, visibleJobs]);
   const visibleSelectedCount = useMemo(
     () => selectedJobIds.filter((id) => visibleJobIds.includes(id)).length,
     [selectedJobIds, visibleJobIds],
@@ -618,6 +647,25 @@ export function ScheduledPage({
                     </button>
                   ))}
                 </div>
+                <div className="flex rounded-lg border border-border">
+                  {([
+                    ['none', 'Ungrouped'],
+                    ['project', 'Project'],
+                    ['model', 'Model'],
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={`px-3 py-1.5 font-sans text-[11px] transition-colors first:rounded-l-lg last:rounded-r-lg ${
+                        groupMode === value ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50'
+                      }`}
+                      data-testid={`schedule-group-${value}`}
+                      onClick={() => setGroupMode(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
                 <Button
                   type="button"
                   variant="outline"
@@ -705,63 +753,82 @@ export function ScheduledPage({
               <div className="relative px-4 py-3">
                 <div className="absolute left-[27px] top-3 bottom-3 w-px bg-border/50" />
                 <div className="grid gap-2">
-                  {visibleJobs.map((job) => {
-                    const isEnabled = job.enabled;
-                    const nextLabel = getRelativeTimeLabel(job.nextRunAt);
-                    const isHighlighted = highlightedJobId === job.id;
-
-                    return (
-                      <div key={job.id} className="relative flex gap-3 py-1.5" data-testid={`scheduled-job-${job.id}`}>
-                        {scheduleActionsEnabled ? (
-                          <div className="pt-2">
-                            <input
-                              type="checkbox"
-                              className="size-4 rounded border border-border"
-                              data-testid={`scheduled-job-select-${job.id}`}
-                              checked={selectedJobIds.includes(job.id)}
-                              onChange={(event) => toggleSelectedJob(job.id, event.target.checked)}
-                            />
-                          </div>
-                        ) : null}
-                        <div
-                          className={`relative z-10 flex size-5 shrink-0 items-center justify-center rounded-full border ${
-                            isEnabled
-                              ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/30'
-                              : 'border-border bg-background'
-                          }`}
-                        >
-                          {isEnabled ? (
-                            <Play className="size-2.5 text-emerald-600" />
-                          ) : (
-                            <Pause className="size-2.5 text-muted-foreground/50" />
-                          )}
+                  {groupedVisibleJobs.map((group) => (
+                    <section
+                      key={group.key}
+                      className="grid gap-2"
+                      data-testid={`schedule-group-section-${group.key}`}
+                    >
+                      {groupMode !== 'none' ? (
+                        <div className="sticky top-0 z-10 flex items-center gap-2 rounded-md border border-border/50 bg-card/95 px-3 py-2 backdrop-blur">
+                          <span
+                            className="font-sans text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                            data-testid={`schedule-group-heading-${group.key}`}
+                          >
+                            {group.label}
+                          </span>
+                          <Badge variant="outline" className="font-sans text-[10px]">
+                            {group.jobs.length}
+                          </Badge>
                         </div>
-                        <div
-                          className={`min-w-0 flex-1 rounded-lg border px-3 py-2.5 transition-colors ${
-                            isHighlighted
-                              ? 'border-amber-400 bg-amber-50/70 dark:border-amber-700 dark:bg-amber-950/20'
-                              : 'border-border/60 bg-background'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="font-sans text-[13px] font-medium">{job.name}</span>
-                            <Badge variant={isEnabled ? 'default' : 'outline'} className="font-sans text-[10px]">
-                              {isEnabled ? 'Active' : 'Paused'}
-                            </Badge>
-                            {job.kind ? (
-                              <Badge variant="outline" className="font-sans text-[10px]">
-                                {job.kind === 'cowork' ? 'Cowork' : 'Chat'}
-                              </Badge>
+                      ) : null}
+                      {group.jobs.map((job) => {
+                        const isEnabled = job.enabled;
+                        const nextLabel = getRelativeTimeLabel(job.nextRunAt);
+                        const isHighlighted = highlightedJobId === job.id;
+
+                        return (
+                          <div key={job.id} className="relative flex gap-3 py-1.5" data-testid={`scheduled-job-${job.id}`}>
+                            {scheduleActionsEnabled ? (
+                              <div className="pt-2">
+                                <input
+                                  type="checkbox"
+                                  className="size-4 rounded border border-border"
+                                  data-testid={`scheduled-job-select-${job.id}`}
+                                  checked={selectedJobIds.includes(job.id)}
+                                  onChange={(event) => toggleSelectedJob(job.id, event.target.checked)}
+                                />
+                              </div>
                             ) : null}
-                            <Badge variant="outline" className="font-sans text-[10px]">
-                              {titleCase(job.state)}
-                            </Badge>
-                            {nextLabel && (
-                              <span className="ml-auto font-sans text-[11px] text-amber-600 font-medium">
-                                {nextLabel}
-                              </span>
-                            )}
-                          </div>
+                            <div
+                              className={`relative z-10 flex size-5 shrink-0 items-center justify-center rounded-full border ${
+                                isEnabled
+                                  ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/30'
+                                  : 'border-border bg-background'
+                              }`}
+                            >
+                              {isEnabled ? (
+                                <Play className="size-2.5 text-emerald-600" />
+                              ) : (
+                                <Pause className="size-2.5 text-muted-foreground/50" />
+                              )}
+                            </div>
+                            <div
+                              className={`min-w-0 flex-1 rounded-lg border px-3 py-2.5 transition-colors ${
+                                isHighlighted
+                                  ? 'border-amber-400 bg-amber-50/70 dark:border-amber-700 dark:bg-amber-950/20'
+                                  : 'border-border/60 bg-background'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="font-sans text-[13px] font-medium">{job.name}</span>
+                                <Badge variant={isEnabled ? 'default' : 'outline'} className="font-sans text-[10px]">
+                                  {isEnabled ? 'Active' : 'Paused'}
+                                </Badge>
+                                {job.kind ? (
+                                  <Badge variant="outline" className="font-sans text-[10px]">
+                                    {job.kind === 'cowork' ? 'Cowork' : 'Chat'}
+                                  </Badge>
+                                ) : null}
+                                <Badge variant="outline" className="font-sans text-[10px]">
+                                  {titleCase(job.state)}
+                                </Badge>
+                                {nextLabel && (
+                                  <span className="ml-auto font-sans text-[11px] text-amber-600 font-medium">
+                                    {nextLabel}
+                                  </span>
+                                )}
+                              </div>
                           <p className="mt-1 font-mono text-[11px] text-muted-foreground">{job.schedule}</p>
                           {job.model ? (
                             <p className="mt-1 font-mono text-[10px] text-muted-foreground/80">
@@ -1145,10 +1212,12 @@ export function ScheduledPage({
                               </Button>
                             </div>
                           ) : null}
-                        </div>
-                      </div>
-                    );
-                  })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </section>
+                  ))}
                 </div>
               </div>
             )}
