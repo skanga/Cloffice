@@ -197,6 +197,11 @@ import {
   buildMissingCoworkPromptForScheduleStatus,
   buildResetPairingStartStatus,
 } from './lib/engine-runtime-status';
+import {
+  isMissingEngineSessionError,
+  loadEngineChatSession,
+  loadEngineCoworkSession,
+} from './lib/engine-session-controller';
 import { createFileService, LocalFileService } from './lib/file-service';
 import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
 import {
@@ -228,7 +233,6 @@ import {
   deriveThreadTitleFromMessages,
   toFallbackThreadTitle,
   isCustomChatThreadTitle,
-  findMatchingSessionKey,
   buildOutboundChatPrompt,
   readEngineError,
   normalizeCoworkMessage,
@@ -1687,64 +1691,25 @@ export default function App() {
     chatLoadRequestRef.current = requestId;
 
     try {
-      await client.connect(engineConnectOptionsFromDraft(getCurrentEngineDraft()));
-
-      let resolvedSessionKey = requestedSessionKey;
-      let history: ChatMessage[];
-
-      try {
-        const [loadedHistory] = await Promise.all([
-          client.getHistory(resolvedSessionKey, 30),
-          loadModelsForSession(client, resolvedSessionKey),
-        ]);
-        history = loadedHistory;
-      } catch (error) {
-        const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-        const isMissingSession = message.includes('no session found') || message.includes('no sendable session found');
-        if (!isMissingSession) {
-          throw error;
-        }
-
-        let retrySessionKey = '';
-        try {
-          const liveSessions = await client.listSessions(200);
-          const liveKeys = liveSessions.map((session) => session.key);
-          retrySessionKey = findMatchingSessionKey(liveKeys, resolvedSessionKey) ?? '';
-        } catch {
-          // fallback below
-        }
-
-        if (!retrySessionKey) {
-          retrySessionKey = normalizeSessionKey(await client.resolveSessionKey(resolvedSessionKey));
-        }
-
-        if (!retrySessionKey) {
-          throw error;
-        }
-
-        resolvedSessionKey = retrySessionKey;
-        if (resolvedSessionKey !== requestedSessionKey) {
-          rekeyChatThread(requestedSessionKey, resolvedSessionKey);
-        }
-
-        const [loadedHistory] = await Promise.all([
-          client.getHistory(resolvedSessionKey, 30),
-          loadModelsForSession(client, resolvedSessionKey),
-        ]);
-        history = loadedHistory;
-      }
+      const { resolvedSessionKey, history, titleFromHistory } = await loadEngineChatSession({
+        client,
+        connectOptions: engineConnectOptionsFromDraft(getCurrentEngineDraft()),
+        requestedSessionKey,
+        loadSessionModels: loadModelsForSession,
+      });
 
       if (requestId !== chatLoadRequestRef.current) {
         return;
       }
 
+      if (resolvedSessionKey !== requestedSessionKey) {
+        rekeyChatThread(requestedSessionKey, resolvedSessionKey);
+      }
       commitActiveSessionKey(resolvedSessionKey);
-
       setChatMessages(history);
       if (history.length > 0) {
         threadMessageCache.current.set(resolvedSessionKey, history);
       }
-      const titleFromHistory = deriveThreadTitleFromMessages(history);
       upsertChatThread(resolvedSessionKey, {
         title: titleFromHistory || undefined,
       });
@@ -1760,12 +1725,7 @@ export default function App() {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : buildChatSessionLoadFailureStatus();
-      const normalizedMessage = message.toLowerCase();
-      const isMissingSession =
-        normalizedMessage.includes('no session found') ||
-        normalizedMessage.includes('no sendable session found') ||
-        normalizedMessage.includes('session not found');
-      if (isMissingSession) {
+      if (isMissingEngineSessionError(error)) {
         removeThread(requestedSessionKey, 'chat');
       }
       setStatus(message);
@@ -1789,23 +1749,23 @@ export default function App() {
     coworkLoadRequestRef.current = requestId;
 
     try {
-      await client.connect(engineConnectOptionsFromDraft(getCurrentEngineDraft()));
-
-      const history = await client.getHistory(requestedSessionKey, 50);
-      const normalizedHistory = history.map(normalizeCoworkMessage);
+      const { history, titleFromHistory } = await loadEngineCoworkSession({
+        client,
+        connectOptions: engineConnectOptionsFromDraft(getCurrentEngineDraft()),
+        requestedSessionKey,
+        loadSessionModels: loadCoworkModels,
+        normalizeHistory: normalizeCoworkMessage,
+      });
 
       if (requestId !== coworkLoadRequestRef.current) {
         return;
       }
 
-      void loadCoworkModels(client, requestedSessionKey);
-
-      setCoworkMessages(normalizedHistory);
-      if (normalizedHistory.length > 0) {
-        coworkMessageCache.current.set(requestedSessionKey, normalizedHistory);
+      setCoworkMessages(history);
+      if (history.length > 0) {
+        coworkMessageCache.current.set(requestedSessionKey, history);
       }
 
-      const titleFromHistory = deriveThreadTitleFromMessages(normalizedHistory);
       upsertCoworkThread(requestedSessionKey, {
         title: titleFromHistory || undefined,
       });
