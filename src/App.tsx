@@ -218,7 +218,6 @@ import {
   OPENCLAW_COMPAT_DEVICE_IDENTITY_STORAGE_KEY,
 } from './lib/openclaw-compat-engine';
 import { accumulateTodayUsage, addUsage, loadTodayUsage, parseUsageFromPayload } from './lib/token-usage';
-import { loadSafetyScopes } from './lib/safety-policy';
 import { registerConnector, hydrateConnectors } from './lib/connectors';
 import { createFilesystemConnector } from './lib/connectors/filesystem';
 import { createShellConnector } from './lib/connectors/shell';
@@ -248,36 +247,19 @@ import {
   normalizeCoworkMessage,
 } from './lib/chat-utils';
   import {
-    buildEngineActionExecutionResult,
-    deriveEngineSessionArtifacts,
     getEngineSessionMessageIds,
     getEngineSessionResult,
     isEngineSessionError,
     isEngineSessionStreaming,
     parseEngineChatEvent,
-    resolveEngineCoworkApprovalTransition,
-    resolveEngineCoworkStreamingTransition,
   } from './lib/engine-session-events';
+import { handleEngineCoworkEvent } from './lib/engine-cowork-event-controller';
 import {
-  applyEngineCoworkStreamMessageUpdate,
-  appendEngineCoworkActivityMessage,
-  appendEngineCoworkSystemMessage,
-  applyEngineCoworkFinalMessageUpdate,
-  deriveEngineActionRunKey,
-  executeEngineCoworkActionExecution,
-  resolveEngineCoworkFailureApplication,
-  resolveEngineCoworkApprovalApplication,
-  resolveEngineCoworkNoActionCommit,
-  resolveEngineCoworkReceiptCommit,
-} from './lib/engine-run-coordinator';
-import {
-  buildInternalApprovalRecoveryFlow,
   type InternalApprovalRecoveryFlow,
 } from './lib/internal-approval-recovery';
 import type { InternalEngineCoworkContinuationRequest } from './lib/internal-engine-bridge';
 import { buildEngineActionInstruction } from './lib/engine-action-protocol';
 import {
-  isInternalEngineProvider,
   isOpenClawCompatibilityProvider,
 } from './lib/engine-provider-registry';
 
@@ -2131,319 +2113,60 @@ export default function App() {
         const isCoworkEvent = !!eventSessionKey && eventSessionKey === coworkSessionKeyRef.current;
 
         if (isCoworkEvent) {
-          if (sessionResult?.status === 'failed' && isEngineSessionError(chatEvent)) {
-            setCoworkAwaitingStream(false);
-            setCoworkRunPhase('error');
-            const resolvedErrorMessage = sessionResult.statusMessage || 'Cowork stream failed.';
-            const failureApplication = resolveEngineCoworkFailureApplication(resolvedErrorMessage);
-            setCoworkRunStatus(failureApplication.runStatus);
-            setCoworkProgressStage('executing_workstreams', {
-              blocked: true,
-              details: failureApplication.progressDetails,
-            });
-            setStatus(failureApplication.runStatus);
-            const taskEntry = resolveCoworkTaskForRun(eventSessionKey || coworkSessionKeyRef.current, runId);
-            if (taskEntry) {
-              setCoworkTaskStatus(taskEntry.taskId, failureApplication.taskStatus, {
-                runId,
-                summary: failureApplication.taskSummary,
-                outcome: failureApplication.taskOutcome,
-              });
-              finalizeCoworkTaskRun(eventSessionKey || coworkSessionKeyRef.current, taskEntry.taskId);
-            }
-            return;
-          }
-
-          if (isEngineSessionStreaming(chatEvent)) {
-            setCoworkAwaitingStream(false);
-            setCoworkRunPhase('streaming');
-            const streamingTransition = resolveEngineCoworkStreamingTransition(chatEvent);
-            setCoworkRunStatus(streamingTransition.runStatus);
-            setCoworkProgressStage('executing_workstreams', {
-              details: streamingTransition.progressDetails,
-            });
-            setCoworkStreamingText(visibleText);
-            const taskEntry = resolveCoworkTaskForRun(eventSessionKey || coworkSessionKeyRef.current, runId);
-            if (taskEntry) {
-              setCoworkTaskStatus(taskEntry.taskId, streamingTransition.taskStatus, {
-                runId,
-                summary: streamingTransition.taskSummary,
-              });
-            }
-            const { streamId } = getEngineSessionMessageIds('cowork', runId);
-            setCoworkMessages((current) => {
-              const next = applyEngineCoworkStreamMessageUpdate({
-                current,
-                streamId,
-                role,
-                visibleText,
-              });
-              if (eventSessionKey) {
-                coworkMessageCache.current.set(eventSessionKey, next);
-              }
-              return next;
-            });
-            return;
-          }
-
-          if (sessionResult && sessionResult.status !== 'failed') {
-            setCoworkAwaitingStream(false);
-            setCoworkRunPhase('completed');
-            setCoworkRunStatus(sessionResult.status === 'aborted' ? 'Cowork run ended early.' : 'Cowork run completed.');
-            setCoworkProgressStage('synthesizing_outputs', {
-              details: 'Synthesizing output from completed workstreams.',
-            });
-            setCoworkStreamingText(visibleText);
-            const { streamId, finalId, activityId } = getEngineSessionMessageIds('cowork', runId);
-            const activeModel = chatEvent.model;
-            const coworkUsage = parseUsageFromPayload(payload, activeModel);
-            const {
-              requestedActions,
-              activityItems,
-              hasRequestedActions,
-              hasStructuredActivity,
-              actionPhase,
-              actionMode,
-              providerId,
-              executionResult,
-            } = deriveEngineSessionArtifacts(chatEvent);
-            const internalExecution = isInternalEngineProvider(providerId) ? executionResult : null;
-            if (coworkUsage) {
-              accumulateTodayUsage(coworkUsage);
-              setSessionUsage((prev) => addUsage(prev, coworkUsage));
-            }
-            setCoworkMessages((current) => {
-              const next = applyEngineCoworkFinalMessageUpdate({
-                current,
-                streamId,
-                finalId,
-                role,
-                visibleText,
-                usage: coworkUsage,
-                hasRequestedActions,
-                hasStructuredActivity,
-              });
-              if (eventSessionKey) {
-                coworkMessageCache.current.set(eventSessionKey, next);
-              }
-              return next;
-            });
-
-            if (!hasRequestedActions && hasStructuredActivity) {
+          void handleEngineCoworkEvent({
+            chatEvent,
+            sessionResult,
+            client,
+            currentCoworkSessionKey: coworkSessionKeyRef.current,
+            bridge,
+            maxActionsPerRun: MAX_LOCAL_ACTIONS_PER_RUN,
+            executedActionRunKeys: executedCoworkActionRunsRef.current,
+            requestApproval: requestActionApproval,
+            resolveRunContext: resolveCoworkRunContext,
+            resolveTaskEntry: (sessionKey, nextRunId) => resolveCoworkTaskForRun(sessionKey, nextRunId),
+            persistInternalApprovalRecoveryFlow: (flow) => {
+              void persistInternalApprovalRecoveryFlow(flow);
+            },
+            clearInternalApprovalRecoveryFlow: (completedRunId) => {
+              void clearInternalApprovalRecoveryFlow(completedRunId);
+            },
+            onUsage: (usage) => {
+              accumulateTodayUsage(usage);
+              setSessionUsage((prev) => addUsage(prev, usage));
+            },
+            onSetAwaitingStream: setCoworkAwaitingStream,
+            onSetRunPhase: setCoworkRunPhase,
+            onSetRunStatus: setCoworkRunStatus,
+            onSetProgressStage: setCoworkProgressStage,
+            onSetStatus: setStatus,
+            onSetStreamingText: setCoworkStreamingText,
+            onUpdateMessages: (updater, cacheKey) => {
               setCoworkMessages((current) => {
-                const next = appendEngineCoworkActivityMessage({
-                  current,
-                  activityId,
-                  activityItems,
-                });
-                if (eventSessionKey) {
-                  coworkMessageCache.current.set(eventSessionKey, next);
+                const next = updater(current);
+                if (cacheKey) {
+                  coworkMessageCache.current.set(cacheKey, next);
                 }
                 return next;
               });
-            }
-            if (eventSessionKey) {
-              upsertCoworkThread(eventSessionKey, {
+            },
+            onTouchThread: (sessionKey) => {
+              upsertCoworkThread(sessionKey, {
                 touchedAt: Date.now(),
               });
-            }
-
-            const actionRunKey = deriveEngineActionRunKey(eventSessionKey, runId);
-            const runContext = resolveCoworkRunContext(eventSessionKey || coworkSessionKeyRef.current, runId);
-            const taskEntry = resolveCoworkTaskForRun(eventSessionKey || coworkSessionKeyRef.current, runId);
-            const postCoworkActionReceipt = (result: ReturnType<typeof buildEngineActionExecutionResult>) => {
-              const receiptCommit = resolveEngineCoworkReceiptCommit({
-                result,
-                hasTaskEntry: Boolean(taskEntry),
-              });
-              setCoworkRunStatus(receiptCommit.runStatus);
-              setCoworkProgressStage('deliverables', {
-                completeThrough: true,
-                details: receiptCommit.progressDetails,
-              });
-              setStatus(receiptCommit.runStatus);
-              pushLocalActionReceipts(receiptCommit.receipts);
-              recordCoworkArtifactsFromReceipts(receiptCommit.receipts, runId);
-
-              if (taskEntry && receiptCommit.taskCommit) {
-                setCoworkTaskStatus(taskEntry.taskId, receiptCommit.taskCommit.taskStatus, {
-                  runId,
-                  summary: receiptCommit.taskCommit.taskSummary,
-                  outcome: receiptCommit.taskCommit.taskOutcome,
-                });
-                if (receiptCommit.taskCommit.shouldFinalize) {
-                  finalizeCoworkTaskRun(eventSessionKey || coworkSessionKeyRef.current, taskEntry.taskId);
-                }
-              }
-
-              setCoworkMessages((current) => {
-                const next = appendEngineCoworkSystemMessage({
-                  current,
-                  message: receiptCommit.message,
-                });
-                if (eventSessionKey) {
-                  coworkMessageCache.current.set(eventSessionKey, next);
-                }
-                return next;
-              });
-            };
-            const approvalTransition = resolveEngineCoworkApprovalTransition({
-              hasRequestedActions,
-              actionPhase,
-              actionMode,
-            });
-            if (approvalTransition) {
-              const approvalApplication = resolveEngineCoworkApprovalApplication(approvalTransition);
-              setCoworkRunStatus(approvalApplication.runStatus);
-              setCoworkProgressStage('executing_workstreams', {
-                details: approvalApplication.progressDetails,
-              });
-              if (taskEntry) {
-                setCoworkTaskStatus(taskEntry.taskId, approvalApplication.taskStatus, {
-                  runId,
-                  summary: approvalApplication.taskSummary,
-                });
-              }
-            }
-            if (taskEntry && requestedActions.length === 0 && !internalExecution) {
-              const noActionCommit = resolveEngineCoworkNoActionCommit({
-                visibleText,
-                projectTitle: runContext.projectTitle,
-                runId,
-                rootPath: runContext.rootFolder,
-                hasTaskEntry: true,
-              });
-              if (noActionCommit.taskCommit) {
-                setCoworkTaskStatus(taskEntry.taskId, noActionCommit.taskCommit.taskStatus, {
-                  runId,
-                  summary: noActionCommit.taskCommit.taskSummary,
-                  outcome: noActionCommit.taskCommit.taskOutcome,
-                });
-              }
-            }
-            if (
-              requestedActions.length > 0 &&
-              !executedCoworkActionRunsRef.current.has(actionRunKey)
-            ) {
-              executedCoworkActionRunsRef.current.add(actionRunKey);
-              void (async () => {
-                const executionOutcome = await executeEngineCoworkActionExecution({
-                  requestedActions,
-                  providerId,
-                  actionMode,
-                  runId,
-                  eventSessionKey,
-                  currentCoworkSessionKey: coworkSessionKeyRef.current,
-                  runContext,
-                  continueCoworkRun: 'continueCoworkRun' in client
-                    ? (client as EngineClientInstance & {
-                        continueCoworkRun?: (payload: {
-                          sessionKey: string;
-                          runId: string;
-                          rootPath: string;
-                          approvedActions: EngineRequestedAction[];
-                          rejectedActions: { id: string; actionId: string; actionType: EngineRequestedAction['type']; path: string; approved: false; reason?: string }[];
-                        }) => Promise<unknown>;
-                      }).continueCoworkRun?.bind(client)
-                    : undefined,
-                  bridge,
-                  maxActionsPerRun: MAX_LOCAL_ACTIONS_PER_RUN,
-                  safetyScopes: loadSafetyScopes(runContext.projectId || undefined),
-                  requestApproval: requestActionApproval,
-                  validateProjectRelativePath,
-                  onRunStatus: setCoworkRunStatus,
-                  onProgress: (details) => {
-                    setCoworkProgressStage('executing_workstreams', { details });
-                  },
-                  onTaskStatus: taskEntry
-                    ? (status, summary, outcome) => {
-                        setCoworkTaskStatus(taskEntry.taskId, status, {
-                          runId,
-                          summary,
-                          outcome,
-                        });
-                      }
-                    : undefined,
-                  onInternalApprovalCheckpoint: ({ request, sessionKey, rootPath, context, requestedActions: boundedActions, currentIndex, approvedActions, rejectedActions }) => {
-                    void persistInternalApprovalRecoveryFlow(
-                      buildInternalApprovalRecoveryFlow({
-                        sessionKey,
-                        rootPath,
-                        context,
-                        requestedActions: boundedActions,
-                        currentIndex,
-                        approvedActions,
-                        rejectedActions,
-                        currentApproval: request,
-                      }),
-                    );
-                  },
-                  onInternalApprovalFlowComplete: (completedRunId) => {
-                    void clearInternalApprovalRecoveryFlow(completedRunId);
-                  },
-                });
-                if (executionOutcome.kind === 'continued') {
-                  return;
-                }
-
-                postCoworkActionReceipt(executionOutcome.result);
-                if (executionOutcome.notification && bridge?.notify) {
-                  bridge.notify(executionOutcome.notification.title, executionOutcome.notification.body).catch(() => {
-                    /* notification failure is non-critical */
-                  });
-                }
-              })();
-            } else if (internalExecution) {
-              postCoworkActionReceipt(
-                buildEngineActionExecutionResult({
-                  runId,
-                  receipts: internalExecution.receipts,
-                  previews: internalExecution.previews,
-                  errors: internalExecution.errors,
-                  projectTitle: runContext.projectTitle,
-                  rootPath: runContext.rootFolder || '(not set)',
-                }),
-              );
-            } else if (requestedActions.length === 0) {
-              const noActionCommit = resolveEngineCoworkNoActionCommit({
-                visibleText,
-                projectTitle: runContext.projectTitle,
-                runId,
-                rootPath: runContext.rootFolder,
-                hasTaskEntry: Boolean(taskEntry),
-              });
-              setCoworkProgressStage('deliverables', {
-                completeThrough: true,
-                details: noActionCommit.progressDetails,
-              });
-              if (taskEntry && noActionCommit.taskCommit) {
-                setCoworkTaskStatus(taskEntry.taskId, noActionCommit.taskCommit.taskStatus, {
-                  runId,
-                  summary: noActionCommit.taskCommit.taskSummary,
-                  outcome: noActionCommit.taskCommit.taskOutcome,
-                });
-                if (noActionCommit.taskCommit.shouldFinalize) {
-                  finalizeCoworkTaskRun(eventSessionKey || coworkSessionKeyRef.current, taskEntry.taskId);
-                }
-
-                if (bridge?.notify) {
-                  bridge.notify(noActionCommit.notificationTitle, noActionCommit.notificationBody).catch(() => {});
-                }
-              }
-
-              setCoworkMessages((current) => {
-                const next = appendEngineCoworkSystemMessage({
-                  current,
-                  message: noActionCommit.message,
-                });
-                if (eventSessionKey) {
-                  coworkMessageCache.current.set(eventSessionKey, next);
-                }
-                return next;
-              });
-            }
-            return;
-          }
+            },
+            onSetTaskStatus: (taskId, status, options) => {
+              setCoworkTaskStatus(taskId, status, options);
+            },
+            onFinalizeTaskRun: (sessionKey, taskId) => {
+              finalizeCoworkTaskRun(sessionKey, taskId);
+            },
+            onPushLocalActionReceipts: pushLocalActionReceipts,
+            onRecordArtifactsFromReceipts: recordCoworkArtifactsFromReceipts,
+            onClearPendingApprovalsForRun: (completedRunId) => {
+              setPendingApprovals((current) => current.filter((item) => item.runId !== completedRunId));
+            },
+          });
+          return;
         }
 
         if (eventSessionKey && eventSessionKey !== activeSessionKeyRef.current) {
