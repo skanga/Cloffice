@@ -1141,6 +1141,7 @@ export function SettingsPage({
                     <p><span className="font-medium text-foreground">{t('Readiness', 'Bereitschaft')}:</span> {internalRuntimeInfo.readiness}</p>
                     <p><span className="font-medium text-foreground">{t('Restore', 'Wiederherstellung')}:</span> {internalRuntimeInfo.stateRestoreStatus}</p>
                     <p><span className="font-medium text-foreground">{t('Runs', 'Laeufe')}:</span> {internalRuntimeInfo.runCount}</p>
+                    <p><span className="font-medium text-foreground">{t('Schedules', 'Zeitplaene')}:</span> {internalRuntimeInfo.scheduleCount}</p>
                     <p><span className="font-medium text-foreground">{t('Pending approvals', 'Ausstehende Freigaben')}:</span> {internalRuntimeInfo.pendingApprovalCount}</p>
                     <p><span className="font-medium text-foreground">{t('Artifacts', 'Artefakte')}:</span> {internalRuntimeInfo.artifactCount}</p>
                     <p><span className="font-medium text-foreground">{t('Interrupted runs', 'Unterbrochene Laeufe')}:</span> {internalRuntimeInfo.interruptedRunCount}</p>
@@ -1159,6 +1160,16 @@ export function SettingsPage({
                   {internalRuntimeInfo.lastProviderError ? (
                     <p className="mt-3 text-xs text-muted-foreground">
                       <span className="font-medium text-foreground">{t('Last provider error', 'Letzter Provider-Fehler')}:</span> {internalRuntimeInfo.lastProviderError}
+                    </p>
+                  ) : null}
+                  {internalRuntimeInfo.lastScheduledJobName ? (
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">{t('Last schedule', 'Letzter Zeitplan')}:</span> {internalRuntimeInfo.lastScheduledJobName}
+                    </p>
+                  ) : null}
+                  {internalRuntimeInfo.lastScheduleError ? (
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">{t('Last schedule error', 'Letzter Zeitplanfehler')}:</span> {internalRuntimeInfo.lastScheduleError}
                     </p>
                   ) : null}
                   {internalRuntimeInfo.lastRecoveryNote ? (

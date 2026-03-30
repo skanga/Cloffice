@@ -24,6 +24,10 @@ type ScheduledPageProps = {
   loading: boolean;
   status: string;
   onRefresh: () => void | Promise<void>;
+  scheduleActionsEnabled?: boolean;
+  onToggleJob?: (jobId: string, enabled: boolean) => void | Promise<void>;
+  onSetJobInterval?: (jobId: string, intervalMinutes: number) => void | Promise<void>;
+  onDeleteJob?: (jobId: string) => void | Promise<void>;
 };
 
 type ViewMode = 'timeline' | 'calendar';
@@ -96,7 +100,16 @@ function jobMatchesDate(job: ScheduledJob, date: Date): boolean {
   return false;
 }
 
-export function ScheduledPage({ jobs, loading, status, onRefresh }: ScheduledPageProps) {
+export function ScheduledPage({
+  jobs,
+  loading,
+  status,
+  onRefresh,
+  scheduleActionsEnabled = false,
+  onToggleJob,
+  onSetJobInterval,
+  onDeleteJob,
+}: ScheduledPageProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('timeline');
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());
@@ -250,6 +263,55 @@ export function ScheduledPage({ jobs, loading, status, onRefresh }: ScheduledPag
                             <span>Next run: {formatTime(job.nextRunAt)}</span>
                             <span>Last run: {formatTime(job.lastRunAt)}</span>
                           </div>
+                          {scheduleActionsEnabled ? (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-[11px]"
+                                onClick={() => void onToggleJob?.(job.id, !job.enabled)}
+                              >
+                                {job.enabled ? 'Pause' : 'Resume'}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-[11px]"
+                                onClick={() => void onSetJobInterval?.(job.id, 1)}
+                              >
+                                1m
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-[11px]"
+                                onClick={() => void onSetJobInterval?.(job.id, 5)}
+                              >
+                                5m
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-[11px]"
+                                onClick={() => void onSetJobInterval?.(job.id, 15)}
+                              >
+                                15m
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-[11px] text-destructive"
+                                onClick={() => void onDeleteJob?.(job.id)}
+                              >
+                                Delete
+                              </Button>
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     );

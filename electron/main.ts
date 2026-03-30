@@ -37,7 +37,15 @@ import type {
   InternalEngineSendChatResult,
 } from '../src/lib/internal-engine-bridge.js';
 import type { ChatActivityItem, EngineRequestedAction } from '../src/app-types.js';
-import { applyInternalApprovalRecoveryDecision, type InternalApprovalRecoveryFlow } from '../src/lib/internal-approval-recovery.js';
+import {
+  applyInternalApprovalRecoveryDecision,
+  buildInternalApprovalRecoveryFlow,
+  type InternalApprovalRecoveryFlow,
+} from '../src/lib/internal-approval-recovery.js';
+import {
+  createPendingEngineApprovalAction,
+  type EngineApprovalLoopContext,
+} from '../src/lib/engine-approval-orchestrator.js';
 import {
   buildInternalEngineActionInstruction,
   parseEngineActivityItems,
@@ -219,6 +227,7 @@ function createInternalEngineMainService() {
   };
   type PersistedInternalScheduleRecord = {
     id: string;
+    kind: 'chat' | 'cowork';
     name: string;
     prompt: string;
     schedule: string;
@@ -227,6 +236,7 @@ function createInternalEngineMainService() {
     state: string;
     nextRunAt: string | null;
     lastRunAt: string | null;
+    rootPath?: string;
     model?: string;
     lastError?: string;
   };
@@ -1037,6 +1047,7 @@ function createInternalEngineMainService() {
       typeof entry === 'string' && entry.trim() ? entry.trim() : null;
     return {
       id,
+      kind: candidate.kind === 'cowork' ? 'cowork' : 'chat',
       name,
       prompt,
       schedule:
@@ -1048,6 +1059,7 @@ function createInternalEngineMainService() {
       state: typeof candidate.state === 'string' && candidate.state.trim() ? candidate.state.trim() : 'idle',
       nextRunAt: normalizeDateString(candidate.nextRunAt),
       lastRunAt: normalizeDateString(candidate.lastRunAt),
+      ...(typeof candidate.rootPath === 'string' && candidate.rootPath.trim() ? { rootPath: candidate.rootPath.trim() } : {}),
       ...(typeof candidate.model === 'string' && candidate.model.trim() ? { model: candidate.model.trim() } : {}),
       ...(typeof candidate.lastError === 'string' && candidate.lastError.trim() ? { lastError: candidate.lastError.trim() } : {}),
     };
@@ -1326,14 +1338,48 @@ function createInternalEngineMainService() {
     schedule.state = 'running';
     schedule.lastError = undefined;
     await persistState();
-    const scheduledSessionKey = `internal:scheduled:chat:${schedule.id}`;
+    const scheduledSessionKey = `internal:scheduled:${schedule.kind}:${schedule.id}`;
     try {
-      const session = ensureSession(scheduledSessionKey, 'chat');
+      const session = ensureSession(scheduledSessionKey, schedule.kind);
       if (schedule.model?.trim()) {
         session.model = resolveModelValue(schedule.model.trim());
       }
-      await service.sendChat(session.key, schedule.prompt);
-      schedule.state = 'completed';
+      const result = await service.sendChat(session.key, schedule.prompt);
+      if (schedule.kind === 'cowork' && result.requestedActions && result.requestedActions.length > 0) {
+        const approvalContext: EngineApprovalLoopContext = {
+          runId: result.runId,
+          projectTitle: schedule.name,
+          ...(schedule.rootPath?.trim() ? { projectRootFolder: schedule.rootPath.trim() } : {}),
+          scopeId: 'internal-scheduled-read-only',
+          scopeName: 'Internal scheduled read-only actions',
+          riskLevel: 'low',
+          maxActionsPerRun: result.requestedActions.length,
+        };
+        pendingApprovalFlows = [
+          ...pendingApprovalFlows.filter((flow) => flow.runId !== result.runId),
+          buildInternalApprovalRecoveryFlow({
+            sessionKey: result.sessionKey,
+            rootPath: schedule.rootPath?.trim() || process.cwd(),
+            context: approvalContext,
+            requestedActions: result.requestedActions,
+            currentIndex: 0,
+            approvedActions: [],
+            rejectedActions: [],
+            currentApproval: createPendingEngineApprovalAction({
+              action: result.requestedActions[0],
+              index: 0,
+              context: approvalContext,
+            }),
+          }),
+        ];
+        appendRunTimelineEntry(result.runId, {
+          phase: 'awaiting_approval',
+          message: `Scheduled cowork awaiting approval for ${schedule.name}.`,
+        });
+        schedule.state = 'awaiting_approval';
+      } else {
+        schedule.state = 'completed';
+      }
       schedule.lastRunAt = new Date().toISOString();
       schedule.nextRunAt = computeNextRunAt(schedule.intervalMinutes);
       lastScheduledJobName = schedule.name;
@@ -1525,9 +1571,11 @@ function createInternalEngineMainService() {
       return schedules.map(toEngineCronJob);
     },
     async createPromptSchedule(payload: {
+      kind?: 'chat' | 'cowork';
       prompt: string;
       name?: string;
       intervalMinutes?: number;
+      rootPath?: string;
       model?: string | null;
     }): Promise<EngineCronJob> {
       requireConnected();
@@ -1542,6 +1590,7 @@ function createInternalEngineMainService() {
       const preview = previewPrompt(prompt) || 'Scheduled prompt';
       const record: PersistedInternalScheduleRecord = {
         id: crypto.randomUUID(),
+        kind: payload.kind === 'cowork' ? 'cowork' : 'chat',
         name: payload.name?.trim() || `Scheduled chat: ${preview}`,
         prompt,
         schedule: `every ${intervalMinutes} minute${intervalMinutes === 1 ? '' : 's'}`,
@@ -1550,11 +1599,45 @@ function createInternalEngineMainService() {
         state: 'idle',
         nextRunAt: computeNextRunAt(intervalMinutes),
         lastRunAt: null,
+        ...(payload.rootPath?.trim() ? { rootPath: payload.rootPath.trim() } : {}),
         ...(payload.model?.trim() ? { model: payload.model.trim() } : {}),
       };
       schedules = [...schedules, record];
       await persistState();
       return toEngineCronJob(record);
+    },
+    async updatePromptSchedule(
+      id: string,
+      payload: {
+        enabled?: boolean;
+        intervalMinutes?: number;
+      },
+    ): Promise<EngineCronJob> {
+      requireConnected();
+      const schedule = schedules.find((entry) => entry.id === id);
+      if (!schedule) {
+        throw new Error('Internal schedule not found.');
+      }
+      if (typeof payload.enabled === 'boolean') {
+        schedule.enabled = payload.enabled;
+        schedule.state = payload.enabled ? 'idle' : 'paused';
+        schedule.nextRunAt = payload.enabled ? computeNextRunAt(schedule.intervalMinutes) : null;
+      }
+      if (Number.isFinite(payload.intervalMinutes) && Number(payload.intervalMinutes) >= 1) {
+        schedule.intervalMinutes = Math.max(1, Math.round(Number(payload.intervalMinutes)));
+        schedule.schedule = `every ${schedule.intervalMinutes} minute${schedule.intervalMinutes === 1 ? '' : 's'}`;
+        if (schedule.enabled) {
+          schedule.nextRunAt = computeNextRunAt(schedule.intervalMinutes);
+          schedule.state = 'idle';
+        }
+      }
+      await persistState();
+      return toEngineCronJob(schedule);
+    },
+    async deletePromptSchedule(id: string): Promise<void> {
+      requireConnected();
+      schedules = schedules.filter((entry) => entry.id !== id);
+      await persistState();
     },
     async getSessionModel(sessionKey: string): Promise<string | null> {
       requireConnected();
@@ -3091,9 +3174,15 @@ app.whenReady().then(async () => {
   ipcMain.handle('internal-engine:list-cron-jobs', async () => internalEngineService.listCronJobs());
   ipcMain.handle(
     'internal-engine:create-prompt-schedule',
-    async (_event, payload: { prompt: string; name?: string; intervalMinutes?: number; model?: string | null }) =>
+    async (_event, payload: { kind?: 'chat' | 'cowork'; prompt: string; name?: string; intervalMinutes?: number; rootPath?: string; model?: string | null }) =>
       internalEngineService.createPromptSchedule(payload),
   );
+  ipcMain.handle(
+    'internal-engine:update-prompt-schedule',
+    async (_event, id: string, payload: { enabled?: boolean; intervalMinutes?: number }) =>
+      internalEngineService.updatePromptSchedule(id, payload),
+  );
+  ipcMain.handle('internal-engine:delete-prompt-schedule', async (_event, id: string) => internalEngineService.deletePromptSchedule(id));
   ipcMain.handle('internal-engine:send-chat', async (event, sessionKey: string, text: string) =>
     internalEngineService.sendChat(sessionKey, text, (frame) => {
       event.sender.send('internal-engine:event', frame);

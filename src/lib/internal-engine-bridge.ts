@@ -248,11 +248,18 @@ export type InternalEngineDesktopBridge = {
   getInternalHistory(sessionKey: string, limit?: number): Promise<EngineChatMessage[]>;
   listInternalCronJobs(): Promise<EngineCronJob[]>;
   createInternalPromptSchedule(payload: {
+    kind?: 'chat' | 'cowork';
     prompt: string;
     name?: string;
     intervalMinutes?: number;
+    rootPath?: string;
     model?: string | null;
   }): Promise<EngineCronJob>;
+  updateInternalPromptSchedule(id: string, payload: {
+    enabled?: boolean;
+    intervalMinutes?: number;
+  }): Promise<EngineCronJob>;
+  deleteInternalPromptSchedule(id: string): Promise<void>;
   sendInternalChat(sessionKey: string, text: string): Promise<InternalEngineSendChatResult>;
   setInternalEngineEventHandler(handler: ((frame: EngineEventFrame) => void) | null): void;
   testInternalProviderConnection(

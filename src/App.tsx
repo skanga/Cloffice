@@ -3094,8 +3094,10 @@ export default function App() {
 
     if (draftEngineProviderId === 'internal' && bridge?.createInternalPromptSchedule) {
       void bridge.createInternalPromptSchedule({
+        kind: 'cowork',
         prompt: latestUserPrompt,
         name: 'Scheduled cowork prompt',
+        rootPath: workingFolderRef.current.trim() || undefined,
         intervalMinutes: 1,
         model: coworkModel.trim() || null,
       })
@@ -3113,6 +3115,45 @@ export default function App() {
 
     setActivePage('scheduled');
     setStatus('Opened Schedule. Create a cron job for this task prompt from your runtime scheduler.');
+  };
+
+  const handleUpdateInternalPromptSchedule = async (scheduleId: string, payload: {
+    enabled?: boolean;
+    intervalMinutes?: number;
+  }) => {
+    if (!bridge?.updateInternalPromptSchedule) {
+      setStatus('Internal schedule controls are available in the Electron desktop app only.');
+      return;
+    }
+    try {
+      await bridge.updateInternalPromptSchedule(scheduleId, payload);
+      await loadScheduledJobs();
+      if (typeof payload.enabled === 'boolean') {
+        setStatus(payload.enabled ? 'Resumed internal schedule.' : 'Paused internal schedule.');
+      } else if (payload.intervalMinutes) {
+        setStatus(`Updated internal schedule cadence to every ${payload.intervalMinutes} minute${payload.intervalMinutes === 1 ? '' : 's'}.`);
+      } else {
+        setStatus('Updated internal schedule.');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to update internal schedule.';
+      setStatus(message);
+    }
+  };
+
+  const handleDeleteInternalPromptSchedule = async (scheduleId: string) => {
+    if (!bridge?.deleteInternalPromptSchedule) {
+      setStatus('Internal schedule controls are available in the Electron desktop app only.');
+      return;
+    }
+    try {
+      await bridge.deleteInternalPromptSchedule(scheduleId);
+      await loadScheduledJobs();
+      setStatus('Deleted internal schedule.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to delete internal schedule.';
+      setStatus(message);
+    }
   };
 
   const handlePickWorkingFolderForProject = async (): Promise<string | undefined> => {
@@ -4355,6 +4396,10 @@ export default function App() {
                         loading={scheduledLoading}
                         status={status}
                         onRefresh={loadScheduledJobs}
+                        scheduleActionsEnabled={draftEngineProviderId === 'internal'}
+                        onToggleJob={(jobId, enabled) => void handleUpdateInternalPromptSchedule(jobId, { enabled })}
+                        onSetJobInterval={(jobId, intervalMinutes) => void handleUpdateInternalPromptSchedule(jobId, { intervalMinutes })}
+                        onDeleteJob={(jobId) => void handleDeleteInternalPromptSchedule(jobId)}
                       />
                     )}
 

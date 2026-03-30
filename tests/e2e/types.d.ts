@@ -25,11 +25,18 @@ interface Window {
     getInternalHistory: (sessionKey: string, limit?: number) => Promise<any[]>;
     listInternalCronJobs: () => Promise<any[]>;
     createInternalPromptSchedule: (payload: {
+      kind?: 'chat' | 'cowork';
       prompt: string;
       name?: string;
       intervalMinutes?: number;
+      rootPath?: string;
       model?: string | null;
     }) => Promise<any>;
+    updateInternalPromptSchedule: (id: string, payload: {
+      enabled?: boolean;
+      intervalMinutes?: number;
+    }) => Promise<any>;
+    deleteInternalPromptSchedule: (id: string) => Promise<void>;
     sendInternalChat: (sessionKey: string, text: string) => Promise<any>;
     setInternalEngineEventHandler: (handler: ((frame: any) => void) | null) => void;
     testInternalProviderConnection: (providerId: 'openai' | 'anthropic' | 'gemini', config?: any) => Promise<any>;
