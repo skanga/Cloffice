@@ -27,6 +27,21 @@ export async function loadEngineScheduledJobs(
   return client.listCronJobs();
 }
 
+export async function loadEngineScheduledJobsWithStatus(
+  client: EngineRuntimeClient,
+  connectOptions: EngineConnectOptions,
+): Promise<{ jobs: ScheduledJob[]; errorMessage: string | null }> {
+  try {
+    const jobs = await loadEngineScheduledJobs(client, connectOptions);
+    return { jobs, errorMessage: null };
+  } catch (error) {
+    return {
+      jobs: [],
+      errorMessage: error instanceof Error ? error.message : 'Unable to load scheduled jobs.',
+    };
+  }
+}
+
 export function canManageEngineSchedules(
   providerId: EngineProviderId,
   bridge: InternalScheduleBridge | null | undefined,
@@ -72,6 +87,29 @@ export async function createEngineCoworkSchedule(params: {
   };
 }
 
+export async function createEngineCoworkScheduleWithStatus(params: {
+  providerId: EngineProviderId;
+  bridge: InternalScheduleBridge | null | undefined;
+  prompt: string;
+  activeProject: CoworkProject | null;
+  rootPath?: string;
+  model?: string | null;
+}): Promise<{
+  message: string;
+  shouldOpenScheduledPage: boolean;
+  shouldReloadScheduledJobs: boolean;
+}> {
+  try {
+    return await createEngineCoworkSchedule(params);
+  } catch (error) {
+    return {
+      message: error instanceof Error ? error.message : 'Unable to create internal schedule.',
+      shouldOpenScheduledPage: false,
+      shouldReloadScheduledJobs: false,
+    };
+  }
+}
+
 export async function updateEngineSchedule(params: {
   bridge: InternalScheduleBridge | null | undefined;
   scheduleId: string;
@@ -94,6 +132,25 @@ export async function updateEngineSchedule(params: {
   return 'Updated internal schedule.';
 }
 
+export async function updateEngineScheduleWithStatus(params: {
+  bridge: InternalScheduleBridge | null | undefined;
+  scheduleId: string;
+  payload: {
+    enabled?: boolean;
+    intervalMinutes?: number;
+  };
+}): Promise<{ message: string; shouldReloadScheduledJobs: boolean }> {
+  try {
+    const message = await updateEngineSchedule(params);
+    return { message, shouldReloadScheduledJobs: true };
+  } catch (error) {
+    return {
+      message: error instanceof Error ? error.message : 'Unable to update internal schedule.',
+      shouldReloadScheduledJobs: false,
+    };
+  }
+}
+
 export async function deleteEngineSchedule(params: {
   bridge: InternalScheduleBridge | null | undefined;
   scheduleId: string;
@@ -104,4 +161,19 @@ export async function deleteEngineSchedule(params: {
 
   await params.bridge.deleteInternalPromptSchedule(params.scheduleId);
   return 'Deleted internal schedule.';
+}
+
+export async function deleteEngineScheduleWithStatus(params: {
+  bridge: InternalScheduleBridge | null | undefined;
+  scheduleId: string;
+}): Promise<{ message: string; shouldReloadScheduledJobs: boolean }> {
+  try {
+    const message = await deleteEngineSchedule(params);
+    return { message, shouldReloadScheduledJobs: true };
+  } catch (error) {
+    return {
+      message: error instanceof Error ? error.message : 'Unable to delete internal schedule.',
+      shouldReloadScheduledJobs: false,
+    };
+  }
 }

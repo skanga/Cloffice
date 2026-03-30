@@ -65,10 +65,10 @@ import { ScrollArea } from './components/ui/scroll-area';
 import { createEngineClient, type EngineClientInstance } from './lib/engine-client';
 import {
   canManageEngineSchedules,
-  createEngineCoworkSchedule,
-  deleteEngineSchedule,
-  loadEngineScheduledJobs,
-  updateEngineSchedule,
+  createEngineCoworkScheduleWithStatus,
+  deleteEngineScheduleWithStatus,
+  loadEngineScheduledJobsWithStatus,
+  updateEngineScheduleWithStatus,
 } from './lib/engine-schedule-controller';
 import { createFileService, LocalFileService } from './lib/file-service';
 import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
@@ -3100,7 +3100,7 @@ export default function App() {
       setStatus('No cowork prompt available to schedule.');
       return;
     }
-    void createEngineCoworkSchedule({
+    void createEngineCoworkScheduleWithStatus({
       providerId: draftEngineProviderId,
       bridge,
       prompt: latestUserPrompt,
@@ -3116,10 +3116,6 @@ export default function App() {
         if (result.shouldReloadScheduledJobs) {
           void loadScheduledJobs();
         }
-      })
-      .catch((error) => {
-        const message = error instanceof Error ? error.message : 'Unable to create internal schedule.';
-        setStatus(message);
       });
   };
 
@@ -3127,32 +3123,26 @@ export default function App() {
     enabled?: boolean;
     intervalMinutes?: number;
   }) => {
-    try {
-      const message = await updateEngineSchedule({
-        bridge,
-        scheduleId,
-        payload,
-      });
+    const result = await updateEngineScheduleWithStatus({
+      bridge,
+      scheduleId,
+      payload,
+    });
+    if (result.shouldReloadScheduledJobs) {
       await loadScheduledJobs();
-      setStatus(message);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to update internal schedule.';
-      setStatus(message);
     }
+    setStatus(result.message);
   };
 
   const handleDeleteInternalPromptSchedule = async (scheduleId: string) => {
-    try {
-      const message = await deleteEngineSchedule({
-        bridge,
-        scheduleId,
-      });
+    const result = await deleteEngineScheduleWithStatus({
+      bridge,
+      scheduleId,
+    });
+    if (result.shouldReloadScheduledJobs) {
       await loadScheduledJobs();
-      setStatus(message);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to delete internal schedule.';
-      setStatus(message);
     }
+    setStatus(result.message);
   };
 
   const handlePickWorkingFolderForProject = async (): Promise<string | undefined> => {
@@ -3863,15 +3853,14 @@ export default function App() {
 
     setScheduledLoading(true);
     try {
-      const rows = await loadEngineScheduledJobs(
+      const result = await loadEngineScheduledJobsWithStatus(
         client,
         engineConnectOptionsFromDraft(getCurrentEngineDraft()),
       );
-      setScheduledJobs(rows);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to load scheduled jobs.';
-      setStatus(message || 'Unable to load scheduled jobs.');
-      setScheduledJobs([]);
+      setScheduledJobs(result.jobs);
+      if (result.errorMessage) {
+        setStatus(result.errorMessage);
+      }
     } finally {
       setScheduledLoading(false);
     }
