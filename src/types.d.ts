@@ -60,9 +60,12 @@ type DesktopBridgeApi = {
     model?: string | null;
   }) => Promise<EngineCronJob>;
   updateInternalPromptSchedule: (id: string, payload: {
-    enabled?: boolean;
-    intervalMinutes?: number;
-  }) => Promise<EngineCronJob>;
+      enabled?: boolean;
+      intervalMinutes?: number;
+      name?: string;
+      prompt?: string;
+      model?: string | null;
+    }) => Promise<EngineCronJob>;
   deleteInternalPromptSchedule: (id: string) => Promise<void>;
   seedInternalScheduleArtifactForE2E?: (id: string) => Promise<unknown>;
   sendInternalChat: (sessionKey: string, text: string) => Promise<InternalEngineSendChatResult>;

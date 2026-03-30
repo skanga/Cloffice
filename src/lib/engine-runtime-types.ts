@@ -31,7 +31,10 @@ export type EngineSessionSummary = {
 
 export type EngineCronJob = {
   id: string;
+  kind?: 'chat' | 'cowork';
   name: string;
+  prompt?: string;
+  model?: string | null;
   schedule: string;
   enabled: boolean;
   state: string;

@@ -2693,12 +2693,15 @@ export default function App() {
       });
   };
 
-  const handleUpdateInternalPromptSchedule = async (scheduleId: string, payload: {
-    enabled?: boolean;
-    intervalMinutes?: number;
-  }) => {
-    const result = await updateEngineScheduleWithStatus({
-      bridge,
+    const handleUpdateInternalPromptSchedule = async (scheduleId: string, payload: {
+      enabled?: boolean;
+      intervalMinutes?: number;
+      name?: string;
+      prompt?: string;
+      model?: string | null;
+    }) => {
+      const result = await updateEngineScheduleWithStatus({
+        bridge,
       scheduleId,
       payload,
     });
@@ -3478,7 +3481,7 @@ export default function App() {
 
     void loadScheduledJobs();
     const client = engineClientRef.current;
-    if (client && activePage === 'cowork' && configReady) {
+    if (client && (activePage === 'cowork' || activePage === 'scheduled') && configReady) {
       const sessionKey = normalizeSessionKey(coworkSessionKeyRef.current);
       if (client.isConnected()) {
         void loadCoworkModels(client, sessionKey || undefined);
@@ -3490,7 +3493,7 @@ export default function App() {
           });
       }
     }
-  }, [activePage, configReady, engineConnected, loadScheduledJobs]);
+    }, [activePage, configReady, engineConnected, loadScheduledJobs]);
 
   useEffect(() => {
     if (!shouldRestoreInternalApprovalRecovery(draftEngineProviderId) || !engineConnected) {
@@ -4014,7 +4017,9 @@ export default function App() {
                           createScheduleEnabled={scheduleAccess.canManage}
                           createScheduleStatus={status}
                           defaultCreateModel={coworkModel}
+                          scheduleModels={coworkModels}
                           onCreateSchedule={(input) => void handleCreateInternalPromptSchedule(input)}
+                          onUpdateScheduleDetails={(jobId, input) => void handleUpdateInternalPromptSchedule(jobId, input)}
                           onToggleJob={(jobId, enabled) => void handleUpdateInternalPromptSchedule(jobId, { enabled })}
                           onSetJobInterval={(jobId, intervalMinutes) => void handleUpdateInternalPromptSchedule(jobId, { intervalMinutes })}
                           onDeleteJob={(jobId) => void handleDeleteInternalPromptSchedule(jobId)}

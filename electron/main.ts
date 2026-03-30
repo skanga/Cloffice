@@ -1152,7 +1152,10 @@ function createInternalEngineMainService() {
         })()
       : {}),
     id: schedule.id,
+    kind: schedule.kind,
     name: schedule.name,
+    prompt: schedule.prompt,
+    ...(schedule.model ? { model: schedule.model } : { model: null }),
     schedule: schedule.schedule,
     enabled: schedule.enabled,
     state: schedule.state,
@@ -1732,12 +1735,33 @@ function createInternalEngineMainService() {
       payload: {
         enabled?: boolean;
         intervalMinutes?: number;
+        name?: string;
+        prompt?: string;
+        model?: string | null;
       },
     ): Promise<EngineCronJob> {
       requireConnected();
       const schedule = schedules.find((entry) => entry.id === id);
       if (!schedule) {
         throw new Error('Internal schedule not found.');
+      }
+      if (typeof payload.name === 'string') {
+        const nextName = payload.name.trim();
+        if (!nextName) {
+          throw new Error('Internal schedule name is required.');
+        }
+        schedule.name = nextName;
+      }
+      if (typeof payload.prompt === 'string') {
+        const nextPrompt = payload.prompt.trim();
+        if (!nextPrompt) {
+          throw new Error('Internal schedule prompt is required.');
+        }
+        schedule.prompt = nextPrompt;
+      }
+      if (payload.model !== undefined) {
+        const nextModel = typeof payload.model === 'string' ? payload.model.trim() : '';
+        schedule.model = nextModel || undefined;
       }
       if (typeof payload.enabled === 'boolean') {
         schedule.enabled = payload.enabled;
@@ -3321,11 +3345,11 @@ app.whenReady().then(async () => {
     async (_event, payload: { kind?: 'chat' | 'cowork'; prompt: string; name?: string; intervalMinutes?: number; rootPath?: string; model?: string | null }) =>
       internalEngineService.createPromptSchedule(payload),
   );
-  ipcMain.handle(
-    'internal-engine:update-prompt-schedule',
-    async (_event, id: string, payload: { enabled?: boolean; intervalMinutes?: number }) =>
-      internalEngineService.updatePromptSchedule(id, payload),
-  );
+    ipcMain.handle(
+      'internal-engine:update-prompt-schedule',
+      async (_event, id: string, payload: { enabled?: boolean; intervalMinutes?: number; name?: string; prompt?: string; model?: string | null }) =>
+        internalEngineService.updatePromptSchedule(id, payload),
+    );
   ipcMain.handle('internal-engine:delete-prompt-schedule', async (_event, id: string) => internalEngineService.deletePromptSchedule(id));
   ipcMain.handle('internal-engine:seed-schedule-artifact-e2e', async (_event, id: string) => internalEngineService.seedScheduleArtifactForE2E(id));
   ipcMain.handle('internal-engine:send-chat', async (event, sessionKey: string, text: string) =>

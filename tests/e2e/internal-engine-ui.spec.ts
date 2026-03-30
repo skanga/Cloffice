@@ -411,6 +411,70 @@ test.describe('Internal engine UI flow', () => {
     await expect(jobCard).toBeHidden({ timeout: 15000 });
   });
 
+  test('operator can create and edit an internal schedule directly from the Schedule page UI', async () => {
+    await markOnboardingComplete(page);
+    await connectInternalProviderFromSettings(page);
+    await clearInternalSchedules(page);
+    const rootFolder = await prepareProjectRoot(page);
+    await createProjectFromSidebar(page, {
+      title: 'Internal Direct Schedule Project',
+      description: 'Exercise direct schedule page creation and editing.',
+      rootFolder,
+    });
+
+    await openSchedulePage(page);
+    await page.getByTestId('schedule-create-kind-cowork').click();
+    await page.getByTestId('schedule-create-name').fill('UI direct schedule');
+    await page.getByTestId('schedule-create-prompt').fill('Inspect the current project root and summarize the next migration step.');
+    await page.getByTestId('schedule-create-interval-5').click();
+    await page.getByTestId('schedule-create-model-select').selectOption({ index: 1 });
+    await page.getByTestId('schedule-create-submit').click();
+
+    await expect.poll(async () => page.evaluate(async () => {
+      const bridge = window.cloffice ?? window.relay;
+      const jobs = await bridge.listInternalCronJobs();
+      return jobs.some((job: any) => job?.name === 'UI direct schedule');
+    }), { timeout: 15000 }).toBe(true);
+
+    const createdJobId = await page.evaluate(async () => {
+      const bridge = window.cloffice ?? window.relay;
+      const jobs = await bridge.listInternalCronJobs();
+      const match = jobs.find((job: any) => job?.name === 'UI direct schedule');
+      return match?.id ?? null;
+    });
+    expect(createdJobId).not.toBeNull();
+    const createdJobCard = page.getByTestId(`scheduled-job-${createdJobId}`);
+    await expect(createdJobCard).toBeVisible({ timeout: 15000 });
+    await expect(createdJobCard).toContainText('UI direct schedule');
+    await expect(createdJobCard).toContainText('Cowork');
+    await expect(createdJobCard).toContainText('every 5 minutes');
+
+    await page.getByTestId(`scheduled-job-edit-${createdJobId}`).click();
+    await page.getByTestId(`scheduled-job-edit-name-${createdJobId}`).fill('UI direct schedule edited');
+    await page.getByTestId(`scheduled-job-edit-prompt-${createdJobId}`).fill('Inspect README.md and summarize the next migration step.');
+    await page.getByTestId(`scheduled-job-edit-model-${createdJobId}`).selectOption({ index: 0 });
+    await page.getByTestId(`scheduled-job-edit-save-${createdJobId}`).click();
+
+    await expect.poll(async () => page.evaluate(async (targetJobId) => {
+      const bridge = window.cloffice ?? window.relay;
+      const jobs = await bridge.listInternalCronJobs();
+      const match = jobs.find((job: any) => job?.id === targetJobId);
+      return match
+        ? {
+            name: match.name,
+            prompt: match.prompt,
+            model: match.model ?? null,
+          }
+        : null;
+    }, createdJobId), { timeout: 15000 }).toEqual({
+      name: 'UI direct schedule edited',
+      prompt: 'Inspect README.md and summarize the next migration step.',
+      model: null,
+    });
+
+    await expect(createdJobCard).toContainText('UI direct schedule edited');
+  });
+
   test('scheduled internal cowork run surfaces approval recovery in the live UI', async () => {
     await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);

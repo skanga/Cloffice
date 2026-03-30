@@ -35,11 +35,13 @@ type ScheduledPageProps = {
   createScheduleStatus?: string;
   createScheduleBusy?: boolean;
   defaultCreateModel?: string | null;
+  scheduleModels?: Array<{ value: string; label: string }>;
   onToggleJob?: (jobId: string, enabled: boolean) => void | Promise<void>;
   onSetJobInterval?: (jobId: string, intervalMinutes: number) => void | Promise<void>;
   onDeleteJob?: (jobId: string) => void | Promise<void>;
   onOpenRunHistory?: (jobId: string, runId: string) => void | Promise<void>;
   onCreateSchedule?: (input: EngineScheduleCreateInput) => void | Promise<void>;
+  onUpdateScheduleDetails?: (jobId: string, input: { name: string; prompt: string; model?: string | null }) => void | Promise<void>;
 };
 
 type ViewMode = 'timeline' | 'calendar';
@@ -148,11 +150,13 @@ export function ScheduledPage({
   createScheduleStatus = '',
   createScheduleBusy = false,
   defaultCreateModel = null,
+  scheduleModels = [],
   onToggleJob,
   onSetJobInterval,
   onDeleteJob,
   onOpenRunHistory,
   onCreateSchedule,
+  onUpdateScheduleDetails,
 }: ScheduledPageProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('timeline');
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
@@ -167,6 +171,10 @@ export function ScheduledPage({
   const [createPrompt, setCreatePrompt] = useState('');
   const [createIntervalMinutes, setCreateIntervalMinutes] = useState<1 | 5 | 15>(1);
   const [createModel, setCreateModel] = useState(defaultCreateModel ?? '');
+  const [editingJobId, setEditingJobId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editPrompt, setEditPrompt] = useState('');
+  const [editModel, setEditModel] = useState('');
 
   useEffect(() => {
     setCreateModel(defaultCreateModel ?? '');
@@ -259,6 +267,25 @@ export function ScheduledPage({
     });
     setCreateName('');
     setCreatePrompt('');
+  };
+
+  const startEditingJob = (job: ScheduledJob) => {
+    setEditingJobId(job.id);
+    setEditName(job.name);
+    setEditPrompt(job.prompt ?? '');
+    setEditModel(job.model ?? '');
+  };
+
+  const handleSaveEditedJob = async () => {
+    if (!editingJobId || !onUpdateScheduleDetails) {
+      return;
+    }
+    await onUpdateScheduleDetails(editingJobId, {
+      name: editName,
+      prompt: editPrompt,
+      model: editModel.trim() || null,
+    });
+    setEditingJobId(null);
   };
 
   return (
@@ -366,7 +393,21 @@ export function ScheduledPage({
               onChange={(event) => setCreateModel(event.target.value)}
               placeholder="Optional model override"
               data-testid="schedule-create-model"
+              className="hidden"
             />
+            <select
+              value={createModel}
+              onChange={(event) => setCreateModel(event.target.value)}
+              className="h-10 rounded-xl border border-border bg-background px-3 font-sans text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="schedule-create-model-select"
+            >
+              <option value="">Default model</option>
+              {scheduleModels.map((model) => (
+                <option key={model.value} value={model.value}>
+                  {model.label}
+                </option>
+              ))}
+            </select>
             <div className="flex rounded-lg border border-border">
               {([1, 5, 15] as const).map((minutes) => (
                 <button
@@ -462,6 +503,11 @@ export function ScheduledPage({
                             <Badge variant={isEnabled ? 'default' : 'outline'} className="font-sans text-[10px]">
                               {isEnabled ? 'Active' : 'Paused'}
                             </Badge>
+                            {job.kind ? (
+                              <Badge variant="outline" className="font-sans text-[10px]">
+                                {job.kind === 'cowork' ? 'Cowork' : 'Chat'}
+                              </Badge>
+                            ) : null}
                             <Badge variant="outline" className="font-sans text-[10px]">
                               {titleCase(job.state)}
                             </Badge>
@@ -472,10 +518,67 @@ export function ScheduledPage({
                             )}
                           </div>
                           <p className="mt-1 font-mono text-[11px] text-muted-foreground">{job.schedule}</p>
+                          {job.model ? (
+                            <p className="mt-1 font-mono text-[10px] text-muted-foreground/80">
+                              Model: {job.model}
+                            </p>
+                          ) : null}
                           <div className="mt-1.5 flex gap-4 font-sans text-[11px] text-muted-foreground">
                             <span>Next run: {formatTime(job.nextRunAt)}</span>
                             <span>Last run: {formatTime(job.lastRunAt)}</span>
                           </div>
+                          {editingJobId === job.id ? (
+                            <div className="mt-2 grid gap-2 rounded-md border border-border/50 bg-card/60 px-2.5 py-2">
+                              <Input
+                                value={editName}
+                                onChange={(event) => setEditName(event.target.value)}
+                                placeholder="Schedule name"
+                                data-testid={`scheduled-job-edit-name-${job.id}`}
+                              />
+                              <select
+                                value={editModel}
+                                onChange={(event) => setEditModel(event.target.value)}
+                                className="h-10 rounded-xl border border-border bg-background px-3 font-sans text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                                data-testid={`scheduled-job-edit-model-${job.id}`}
+                              >
+                                <option value="">Default model</option>
+                                {scheduleModels.map((model) => (
+                                  <option key={`${job.id}-${model.value}`} value={model.value}>
+                                    {model.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <textarea
+                                value={editPrompt}
+                                onChange={(event) => setEditPrompt(event.target.value)}
+                                placeholder="Schedule prompt"
+                                className="min-h-24 rounded-lg border border-border bg-background px-3 py-2 font-sans text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                                data-testid={`scheduled-job-edit-prompt-${job.id}`}
+                              />
+                              <div className="flex flex-wrap gap-1.5">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 text-[11px]"
+                                  data-testid={`scheduled-job-edit-save-${job.id}`}
+                                  onClick={() => void handleSaveEditedJob()}
+                                >
+                                  Save details
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 text-[11px]"
+                                  data-testid={`scheduled-job-edit-cancel-${job.id}`}
+                                  onClick={() => setEditingJobId(null)}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          ) : null}
                           {(job.lastRunStatus || job.lastRunSummary || job.lastRunId) ? (
                             <div className="mt-2 rounded-md border border-border/50 bg-card/60 px-2.5 py-2">
                               <div className="flex flex-wrap items-center gap-2">
@@ -649,6 +752,16 @@ export function ScheduledPage({
                           ) : null}
                           {scheduleActionsEnabled ? (
                             <div className="mt-2 flex flex-wrap gap-1.5">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-[11px]"
+                                data-testid={`scheduled-job-edit-${job.id}`}
+                                onClick={() => startEditingJob(job)}
+                              >
+                                Edit
+                              </Button>
                               <Button
                                 type="button"
                                 variant="outline"
