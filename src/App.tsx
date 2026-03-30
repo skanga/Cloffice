@@ -76,6 +76,7 @@ import { SidebarProvider } from './components/ui/sidebar';
 import { ScrollArea } from './components/ui/scroll-area';
 import { createEngineClient, type EngineClientInstance } from './lib/engine-client';
 import {
+  buildEngineScheduleExportDocument,
   canManageEngineSchedules,
   createEngineScheduleWithStatus,
   createEngineCoworkScheduleWithStatus,
@@ -83,6 +84,8 @@ import {
   describeEngineScheduleAccess,
   loadEngineScheduledJobsWithStatus,
   duplicateEngineScheduleWithStatus,
+  importEngineSchedulesWithStatus,
+  parseEngineScheduleImportDocument,
   runEngineScheduleNowWithStatus,
   updateEngineScheduleWithStatus,
 } from './lib/engine-schedule-controller';
@@ -2784,6 +2787,38 @@ export default function App() {
       setStatus(`Deleted ${scheduleIds.length} internal schedule${scheduleIds.length === 1 ? '' : 's'}.`);
     };
 
+    const handleExportInternalPromptSchedules = async (jobs: ScheduledJob[]) => {
+      const documentText = buildEngineScheduleExportDocument(jobs);
+      const blob = new Blob([documentText], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `cloffice-schedules-${Date.now()}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setStatus(`Exported ${jobs.length} schedule${jobs.length === 1 ? '' : 's'}.`);
+    };
+
+    const handleImportInternalPromptSchedules = async (content: string) => {
+      let schedules;
+      try {
+        schedules = parseEngineScheduleImportDocument(content);
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : 'Unable to import schedules.');
+        return;
+      }
+      const result = await importEngineSchedulesWithStatus({
+        providerId: draftEngineProviderId,
+        bridge,
+        schedules,
+        activeProject: activeCoworkProject,
+      });
+      if (result.shouldReloadScheduledJobs) {
+        await loadScheduledJobs();
+      }
+      setStatus(result.message);
+    };
+
     const handleCreateInternalPromptSchedule = async (payload: {
       kind: 'chat' | 'cowork';
       prompt: string;
@@ -4086,6 +4121,8 @@ export default function App() {
                           onRunJobNow={(jobId) => void handleRunInternalPromptScheduleNow(jobId)}
                           onBulkToggleJobs={(jobIds, enabled) => void handleBulkToggleInternalPromptSchedules(jobIds, enabled)}
                           onBulkDeleteJobs={(jobIds) => void handleBulkDeleteInternalPromptSchedules(jobIds)}
+                          onExportSchedules={(jobs) => void handleExportInternalPromptSchedules(jobs)}
+                          onImportSchedules={(content) => void handleImportInternalPromptSchedules(content)}
                           onToggleJob={(jobId, enabled) => void handleUpdateInternalPromptSchedule(jobId, { enabled })}
                           onSetJobInterval={(jobId, intervalMinutes) => void handleUpdateInternalPromptSchedule(jobId, { intervalMinutes })}
                           onDeleteJob={(jobId) => void handleDeleteInternalPromptSchedule(jobId)}

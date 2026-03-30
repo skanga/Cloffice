@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useEffect } from 'react';
 import {
   AlertTriangle,
@@ -40,6 +40,8 @@ type ScheduledPageProps = {
   onDuplicateJob?: (job: ScheduledJob) => void | Promise<void>;
   onBulkToggleJobs?: (jobIds: string[], enabled: boolean) => void | Promise<void>;
   onBulkDeleteJobs?: (jobIds: string[]) => void | Promise<void>;
+  onExportSchedules?: (jobs: ScheduledJob[]) => void | Promise<void>;
+  onImportSchedules?: (content: string) => void | Promise<void>;
   onToggleJob?: (jobId: string, enabled: boolean) => void | Promise<void>;
   onSetJobInterval?: (jobId: string, intervalMinutes: number) => void | Promise<void>;
   onDeleteJob?: (jobId: string) => void | Promise<void>;
@@ -159,6 +161,8 @@ export function ScheduledPage({
   onDuplicateJob,
   onBulkToggleJobs,
   onBulkDeleteJobs,
+  onExportSchedules,
+  onImportSchedules,
   onToggleJob,
   onSetJobInterval,
   onDeleteJob,
@@ -186,6 +190,7 @@ export function ScheduledPage({
   const [searchQuery, setSearchQuery] = useState('');
   const [stateFilter, setStateFilter] = useState<'all' | 'active' | 'paused' | 'pending'>('all');
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setCreateModel(defaultCreateModel ?? '');
@@ -367,6 +372,15 @@ export function ScheduledPage({
     }
     await onBulkDeleteJobs(targetIds);
     setSelectedJobIds((current) => current.filter((id) => !targetIds.includes(id)));
+  };
+  const handleImportFileSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !onImportSchedules) {
+      return;
+    }
+    const content = await file.text();
+    await onImportSchedules(content);
   };
   const createValidationMessage = !createName.trim()
     ? 'Schedule name is required.'
@@ -604,6 +618,35 @@ export function ScheduledPage({
                     </button>
                   ))}
                 </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2 text-[11px]"
+                  data-testid="schedule-export-visible"
+                  disabled={visibleJobs.length === 0}
+                  onClick={() => void onExportSchedules?.(visibleJobs)}
+                >
+                  Export visible
+                </Button>
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept="application/json"
+                  className="hidden"
+                  data-testid="schedule-import-input"
+                  onChange={(event) => void handleImportFileSelection(event)}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2 text-[11px]"
+                  data-testid="schedule-import-trigger"
+                  onClick={() => importInputRef.current?.click()}
+                >
+                  Import
+                </Button>
                 <span className="ml-auto font-sans text-[11px] text-muted-foreground/70">
                   Showing {visibleJobs.length} of {sortedJobs.length}
                 </span>

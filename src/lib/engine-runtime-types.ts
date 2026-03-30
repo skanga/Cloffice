@@ -35,6 +35,10 @@ export type EngineCronJob = {
   name: string;
   prompt?: string;
   model?: string | null;
+  intervalMinutes?: number;
+  projectId?: string;
+  projectTitle?: string;
+  rootPath?: string;
   schedule: string;
   enabled: boolean;
   state: string;

@@ -29,7 +29,21 @@ export type EngineScheduleCreateInput = {
   name?: string;
   intervalMinutes?: number;
   rootPath?: string;
+  projectId?: string;
+  projectTitle?: string;
   model?: string | null;
+};
+
+export type EngineScheduleTransferRecord = {
+  kind: 'chat' | 'cowork';
+  name: string;
+  prompt: string;
+  intervalMinutes: number;
+  enabled: boolean;
+  model?: string | null;
+  projectId?: string;
+  projectTitle?: string;
+  rootPath?: string;
 };
 
 export async function loadEngineScheduledJobs(
@@ -147,8 +161,8 @@ export async function createEngineSchedule(params: {
     kind,
     prompt,
     name,
-    projectId: kind === 'cowork' ? params.activeProject?.id ?? undefined : undefined,
-    projectTitle: kind === 'cowork' ? params.activeProject?.name ?? undefined : undefined,
+    projectId: kind === 'cowork' ? params.schedule.projectId ?? params.activeProject?.id ?? undefined : undefined,
+    projectTitle: kind === 'cowork' ? params.schedule.projectTitle ?? params.activeProject?.name ?? undefined : undefined,
     rootPath: kind === 'cowork' ? params.schedule.rootPath?.trim() || undefined : undefined,
     intervalMinutes,
     model: params.schedule.model?.trim() || null,
@@ -327,4 +341,97 @@ export async function runEngineScheduleNowWithStatus(params: {
       shouldReloadScheduledJobs: false,
     };
   }
+}
+
+export function buildEngineScheduleExportDocument(jobs: ScheduledJob[]): string {
+  const schedules: EngineScheduleTransferRecord[] = jobs.map((job) => ({
+    kind: job.kind === 'cowork' ? 'cowork' : 'chat',
+    name: job.name,
+    prompt: job.prompt ?? '',
+    intervalMinutes: job.intervalMinutes ?? 1,
+    enabled: job.enabled,
+    ...(job.model ? { model: job.model } : {}),
+    ...(job.projectId ? { projectId: job.projectId } : {}),
+    ...(job.projectTitle ? { projectTitle: job.projectTitle } : {}),
+    ...(job.rootPath ? { rootPath: job.rootPath } : {}),
+  }));
+  return JSON.stringify({
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    schedules,
+  }, null, 2);
+}
+
+export function parseEngineScheduleImportDocument(content: string): EngineScheduleTransferRecord[] {
+  const parsed = JSON.parse(content) as { schedules?: unknown };
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.schedules)) {
+    throw new Error('Schedule import file is invalid.');
+  }
+  return parsed.schedules.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') {
+      return [];
+    }
+    const candidate = entry as Record<string, unknown>;
+    const name = typeof candidate.name === 'string' ? candidate.name.trim() : '';
+    const prompt = typeof candidate.prompt === 'string' ? candidate.prompt.trim() : '';
+    if (!name || !prompt) {
+      return [];
+    }
+    const intervalMinutes =
+      Number.isFinite(candidate.intervalMinutes) && Number(candidate.intervalMinutes) >= 1
+        ? Math.max(1, Math.round(Number(candidate.intervalMinutes)))
+        : 1;
+    return [{
+      kind: candidate.kind === 'cowork' ? 'cowork' : 'chat',
+      name,
+      prompt,
+      intervalMinutes,
+      enabled: candidate.enabled !== false,
+      ...(typeof candidate.model === 'string' && candidate.model.trim() ? { model: candidate.model.trim() } : {}),
+      ...(typeof candidate.projectId === 'string' && candidate.projectId.trim() ? { projectId: candidate.projectId.trim() } : {}),
+      ...(typeof candidate.projectTitle === 'string' && candidate.projectTitle.trim() ? { projectTitle: candidate.projectTitle.trim() } : {}),
+      ...(typeof candidate.rootPath === 'string' && candidate.rootPath.trim() ? { rootPath: candidate.rootPath.trim() } : {}),
+    }];
+  });
+}
+
+export async function importEngineSchedulesWithStatus(params: {
+  providerId: EngineProviderId;
+  bridge: InternalScheduleBridge | null | undefined;
+  schedules: EngineScheduleTransferRecord[];
+  activeProject: CoworkProject | null;
+}): Promise<{ message: string; shouldReloadScheduledJobs: boolean }> {
+  if (!params.schedules.length) {
+    return {
+      message: 'No valid schedules found in the import file.',
+      shouldReloadScheduledJobs: false,
+    };
+  }
+  if (params.providerId !== 'internal' || !params.bridge?.createInternalPromptSchedule) {
+    return {
+      message: 'Schedule import is available in the internal desktop runtime only.',
+      shouldReloadScheduledJobs: false,
+    };
+  }
+  let imported = 0;
+  for (const schedule of params.schedules) {
+    const created = await params.bridge.createInternalPromptSchedule({
+      kind: schedule.kind,
+      prompt: schedule.prompt,
+      name: schedule.name,
+      intervalMinutes: schedule.intervalMinutes,
+      projectId: schedule.kind === 'cowork' ? schedule.projectId ?? params.activeProject?.id ?? undefined : undefined,
+      projectTitle: schedule.kind === 'cowork' ? schedule.projectTitle ?? params.activeProject?.name ?? undefined : undefined,
+      rootPath: schedule.kind === 'cowork' ? schedule.rootPath?.trim() || undefined : undefined,
+      model: schedule.model?.trim() || null,
+    }) as ScheduledJob;
+    if (!schedule.enabled && params.bridge.updateInternalPromptSchedule) {
+      await params.bridge.updateInternalPromptSchedule(created.id, { enabled: false });
+    }
+    imported += 1;
+  }
+  return {
+    message: `Imported ${imported} schedule${imported === 1 ? '' : 's'}.`,
+    shouldReloadScheduledJobs: imported > 0,
+  };
 }

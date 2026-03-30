@@ -554,6 +554,93 @@ test.describe('Internal engine UI flow', () => {
     }, createdJobId), { timeout: 15000 }).toBe(true);
   });
 
+  test('operator can export and import internal schedules through the UI', async () => {
+    await markOnboardingComplete(page);
+    await connectInternalProviderFromSettings(page);
+    await clearInternalSchedules(page);
+    const rootFolder = await prepareProjectRoot(page);
+    await createProjectFromSidebar(page, {
+      title: 'Internal Import Export Project',
+      description: 'Exercise schedule export and import through the live UI.',
+      rootFolder,
+    });
+
+    const createdJob = await page.evaluate(async (selectedRootPath) => {
+      const bridge = window.cloffice ?? window.relay;
+      const created = await bridge.createInternalPromptSchedule({
+        kind: 'cowork',
+        name: 'UI export import schedule',
+        prompt: 'Inspect the current project root and summarize the next migration step.',
+        intervalMinutes: 5,
+        rootPath: selectedRootPath,
+        model: 'internal/dev-planner',
+      });
+      await bridge.updateInternalPromptSchedule(created.id, { enabled: false });
+      return created;
+    }, rootFolder);
+
+    await openSchedulePage(page);
+    await expect(page.getByTestId(`scheduled-job-${createdJob.id}`)).toBeVisible({ timeout: 15000 });
+
+    await page.evaluate(() => {
+      const originalCreateObjectURL = URL.createObjectURL.bind(URL);
+      const originalAnchorClick = HTMLAnchorElement.prototype.click;
+      (window as any).__scheduleExportText = null;
+      URL.createObjectURL = ((blob: Blob) => {
+        void blob.text().then((text) => {
+          (window as any).__scheduleExportText = text;
+        });
+        return originalCreateObjectURL(blob);
+      }) as typeof URL.createObjectURL;
+      HTMLAnchorElement.prototype.click = function click() {
+        return;
+      };
+      (window as any).__restoreScheduleExportHooks = () => {
+        URL.createObjectURL = originalCreateObjectURL;
+        HTMLAnchorElement.prototype.click = originalAnchorClick;
+      };
+    });
+    await page.getByTestId('schedule-export-visible').click();
+    await expect.poll(async () => page.evaluate(() => (window as any).__scheduleExportText), {
+      timeout: 15000,
+    }).not.toBeNull();
+    const exportText = await page.evaluate(() => (window as any).__scheduleExportText as string);
+    await page.evaluate(() => {
+      (window as any).__restoreScheduleExportHooks?.();
+    });
+    const exported = JSON.parse(exportText) as { schedules: Array<{ name: string; enabled: boolean; kind: string }> };
+    expect(exported.schedules[0]?.name).toBe('UI export import schedule');
+    expect(exported.schedules[0]?.enabled).toBe(false);
+    expect(exported.schedules[0]?.kind).toBe('cowork');
+
+    await clearInternalSchedules(page);
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    await expect(page.getByTestId(`scheduled-job-${createdJob.id}`)).toBeHidden({ timeout: 15000 });
+
+    await page.getByTestId('schedule-import-input').setInputFiles({
+      name: 'schedules.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(exportText, 'utf8'),
+    });
+
+    await expect.poll(async () => page.evaluate(async () => {
+      const bridge = window.cloffice ?? window.relay;
+      const jobs = await bridge.listInternalCronJobs();
+      const match = jobs.find((job: any) => job?.name === 'UI export import schedule');
+      return match
+        ? {
+            enabled: match.enabled,
+            schedule: match.schedule,
+            kind: match.kind,
+          }
+        : null;
+    }), { timeout: 15000 }).toEqual({
+      enabled: false,
+      schedule: 'every 5 minutes',
+      kind: 'cowork',
+    });
+  });
+
   test('scheduled internal cowork run surfaces approval recovery in the live UI', async () => {
     await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);
