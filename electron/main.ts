@@ -238,6 +238,16 @@ function createInternalEngineMainService() {
     state: string;
     nextRunAt: string | null;
     lastRunAt: string | null;
+    totalRunCount?: number;
+    completedRunCount?: number;
+    blockedRunCount?: number;
+    approvalWaitCount?: number;
+    recentRunHistory?: Array<{
+      runId?: string;
+      status: string;
+      at: string;
+      summary?: string;
+    }>;
     lastRunId?: string;
     lastRunStatus?: string;
     lastRunSummary?: string;
@@ -1063,10 +1073,10 @@ function createInternalEngineMainService() {
         : 1;
     const normalizeDateString = (entry: unknown) =>
       typeof entry === 'string' && entry.trim() ? entry.trim() : null;
-    return {
-      id,
-      kind: candidate.kind === 'cowork' ? 'cowork' : 'chat',
-      name,
+      return {
+        id,
+        kind: candidate.kind === 'cowork' ? 'cowork' : 'chat',
+        name,
       prompt,
       schedule:
         typeof candidate.schedule === 'string' && candidate.schedule.trim()
@@ -1074,10 +1084,27 @@ function createInternalEngineMainService() {
           : `every ${intervalMinutes} minute${intervalMinutes === 1 ? '' : 's'}`,
       intervalMinutes,
       enabled: candidate.enabled !== false,
-      state: typeof candidate.state === 'string' && candidate.state.trim() ? candidate.state.trim() : 'idle',
-      nextRunAt: normalizeDateString(candidate.nextRunAt),
-      lastRunAt: normalizeDateString(candidate.lastRunAt),
-      ...(typeof candidate.lastRunId === 'string' && candidate.lastRunId.trim() ? { lastRunId: candidate.lastRunId.trim() } : {}),
+        state: typeof candidate.state === 'string' && candidate.state.trim() ? candidate.state.trim() : 'idle',
+        nextRunAt: normalizeDateString(candidate.nextRunAt),
+        lastRunAt: normalizeDateString(candidate.lastRunAt),
+        ...(Number.isFinite(candidate.totalRunCount) ? { totalRunCount: Number(candidate.totalRunCount) } : {}),
+        ...(Number.isFinite(candidate.completedRunCount) ? { completedRunCount: Number(candidate.completedRunCount) } : {}),
+        ...(Number.isFinite(candidate.blockedRunCount) ? { blockedRunCount: Number(candidate.blockedRunCount) } : {}),
+        ...(Number.isFinite(candidate.approvalWaitCount) ? { approvalWaitCount: Number(candidate.approvalWaitCount) } : {}),
+        ...(Array.isArray(candidate.recentRunHistory)
+          ? {
+              recentRunHistory: candidate.recentRunHistory
+                .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object')
+                .map((entry) => ({
+                  ...(typeof entry.runId === 'string' && entry.runId.trim() ? { runId: entry.runId.trim() } : {}),
+                  status: typeof entry.status === 'string' && entry.status.trim() ? entry.status.trim() : 'unknown',
+                  at: typeof entry.at === 'string' && entry.at.trim() ? entry.at.trim() : new Date(0).toISOString(),
+                  ...(typeof entry.summary === 'string' && entry.summary.trim() ? { summary: entry.summary.trim() } : {}),
+                }))
+                .slice(-6),
+            }
+          : {}),
+        ...(typeof candidate.lastRunId === 'string' && candidate.lastRunId.trim() ? { lastRunId: candidate.lastRunId.trim() } : {}),
       ...(typeof candidate.lastRunStatus === 'string' && candidate.lastRunStatus.trim() ? { lastRunStatus: candidate.lastRunStatus.trim() } : {}),
       ...(typeof candidate.lastRunSummary === 'string' && candidate.lastRunSummary.trim() ? { lastRunSummary: candidate.lastRunSummary.trim() } : {}),
       ...(typeof candidate.lastArtifactSummary === 'string' && candidate.lastArtifactSummary.trim() ? { lastArtifactSummary: candidate.lastArtifactSummary.trim() } : {}),
@@ -1161,10 +1188,40 @@ function createInternalEngineMainService() {
     state: schedule.state,
     nextRunAt: schedule.nextRunAt,
     lastRunAt: schedule.lastRunAt,
+    ...(typeof schedule.totalRunCount === 'number' ? { totalRunCount: schedule.totalRunCount } : {}),
+    ...(typeof schedule.completedRunCount === 'number' ? { completedRunCount: schedule.completedRunCount } : {}),
+    ...(typeof schedule.blockedRunCount === 'number' ? { blockedRunCount: schedule.blockedRunCount } : {}),
+    ...(typeof schedule.approvalWaitCount === 'number' ? { approvalWaitCount: schedule.approvalWaitCount } : {}),
+    ...(schedule.recentRunHistory?.length ? { recentRunHistory: schedule.recentRunHistory.slice(-6).reverse() } : {}),
     ...(schedule.lastRunId ? { lastRunId: schedule.lastRunId } : {}),
     ...(schedule.lastRunStatus ? { lastRunStatus: schedule.lastRunStatus } : {}),
     ...(schedule.lastRunSummary ? { lastRunSummary: schedule.lastRunSummary } : {}),
   });
+  const appendScheduleRunHistory = (
+    schedule: PersistedInternalScheduleRecord,
+    entry: { runId?: string; status: string; summary?: string },
+  ) => {
+    const seenRunId = entry.runId
+      ? (schedule.recentRunHistory ?? []).some((existing) => existing.runId === entry.runId)
+      : false;
+    const historyEntry = {
+      ...(entry.runId ? { runId: entry.runId } : {}),
+      status: entry.status,
+      at: new Date().toISOString(),
+      ...(entry.summary ? { summary: entry.summary } : {}),
+    };
+    schedule.recentRunHistory = [...(schedule.recentRunHistory ?? []), historyEntry].slice(-6);
+    if (!seenRunId) {
+      schedule.totalRunCount = (schedule.totalRunCount ?? 0) + 1;
+    }
+    if (entry.status === 'completed') {
+      schedule.completedRunCount = (schedule.completedRunCount ?? 0) + 1;
+    } else if (entry.status === 'blocked') {
+      schedule.blockedRunCount = (schedule.blockedRunCount ?? 0) + 1;
+    } else if (entry.status === 'awaiting_approval') {
+      schedule.approvalWaitCount = (schedule.approvalWaitCount ?? 0) + 1;
+    }
+  };
   const seedScheduleArtifactForE2E = async (id: string) => {
     const schedule = schedules.find((entry) => entry.id === id);
     if (!schedule) {
@@ -1455,7 +1512,7 @@ function createInternalEngineMainService() {
           scheduleName: schedule.name,
         });
       }
-      if (schedule.kind === 'cowork' && result.requestedActions && result.requestedActions.length > 0) {
+        if (schedule.kind === 'cowork' && result.requestedActions && result.requestedActions.length > 0) {
         const approvalContext: EngineApprovalLoopContext = {
           runId: result.runId,
           ...(schedule.projectId?.trim() ? { projectId: schedule.projectId.trim() } : {}),
@@ -1487,14 +1544,24 @@ function createInternalEngineMainService() {
           phase: 'awaiting_approval',
           message: `Scheduled cowork awaiting approval for ${schedule.name}.`,
         });
-        schedule.state = 'awaiting_approval';
-        schedule.lastRunStatus = 'awaiting_approval';
-        schedule.lastRunSummary = `Awaiting approval for ${result.requestedActions.length} read-only action${result.requestedActions.length === 1 ? '' : 's'}.`;
-      } else {
-        schedule.state = 'completed';
-        schedule.lastRunStatus = 'completed';
-        schedule.lastRunSummary = result.assistantMessage.text.replace(/\s+/g, ' ').trim().slice(0, 220);
-      }
+          schedule.state = 'awaiting_approval';
+          schedule.lastRunStatus = 'awaiting_approval';
+          schedule.lastRunSummary = `Awaiting approval for ${result.requestedActions.length} read-only action${result.requestedActions.length === 1 ? '' : 's'}.`;
+          appendScheduleRunHistory(schedule, {
+            runId: result.runId,
+            status: 'awaiting_approval',
+            summary: schedule.lastRunSummary,
+          });
+        } else {
+          schedule.state = 'completed';
+          schedule.lastRunStatus = 'completed';
+          schedule.lastRunSummary = result.assistantMessage.text.replace(/\s+/g, ' ').trim().slice(0, 220);
+          appendScheduleRunHistory(schedule, {
+            runId: result.runId,
+            status: 'completed',
+            summary: schedule.lastRunSummary,
+          });
+        }
       schedule.lastRunAt = new Date().toISOString();
       schedule.nextRunAt = computeNextRunAt(schedule.intervalMinutes);
       lastScheduledJobName = schedule.name;
@@ -1505,10 +1572,14 @@ function createInternalEngineMainService() {
       schedule.lastError = message;
       schedule.lastRunAt = new Date().toISOString();
       schedule.nextRunAt = computeNextRunAt(schedule.intervalMinutes);
-      schedule.lastRunStatus = 'blocked';
-      schedule.lastRunSummary = message;
-      lastScheduledJobName = schedule.name;
-      lastScheduleError = message;
+        schedule.lastRunStatus = 'blocked';
+        schedule.lastRunSummary = message;
+        appendScheduleRunHistory(schedule, {
+          status: 'blocked',
+          summary: message,
+        });
+        lastScheduledJobName = schedule.name;
+        lastScheduleError = message;
     } finally {
       runningScheduleIds.delete(schedule.id);
       await persistState();
@@ -2281,22 +2352,27 @@ function createInternalEngineMainService() {
           at: now(),
         });
       }
-      if (relatedSchedule) {
-        relatedSchedule.lastRunId = payload.runId;
-        relatedSchedule.lastRunAt = new Date().toISOString();
-        relatedSchedule.nextRunAt = computeNextRunAt(relatedSchedule.intervalMinutes);
-        relatedSchedule.state = requestedActions.length > 0 ? 'awaiting_approval' : continuationBlocked ? 'blocked' : 'completed';
-        relatedSchedule.lastRunStatus = requestedActions.length > 0 ? 'awaiting_approval' : continuationBlocked ? 'blocked' : 'completed';
-        relatedSchedule.lastRunSummary = requestedActions.length > 0
-          ? `Awaiting approval for ${requestedActions.length} additional read-only action${requestedActions.length === 1 ? '' : 's'}.`
-          : resultSummary;
-        relatedSchedule.lastArtifactSummary = resultSummary;
-        relatedSchedule.lastArtifactReceiptCount = execution.receipts.length;
-        relatedSchedule.lastArtifactErrorCount = execution.errors.length;
-        relatedSchedule.lastArtifactPreviews = execution.previews.slice(0, 3);
-        relatedSchedule.lastArtifactErrors = execution.errors.slice(0, 3);
-        relatedSchedule.lastError = continuationBlocked ? execution.errors[0] ?? resultSummary : undefined;
-      }
+        if (relatedSchedule) {
+          relatedSchedule.lastRunId = payload.runId;
+          relatedSchedule.lastRunAt = new Date().toISOString();
+          relatedSchedule.nextRunAt = computeNextRunAt(relatedSchedule.intervalMinutes);
+          relatedSchedule.state = requestedActions.length > 0 ? 'awaiting_approval' : continuationBlocked ? 'blocked' : 'completed';
+          relatedSchedule.lastRunStatus = requestedActions.length > 0 ? 'awaiting_approval' : continuationBlocked ? 'blocked' : 'completed';
+          relatedSchedule.lastRunSummary = requestedActions.length > 0
+            ? `Awaiting approval for ${requestedActions.length} additional read-only action${requestedActions.length === 1 ? '' : 's'}.`
+            : resultSummary;
+          relatedSchedule.lastArtifactSummary = resultSummary;
+          relatedSchedule.lastArtifactReceiptCount = execution.receipts.length;
+          relatedSchedule.lastArtifactErrorCount = execution.errors.length;
+          relatedSchedule.lastArtifactPreviews = execution.previews.slice(0, 3);
+          relatedSchedule.lastArtifactErrors = execution.errors.slice(0, 3);
+          relatedSchedule.lastError = continuationBlocked ? execution.errors[0] ?? resultSummary : undefined;
+          appendScheduleRunHistory(relatedSchedule, {
+            runId: payload.runId,
+            status: relatedSchedule.lastRunStatus,
+            summary: relatedSchedule.lastRunSummary,
+          });
+        }
       await persistState();
 
       return {

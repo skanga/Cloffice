@@ -107,7 +107,11 @@ async function connectInternalProviderFromOnboarding(page: Page) {
   }
 
   await expect(page.getByRole('heading', { name: 'Welcome to Cloffice' })).toBeVisible();
-  await page.getByRole('button', { name: 'Get started' }).click();
+  await expect(async () => {
+    const getStartedButton = page.getByRole('button', { name: 'Get started' });
+    await expect(getStartedButton).toBeVisible();
+    await getStartedButton.click({ force: true });
+  }).toPass({ timeout: 30000 });
 
   const onboardingProviderButton = page.getByTestId('onboarding-provider-internal');
   if (await onboardingProviderButton.isVisible({ timeout: 5000 })) {

@@ -616,6 +616,25 @@ export function ScheduledPage({
                             <span>Next run: {formatTime(job.nextRunAt)}</span>
                             <span>Last run: {formatTime(job.lastRunAt)}</span>
                           </div>
+                          {(typeof job.totalRunCount === 'number'
+                            || typeof job.completedRunCount === 'number'
+                            || typeof job.blockedRunCount === 'number'
+                            || typeof job.approvalWaitCount === 'number') ? (
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              <Badge variant="outline" className="font-sans text-[10px]">
+                                Runs {job.totalRunCount ?? 0}
+                              </Badge>
+                              <Badge variant="outline" className="font-sans text-[10px]">
+                                Completed {job.completedRunCount ?? 0}
+                              </Badge>
+                              <Badge variant="outline" className="font-sans text-[10px]">
+                                Blocked {job.blockedRunCount ?? 0}
+                              </Badge>
+                              <Badge variant="outline" className="font-sans text-[10px]">
+                                Approval waits {job.approvalWaitCount ?? 0}
+                              </Badge>
+                            </div>
+                          ) : null}
                           {editingJobId === job.id ? (
                             <div className="mt-2 grid gap-2 rounded-md border border-border/50 bg-card/60 px-2.5 py-2">
                               <Input
@@ -843,6 +862,45 @@ export function ScheduledPage({
                                       ) : null}
                                     </div>
                                   ) : null}
+                                </div>
+                              ) : null}
+                              {job.recentRunHistory?.length ? (
+                                <div className="mt-2 rounded-md border border-border/50 bg-card/60 px-2.5 py-2">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="font-sans text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      Recent history
+                                    </span>
+                                    <Badge variant="outline" className="font-sans text-[10px]">
+                                      {job.recentRunHistory.length} retained
+                                    </Badge>
+                                  </div>
+                                  <div className="mt-2 grid gap-1.5">
+                                    {job.recentRunHistory.map((entry, index) => (
+                                      <div
+                                        key={`${job.id}-history-${index}-${entry.at}`}
+                                        className="rounded-md border border-border/40 bg-background/70 px-2 py-1.5"
+                                      >
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <Badge variant="outline" className="font-sans text-[10px]">
+                                            {titleCase(entry.status)}
+                                          </Badge>
+                                          <span className="font-sans text-[10px] text-muted-foreground">
+                                            {formatTime(entry.at)}
+                                          </span>
+                                          {entry.runId ? (
+                                            <span className="font-mono text-[10px] text-muted-foreground/80">
+                                              {entry.runId}
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                        {entry.summary ? (
+                                          <p className="mt-1 font-sans text-[11px] text-muted-foreground">
+                                            {entry.summary}
+                                          </p>
+                                        ) : null}
+                                      </div>
+                                    ))}
+                                  </div>
                                 </div>
                               ) : null}
                             </div>

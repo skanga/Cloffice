@@ -168,6 +168,16 @@ export type ScheduledJob = {
   state: string;
   nextRunAt: string | null;
   lastRunAt: string | null;
+  totalRunCount?: number;
+  completedRunCount?: number;
+  blockedRunCount?: number;
+  approvalWaitCount?: number;
+  recentRunHistory?: Array<{
+    runId?: string;
+    status: string;
+    at: string;
+    summary?: string;
+  }>;
   lastRunId?: string;
   lastRunStatus?: string;
   lastRunSummary?: string;
