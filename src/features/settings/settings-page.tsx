@@ -821,6 +821,16 @@ export function SettingsPage({
                   </label>
 
                   <label className="grid gap-1">
+                    <span className="font-sans text-xs text-muted-foreground">Anthropic model list</span>
+                    <Input
+                      value={draftInternalProviderConfig.anthropicModels}
+                      onChange={(event) => onDraftInternalProviderConfigChange({ anthropicModels: event.target.value })}
+                      placeholder="claude-3-7-sonnet-latest,claude-3-5-sonnet-latest"
+                      className="font-sans"
+                    />
+                  </label>
+
+                  <label className="grid gap-1">
                     <span className="font-sans text-xs text-muted-foreground">Gemini API key</span>
                     <Input
                       type="password"
@@ -831,15 +841,25 @@ export function SettingsPage({
                     />
                   </label>
 
+                  <label className="grid gap-1">
+                    <span className="font-sans text-xs text-muted-foreground">Gemini model list</span>
+                    <Input
+                      value={draftInternalProviderConfig.geminiModels}
+                      onChange={(event) => onDraftInternalProviderConfigChange({ geminiModels: event.target.value })}
+                      placeholder="gemini-2.5-flash,gemini-2.5-pro"
+                      className="font-sans"
+                    />
+                  </label>
+
                   <div className="grid gap-2 rounded-md border border-border/60 bg-background/70 p-3">
                     <div>
                       <p className="text-sm font-medium text-foreground">{t('Provider connection test', 'Provider-Verbindungstest')}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {t(
-                          'Runs a small live request through the internal runtime using the saved credentials in this form.',
-                          'Fuehrt eine kleine Live-Anfrage ueber die interne Laufzeit mit den in diesem Formular gespeicherten Zugangsdaten aus.',
-                        )}
-                      </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {t(
+                          'Runs a small live request through the internal runtime using the current credentials in this form.',
+                          'Fuehrt eine kleine Live-Anfrage ueber die interne Laufzeit mit den aktuellen Zugangsdaten in diesem Formular aus.',
+                          )}
+                        </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {(['openai', 'anthropic', 'gemini'] as const).map((providerId) => (
@@ -861,7 +881,7 @@ export function SettingsPage({
                             }
                             setTestingProviderId(providerId);
                             try {
-                              const result = await bridge.testInternalProviderConnection(providerId);
+                              const result = await bridge.testInternalProviderConnection(providerId, draftInternalProviderConfig);
                               setProviderTestResult(result);
                             } catch (error) {
                               setProviderTestResult({

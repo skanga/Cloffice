@@ -14,9 +14,9 @@ import type {
   LocalFilePlanAction,
   LocalFilePlanResult,
 } from '../src/app-types.js';
-import type { DesktopBridgeEngineConfig, EngineDraftConfig } from '../src/lib/engine-config.js';
+import type { DesktopBridgeEngineConfig, EngineDraftConfig, InternalProviderConfig } from '../src/lib/engine-config.js';
 import type { EngineDiscoveryResult } from '../src/lib/engine-discovery.js';
-import type { EngineConnectOptions, EngineRuntimeHealthResult } from '../src/lib/engine-runtime-types.js';
+import type { EngineConnectOptions, EngineEventFrame, EngineRuntimeHealthResult } from '../src/lib/engine-runtime-types.js';
 import type {
   InternalEngineCoworkContinuationRequest,
   InternalEngineCoworkContinuationResult,
@@ -60,7 +60,9 @@ function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpoint: string
           openaiBaseUrl: '',
           openaiModels: '',
           anthropicApiKey: '',
+          anthropicModels: '',
           geminiApiKey: '',
+          geminiModels: '',
         },
       },
       storageVersion: 1,
@@ -89,7 +91,9 @@ function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpoint: string
           openaiBaseUrl: typeof internalProviderConfig.openaiBaseUrl === 'string' ? internalProviderConfig.openaiBaseUrl : '',
           openaiModels: typeof internalProviderConfig.openaiModels === 'string' ? internalProviderConfig.openaiModels : '',
           anthropicApiKey: typeof internalProviderConfig.anthropicApiKey === 'string' ? internalProviderConfig.anthropicApiKey : '',
+          anthropicModels: typeof internalProviderConfig.anthropicModels === 'string' ? internalProviderConfig.anthropicModels : '',
           geminiApiKey: typeof internalProviderConfig.geminiApiKey === 'string' ? internalProviderConfig.geminiApiKey : '',
+          geminiModels: typeof internalProviderConfig.geminiModels === 'string' ? internalProviderConfig.geminiModels : '',
         },
       },
       storageVersion: 2,
@@ -112,7 +116,9 @@ function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpoint: string
         openaiBaseUrl: '',
         openaiModels: '',
         anthropicApiKey: '',
+        anthropicModels: '',
         geminiApiKey: '',
+        geminiModels: '',
       },
     },
     storageVersion: 1,
@@ -134,7 +140,9 @@ function prepareDesktopBridgeEngineConfigWrite(draft: EngineDraftConfig): { acti
           openaiBaseUrl: draft.internalProviderConfig.openaiBaseUrl ?? '',
           openaiModels: draft.internalProviderConfig.openaiModels ?? '',
           anthropicApiKey: draft.internalProviderConfig.anthropicApiKey ?? '',
+          anthropicModels: draft.internalProviderConfig.anthropicModels ?? '',
           geminiApiKey: draft.internalProviderConfig.geminiApiKey ?? '',
+          geminiModels: draft.internalProviderConfig.geminiModels ?? '',
         },
       },
     };
@@ -210,8 +218,17 @@ const desktopBridgeApi = {
     ipcRenderer.invoke('internal-engine:get-history', sessionKey, limit) as Promise<Array<{ id: string; role: 'user' | 'assistant' | 'system'; text: string }>>,
   sendInternalChat: (sessionKey: string, text: string) =>
     ipcRenderer.invoke('internal-engine:send-chat', sessionKey, text) as Promise<InternalEngineSendChatResult>,
-  testInternalProviderConnection: (providerId: 'openai' | 'anthropic' | 'gemini') =>
-    ipcRenderer.invoke('internal-engine:test-provider-connection', providerId) as Promise<import('../src/lib/internal-provider-adapter.js').InternalProviderConnectionTestResult>,
+  setInternalEngineEventHandler: (() => {
+    let currentHandler: ((frame: EngineEventFrame) => void) | null = null;
+    ipcRenderer.on('internal-engine:event', (_event, frame: EngineEventFrame) => {
+      currentHandler?.(frame);
+    });
+    return (handler: ((frame: EngineEventFrame) => void) | null) => {
+      currentHandler = handler;
+    };
+  })(),
+  testInternalProviderConnection: (providerId: 'openai' | 'anthropic' | 'gemini', config?: Partial<InternalProviderConfig>) =>
+    ipcRenderer.invoke('internal-engine:test-provider-connection', providerId, config) as Promise<import('../src/lib/internal-provider-adapter.js').InternalProviderConnectionTestResult>,
   continueInternalCoworkRun: (payload: InternalEngineCoworkContinuationRequest) =>
     ipcRenderer.invoke('internal-engine:continue-cowork-run', payload) as Promise<InternalEngineCoworkContinuationResult>,
   listInternalPendingApprovals: () =>

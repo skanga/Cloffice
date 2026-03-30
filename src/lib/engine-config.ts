@@ -16,7 +16,9 @@ export const EMPTY_INTERNAL_PROVIDER_CONFIG: InternalProviderConfig = {
   openaiBaseUrl: '',
   openaiModels: '',
   anthropicApiKey: '',
+  anthropicModels: '',
   geminiApiKey: '',
+  geminiModels: '',
 };
 
 export type EngineDraftConfig = {
@@ -228,9 +230,17 @@ function parseStoredProviderAwareEngineConfigV2(
               typeof (record.internalProviderConfig as Record<string, unknown>).anthropicApiKey === 'string'
                 ? (record.internalProviderConfig as Record<string, string>).anthropicApiKey
                 : '',
+            anthropicModels:
+              typeof (record.internalProviderConfig as Record<string, unknown>).anthropicModels === 'string'
+                ? (record.internalProviderConfig as Record<string, string>).anthropicModels
+                : '',
             geminiApiKey:
               typeof (record.internalProviderConfig as Record<string, unknown>).geminiApiKey === 'string'
                 ? (record.internalProviderConfig as Record<string, string>).geminiApiKey
+                : '',
+            geminiModels:
+              typeof (record.internalProviderConfig as Record<string, unknown>).geminiModels === 'string'
+                ? (record.internalProviderConfig as Record<string, string>).geminiModels
                 : '',
           },
         }

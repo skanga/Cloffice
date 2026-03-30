@@ -30,6 +30,10 @@ export type InternalProviderChatResult = {
   text: string;
 };
 
+export type InternalProviderChatOptions = {
+  onTextDelta?: (text: string) => void;
+};
+
 export type InternalProviderConnectionTestResult = {
   providerId: InternalChatProviderId;
   ok: boolean;
@@ -120,7 +124,7 @@ function readOpenAIConfig(savedConfig?: InternalProviderConfig) {
 
 function readAnthropicConfig(savedConfig?: InternalProviderConfig) {
   const apiKey = resolveConfigValue(savedConfig?.anthropicApiKey, env.CLOFFICE_INTERNAL_ANTHROPIC_API_KEY || env.ANTHROPIC_API_KEY);
-  const modelIds = parseModelList(env.CLOFFICE_INTERNAL_ANTHROPIC_MODELS, ANTHROPIC_DEFAULT_MODELS);
+  const modelIds = parseModelList(savedConfig?.anthropicModels || env.CLOFFICE_INTERNAL_ANTHROPIC_MODELS, ANTHROPIC_DEFAULT_MODELS);
   return {
     providerId: 'anthropic' as const,
     label: 'Anthropic',
@@ -134,7 +138,7 @@ function readAnthropicConfig(savedConfig?: InternalProviderConfig) {
 function readGeminiConfig(savedConfig?: InternalProviderConfig) {
   const apiKey =
     resolveConfigValue(savedConfig?.geminiApiKey, env.CLOFFICE_INTERNAL_GEMINI_API_KEY || env.GEMINI_API_KEY || env.GOOGLE_API_KEY);
-  const modelIds = parseModelList(env.CLOFFICE_INTERNAL_GEMINI_MODELS, GEMINI_DEFAULT_MODELS);
+  const modelIds = parseModelList(savedConfig?.geminiModels || env.CLOFFICE_INTERNAL_GEMINI_MODELS, GEMINI_DEFAULT_MODELS);
   return {
     providerId: 'gemini' as const,
     label: 'Gemini',
@@ -281,6 +285,81 @@ async function parseJsonOrText(response: Response): Promise<unknown> {
   }
 }
 
+async function readSseStream(
+  response: Response,
+  onEventData: (data: string) => void,
+): Promise<void> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error('Streaming response body was not available.');
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const normalized = buffer.replace(/\r\n/g, '\n');
+    const chunks = normalized.split('\n\n');
+    buffer = chunks.pop() ?? '';
+
+    for (const chunk of chunks) {
+      const dataLines = chunk
+        .split('\n')
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trim());
+      if (dataLines.length > 0) {
+        onEventData(dataLines.join('\n'));
+      }
+    }
+  }
+
+  const finalChunk = buffer.replace(/\r\n/g, '\n').trim();
+  if (!finalChunk) {
+    return;
+  }
+
+  const dataLines = finalChunk
+    .split('\n')
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice(5).trim());
+  if (dataLines.length > 0) {
+    onEventData(dataLines.join('\n'));
+  }
+}
+
+function extractOpenAIStreamDelta(payload: unknown): string {
+  const content = (payload as {
+    choices?: Array<{
+      delta?: {
+        content?: string | Array<{ type?: string; text?: string }>;
+      };
+    }>;
+  })?.choices?.[0]?.delta?.content;
+
+  if (typeof content === 'string') {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content
+      .flatMap((item) => (item && typeof item.text === 'string' ? [item.text] : []))
+      .join('');
+  }
+  return '';
+}
+
+function extractAnthropicStreamDelta(payload: unknown): string {
+  if ((payload as { type?: string })?.type !== 'content_block_delta') {
+    return '';
+  }
+  return (payload as { delta?: { text?: string } })?.delta?.text ?? '';
+}
+
 function formatProviderError(providerLabel: string, status: number, payload: unknown): string {
   if (typeof payload === 'string' && payload.trim()) {
     return `${providerLabel} request failed (${status}): ${payload.trim()}`;
@@ -294,7 +373,12 @@ function formatProviderError(providerLabel: string, status: number, payload: unk
   return `${providerLabel} request failed (${status}).`;
 }
 
-async function requestOpenAIChat(modelId: string, messages: EngineChatMessage[], savedConfig?: InternalProviderConfig): Promise<string> {
+async function requestOpenAIChat(
+  modelId: string,
+  messages: EngineChatMessage[],
+  savedConfig?: InternalProviderConfig,
+  options?: InternalProviderChatOptions,
+): Promise<string> {
   const config = readOpenAIConfig(savedConfig);
   if (!config.configured) {
     throw new Error('OpenAI-compatible chat is not configured. Set OPENAI_API_KEY or CLOFFICE_INTERNAL_OPENAI_API_KEY.');
@@ -309,13 +393,39 @@ async function requestOpenAIChat(modelId: string, messages: EngineChatMessage[],
     body: JSON.stringify({
       model: modelId,
       messages: toOpenAIMessages(messages),
+      ...(options?.onTextDelta ? { stream: true } : {}),
     }),
   });
-
-  const payload = await parseJsonOrText(response);
   if (!response.ok) {
+    const payload = await parseJsonOrText(response);
     throw new Error(formatProviderError(config.label, response.status, payload));
   }
+
+  if (options?.onTextDelta) {
+    let accumulated = '';
+    await readSseStream(response, (data) => {
+      if (!data || data === '[DONE]') {
+        return;
+      }
+      try {
+        const payload = JSON.parse(data);
+        const delta = extractOpenAIStreamDelta(payload);
+        if (delta) {
+          accumulated += delta;
+          options.onTextDelta?.(accumulated.trimStart());
+        }
+      } catch {
+        // ignore malformed SSE frames
+      }
+    });
+    const finalText = accumulated.trim();
+    if (!finalText) {
+      throw new Error('OpenAI-compatible streaming response did not contain assistant text.');
+    }
+    return finalText;
+  }
+
+  const payload = await parseJsonOrText(response);
 
   const text = extractOpenAIText(payload);
   if (!text) {
@@ -324,7 +434,12 @@ async function requestOpenAIChat(modelId: string, messages: EngineChatMessage[],
   return text;
 }
 
-async function requestAnthropicChat(modelId: string, messages: EngineChatMessage[], savedConfig?: InternalProviderConfig): Promise<string> {
+async function requestAnthropicChat(
+  modelId: string,
+  messages: EngineChatMessage[],
+  savedConfig?: InternalProviderConfig,
+  options?: InternalProviderChatOptions,
+): Promise<string> {
   const config = readAnthropicConfig(savedConfig);
   if (!config.configured) {
     throw new Error('Anthropic chat is not configured. Set ANTHROPIC_API_KEY or CLOFFICE_INTERNAL_ANTHROPIC_API_KEY.');
@@ -350,13 +465,39 @@ async function requestAnthropicChat(modelId: string, messages: EngineChatMessage
       max_tokens: 1024,
       ...(system ? { system } : {}),
       messages: conversation,
+      ...(options?.onTextDelta ? { stream: true } : {}),
     }),
   });
-
-  const payload = await parseJsonOrText(response);
   if (!response.ok) {
+    const payload = await parseJsonOrText(response);
     throw new Error(formatProviderError(config.label, response.status, payload));
   }
+
+  if (options?.onTextDelta) {
+    let accumulated = '';
+    await readSseStream(response, (data) => {
+      if (!data) {
+        return;
+      }
+      try {
+        const payload = JSON.parse(data);
+        const delta = extractAnthropicStreamDelta(payload);
+        if (delta) {
+          accumulated += delta;
+          options.onTextDelta?.(accumulated.trimStart());
+        }
+      } catch {
+        // ignore malformed SSE frames
+      }
+    });
+    const finalText = accumulated.trim();
+    if (!finalText) {
+      throw new Error('Anthropic streaming response did not contain assistant text.');
+    }
+    return finalText;
+  }
+
+  const payload = await parseJsonOrText(response);
 
   const text = extractAnthropicText(payload);
   if (!text) {
@@ -365,7 +506,12 @@ async function requestAnthropicChat(modelId: string, messages: EngineChatMessage
   return text;
 }
 
-async function requestGeminiChat(modelId: string, messages: EngineChatMessage[], savedConfig?: InternalProviderConfig): Promise<string> {
+async function requestGeminiChat(
+  modelId: string,
+  messages: EngineChatMessage[],
+  savedConfig?: InternalProviderConfig,
+  options?: InternalProviderChatOptions,
+): Promise<string> {
   const config = readGeminiConfig(savedConfig);
   if (!config.configured) {
     throw new Error('Gemini chat is not configured. Set GEMINI_API_KEY, GOOGLE_API_KEY, or CLOFFICE_INTERNAL_GEMINI_API_KEY.');
@@ -380,7 +526,7 @@ async function requestGeminiChat(modelId: string, messages: EngineChatMessage[],
     }));
 
   const response = await fetch(
-    `${config.baseUrl}/models/${encodeURIComponent(modelId)}:generateContent?key=${encodeURIComponent(config.apiKey)}`,
+    `${config.baseUrl}/models/${encodeURIComponent(modelId)}:${options?.onTextDelta ? 'streamGenerateContent?alt=sse' : 'generateContent'}${options?.onTextDelta ? `&key=${encodeURIComponent(config.apiKey)}` : `?key=${encodeURIComponent(config.apiKey)}`}`,
     {
       method: 'POST',
       headers: {
@@ -393,10 +539,36 @@ async function requestGeminiChat(modelId: string, messages: EngineChatMessage[],
     },
   );
 
-  const payload = await parseJsonOrText(response);
   if (!response.ok) {
+    const payload = await parseJsonOrText(response);
     throw new Error(formatProviderError(config.label, response.status, payload));
   }
+
+  if (options?.onTextDelta) {
+    let accumulated = '';
+    await readSseStream(response, (data) => {
+      if (!data) {
+        return;
+      }
+      try {
+        const payload = JSON.parse(data);
+        const delta = extractGeminiText(payload);
+        if (delta) {
+          accumulated += delta;
+          options.onTextDelta?.(accumulated.trimStart());
+        }
+      } catch {
+        // ignore malformed SSE frames
+      }
+    });
+    const finalText = accumulated.trim();
+    if (!finalText) {
+      throw new Error('Gemini streaming response did not contain assistant text.');
+    }
+    return finalText;
+  }
+
+  const payload = await parseJsonOrText(response);
 
   const text = extractGeminiText(payload);
   if (!text) {
@@ -409,14 +581,15 @@ export async function sendInternalProviderChat(
   modelValue: string,
   messages: EngineChatMessage[],
   savedConfig?: InternalProviderConfig,
+  options?: InternalProviderChatOptions,
 ): Promise<InternalProviderChatResult> {
   const { providerId, modelId } = splitProviderModel(modelValue);
   const text =
     providerId === 'openai'
-      ? await requestOpenAIChat(modelId, messages, savedConfig)
+      ? await requestOpenAIChat(modelId, messages, savedConfig, options)
       : providerId === 'anthropic'
-        ? await requestAnthropicChat(modelId, messages, savedConfig)
-        : await requestGeminiChat(modelId, messages, savedConfig);
+        ? await requestAnthropicChat(modelId, messages, savedConfig, options)
+        : await requestGeminiChat(modelId, messages, savedConfig, options);
 
   return {
     providerId,

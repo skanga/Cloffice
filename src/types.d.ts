@@ -15,7 +15,8 @@ import type {
 } from './app-types';
 import type { DesktopBridgeEngineConfig, EngineDraftConfig } from './lib/engine-config';
 import type { EngineDiscoveryResult } from './lib/engine-discovery';
-import type { EngineChatMessage, EngineConnectOptions, EngineModelChoice, EngineRuntimeHealthResult, EngineSessionSummary } from './lib/engine-runtime-types';
+import type { EngineChatMessage, EngineConnectOptions, EngineEventFrame, EngineModelChoice, EngineRuntimeHealthResult, EngineSessionSummary } from './lib/engine-runtime-types';
+import type { InternalProviderConfig } from './lib/engine-config';
 import type {
   InternalEngineCoworkContinuationRequest,
   InternalEngineCoworkContinuationResult,
@@ -50,7 +51,11 @@ type DesktopBridgeApi = {
   deleteInternalSession: (sessionKey: string) => Promise<void>;
   getInternalHistory: (sessionKey: string, limit?: number) => Promise<EngineChatMessage[]>;
   sendInternalChat: (sessionKey: string, text: string) => Promise<InternalEngineSendChatResult>;
-  testInternalProviderConnection: (providerId: 'openai' | 'anthropic' | 'gemini') => Promise<InternalProviderConnectionTestResult>;
+  setInternalEngineEventHandler: (handler: ((frame: EngineEventFrame) => void) | null) => void;
+  testInternalProviderConnection: (
+    providerId: 'openai' | 'anthropic' | 'gemini',
+    config?: Partial<InternalProviderConfig>,
+  ) => Promise<InternalProviderConnectionTestResult>;
   continueInternalCoworkRun: (payload: InternalEngineCoworkContinuationRequest) => Promise<InternalEngineCoworkContinuationResult>;
   listInternalPendingApprovals: () => Promise<InternalApprovalRecoveryFlow[]>;
   saveInternalPendingApproval: (flow: InternalApprovalRecoveryFlow) => Promise<void>;

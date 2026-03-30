@@ -39,6 +39,12 @@ import type {
 import type { ChatActivityItem, EngineRequestedAction } from '../src/app-types.js';
 import { applyInternalApprovalRecoveryDecision, type InternalApprovalRecoveryFlow } from '../src/lib/internal-approval-recovery.js';
 import {
+  buildInternalEngineActionInstruction,
+  parseEngineActivityItems,
+  parseEngineRequestedActions,
+  stripEngineActionPayloadFromText,
+} from '../src/lib/engine-action-protocol.js';
+import {
   buildInternalProviderCatalog,
   isProviderBackedInternalModel,
   sendInternalProviderChat,
@@ -226,6 +232,12 @@ function createInternalEngineMainService() {
   const runs = new Map<string, PersistedInternalRunRecord>();
   let artifacts: PersistedInternalArtifactRecord[] = [];
   let pendingApprovalFlows: InternalApprovalRecoveryFlow[] = [];
+  const isReadOnlyInternalAction = (action: EngineRequestedAction) => (
+    action.type === 'list_dir'
+    || action.type === 'read_file'
+    || action.type === 'exists'
+    || action.type === 'stat'
+  );
 
   const unavailable = () => new Error(shellStatus.unavailableReason);
   const requireConnected = () => {
@@ -501,6 +513,30 @@ function createInternalEngineMainService() {
       normalized,
     ].join('\n');
   };
+  const buildProviderBackedCoworkContinuationPrompt = (params: {
+    sessionKey: string;
+    approvedActions: EngineRequestedAction[];
+    rejectedActions: InternalEngineCoworkContinuationRequest['rejectedActions'];
+    execution: {
+      receipts: LocalActionReceipt[];
+      previews: string[];
+      errors: string[];
+    };
+  }) => [
+    'Continue the cowork task using the latest execution results.',
+    'You may request additional safe read-only actions only if they are necessary.',
+    buildInternalEngineActionInstruction(),
+    '',
+    `Session key: ${params.sessionKey}`,
+    `Approved actions executed: ${params.approvedActions.length}`,
+    `Rejected actions: ${params.rejectedActions.length}`,
+    '',
+    'Execution previews:',
+    ...(params.execution.previews.length > 0 ? params.execution.previews : ['(none)']),
+    '',
+    'Execution errors:',
+    ...(params.execution.errors.length > 0 ? params.execution.errors : ['(none)']),
+  ].join('\n');
   const touchSession = (sessionKey: string) => {
     const session = sessions.get(sessionKey);
     if (session) {
@@ -1098,9 +1134,15 @@ function createInternalEngineMainService() {
           ...(run.timeline ? { timeline: [...run.timeline].sort((left, right) => left.at - right.at) } : {}),
         }));
     },
-    async testProviderConnection(providerId: InternalChatProviderId): Promise<InternalProviderConnectionTestResult> {
+    async testProviderConnection(
+      providerId: InternalChatProviderId,
+      configOverride?: Partial<InternalProviderConfig>,
+    ): Promise<InternalProviderConnectionTestResult> {
       await refreshProviderCatalogFromConfig();
-      return testInternalProviderConnection(providerId, storedInternalProviderConfig);
+      return testInternalProviderConnection(providerId, {
+        ...storedInternalProviderConfig,
+        ...configOverride,
+      });
     },
     async createChatSession(): Promise<string> {
       requireConnected();
@@ -1217,7 +1259,15 @@ function createInternalEngineMainService() {
         sessionKey === mainSessionKey ? 'main' : sessionKey.startsWith('internal:cowork:') ? 'cowork' : 'chat',
       ).messages.slice(-limit);
     },
-    async sendChat(sessionKey: string, text: string): Promise<InternalEngineSendChatResult> {
+    async sendChat(
+      sessionKey: string,
+      text: string,
+      emitEvent?: (frame: {
+        type: 'event';
+        event: 'chat';
+        payload: Record<string, unknown>;
+      }) => void,
+    ): Promise<InternalEngineSendChatResult> {
       requireConnected();
       const session = ensureSession(
         sessionKey,
@@ -1231,17 +1281,58 @@ function createInternalEngineMainService() {
         role: 'user',
         text,
       };
-      const requestedActions = session.kind === 'cowork' ? buildCoworkFoundationActions(text) : [];
-      const activityItems = session.kind === 'cowork' ? buildCoworkFoundationActivityItems(requestedActions) : [];
-      const providerBackedChat = session.kind !== 'cowork' && isProviderBackedInternalModel(nextModel);
+      const runId = crypto.randomUUID();
+      let requestedActions = session.kind === 'cowork' ? buildCoworkFoundationActions(text) : [];
+      let activityItems = session.kind === 'cowork' ? buildCoworkFoundationActivityItems(requestedActions) : [];
+      const providerBackedChat = isProviderBackedInternalModel(nextModel);
       let assistantText: string;
+      const streamMessageId = crypto.randomUUID();
       if (providerBackedChat) {
         await refreshProviderCatalogFromConfig();
         try {
-          const providerResult = await sendInternalProviderChat(nextModel, [...session.messages, userMessage], storedInternalProviderConfig);
+          const providerResult = await sendInternalProviderChat(
+            nextModel,
+            [...session.messages, userMessage],
+            storedInternalProviderConfig,
+            {
+              onTextDelta: emitEvent
+                ? (deltaText) => {
+                    emitEvent({
+                      type: 'event',
+                      event: 'chat',
+                      payload: {
+                        providerId: 'internal',
+                        runtimeKind: 'internal',
+                        sessionKind: session.kind,
+                        sessionKey: session.key,
+                        runId,
+                        model: nextModel,
+                        state: 'delta',
+                        message: {
+                          id: streamMessageId,
+                          role: 'assistant',
+                          text: stripEngineActionPayloadFromText(deltaText),
+                        },
+                        requestedActions: [],
+                        activityItems: [],
+                        engineActionPhase: session.kind === 'cowork' ? 'planning' : 'none',
+                        engineActionMode: 'none',
+                      },
+                    });
+                  }
+                : undefined,
+            },
+          );
           lastProviderId = providerResult.providerId;
           lastProviderError = null;
-          assistantText = providerResult.text;
+          assistantText = stripEngineActionPayloadFromText(providerResult.text);
+          if (session.kind === 'cowork') {
+            requestedActions = parseEngineRequestedActions(providerResult.text).filter(isReadOnlyInternalAction);
+            activityItems =
+              requestedActions.length > 0
+                ? buildCoworkFoundationActivityItems(requestedActions)
+                : parseEngineActivityItems(providerResult.text);
+          }
         } catch (error) {
           lastProviderError = error instanceof Error ? error.message : 'Provider-backed internal chat failed.';
           throw error;
@@ -1254,7 +1345,6 @@ function createInternalEngineMainService() {
         role: 'assistant',
         text: assistantText,
       };
-      const runId = crypto.randomUUID();
       session.messages.push(userMessage, assistantMessage);
       trimSessionHistory(session);
       session.updatedAt = now();
@@ -1275,7 +1365,9 @@ function createInternalEngineMainService() {
         summary: requestedActions.length > 0
           ? 'Awaiting operator approval for internal read-only actions.'
           : providerBackedChat && lastProviderId
-            ? `Internal provider chat completed via ${lastProviderId}.`
+            ? session.kind === 'cowork'
+              ? `Internal provider cowork planning completed via ${lastProviderId}.`
+              : `Internal provider chat completed via ${lastProviderId}.`
             : 'Internal chat run completed.',
         timeline: [
           {
@@ -1291,8 +1383,10 @@ function createInternalEngineMainService() {
             message: requestedActions.length > 0
               ? 'Awaiting operator approval for internal read-only actions.'
               : providerBackedChat && lastProviderId
-                ? `Internal provider chat completed via ${lastProviderId}.`
-              : 'Internal chat response completed.',
+                ? session.kind === 'cowork'
+                  ? `Internal provider cowork planning completed via ${lastProviderId}.`
+                  : `Internal provider chat completed via ${lastProviderId}.`
+                : 'Internal chat response completed.',
           },
         ],
       });
@@ -1314,7 +1408,14 @@ function createInternalEngineMainService() {
         engineActionMode: requestedActions.length > 0 ? 'read-only' : 'none',
       };
     },
-    async continueCoworkRun(payload: InternalEngineCoworkContinuationRequest): Promise<InternalEngineSendChatResult & {
+    async continueCoworkRun(
+      payload: InternalEngineCoworkContinuationRequest,
+      emitEvent?: (frame: {
+        type: 'event';
+        event: 'chat';
+        payload: Record<string, unknown>;
+      }) => void,
+    ): Promise<InternalEngineSendChatResult & {
       execution: {
         receipts: LocalActionReceipt[];
         previews: string[];
@@ -1379,48 +1480,115 @@ function createInternalEngineMainService() {
           },
         });
       }
-      const assistantMessage: EngineChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        text: formatCoworkContinuationResponse({
+      const providerBackedCowork = isProviderBackedInternalModel(nextModel);
+      let requestedActions: EngineRequestedAction[] = [];
+      let activityItems: ChatActivityItem[] = [];
+      let assistantText: string;
+      const streamMessageId = crypto.randomUUID();
+      if (providerBackedCowork) {
+        await refreshProviderCatalogFromConfig();
+        try {
+          const providerResult = await sendInternalProviderChat(
+            nextModel,
+            [
+              ...session.messages,
+              {
+                id: crypto.randomUUID(),
+                role: 'user',
+                text: buildProviderBackedCoworkContinuationPrompt({
+                  sessionKey: session.key,
+                  approvedActions: payload.approvedActions,
+                  rejectedActions: payload.rejectedActions,
+                  execution,
+                }),
+              },
+            ],
+            storedInternalProviderConfig,
+            {
+              onTextDelta: emitEvent
+                ? (deltaText) => {
+                    emitEvent({
+                      type: 'event',
+                      event: 'chat',
+                      payload: {
+                        providerId: 'internal',
+                        runtimeKind: 'internal',
+                        sessionKind: session.kind,
+                        sessionKey: session.key,
+                        runId: payload.runId,
+                        model: nextModel,
+                        state: 'delta',
+                        message: {
+                          id: streamMessageId,
+                          role: 'assistant',
+                          text: stripEngineActionPayloadFromText(deltaText),
+                        },
+                        requestedActions: [],
+                        activityItems: [],
+                        engineActionPhase: 'executing',
+                        engineActionMode: 'read-only',
+                      },
+                    });
+                  }
+                : undefined,
+            },
+          );
+          lastProviderId = providerResult.providerId;
+          lastProviderError = null;
+          assistantText = stripEngineActionPayloadFromText(providerResult.text);
+          requestedActions = parseEngineRequestedActions(providerResult.text).filter(isReadOnlyInternalAction);
+          activityItems =
+            requestedActions.length > 0
+              ? buildCoworkFoundationActivityItems(requestedActions)
+              : parseEngineActivityItems(providerResult.text);
+        } catch (error) {
+          lastProviderError = error instanceof Error ? error.message : 'Provider-backed internal cowork continuation failed.';
+          throw error;
+        }
+      } else {
+        assistantText = formatCoworkContinuationResponse({
           sessionKey: session.key,
           approvedCount: payload.approvedActions.length,
           rejectedCount: payload.rejectedActions.length,
           previews: execution.previews,
           errors: execution.errors,
-        }),
+        });
+      }
+      const assistantMessage: EngineChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: assistantText,
       };
       session.messages.push(assistantMessage);
       trimSessionHistory(session);
       session.updatedAt = now();
       activeSessionKey = session.key;
+      const continuationBlocked =
+        execution.errors.length > 0 && approvedExecution.receipts.every((receipt) => receipt.status === 'error');
       upsertRunRecord({
         runId: payload.runId,
         sessionKey: session.key,
         sessionKind: session.kind,
         model: nextModel,
-        actionMode: 'none',
-        status:
-          execution.errors.length > 0 && approvedExecution.receipts.every((receipt) => receipt.status === 'error')
-            ? 'blocked'
-            : 'completed',
+        actionMode: requestedActions.length > 0 ? 'read-only' : 'none',
+        status: requestedActions.length > 0 ? 'awaiting_approval' : continuationBlocked ? 'blocked' : 'completed',
         startedAt: existingRun?.startedAt ?? now(),
         updatedAt: now(),
         ...(existingRun?.promptPreview ? { promptPreview: existingRun.promptPreview } : {}),
-        summary:
-          execution.errors.length > 0 && approvedExecution.receipts.every((receipt) => receipt.status === 'error')
+        summary: requestedActions.length > 0
+          ? 'Awaiting operator approval for additional internal read-only actions.'
+          : continuationBlocked
             ? 'Internal cowork continuation completed with blocking errors.'
-            : 'Internal cowork continuation completed.',
+            : providerBackedCowork && lastProviderId
+              ? `Internal provider cowork continuation completed via ${lastProviderId}.`
+              : 'Internal cowork continuation completed.',
       });
       const artifactId = `artifact:${payload.runId}`;
       const resultSummary =
         execution.errors.length > 0 && approvedExecution.receipts.every((receipt) => receipt.status === 'error')
           ? 'Internal cowork continuation recorded blocking execution errors.'
           : 'Internal cowork continuation recorded execution receipts.';
-      const completionPhase =
-        execution.errors.length > 0 && approvedExecution.receipts.every((receipt) => receipt.status === 'error')
-          ? 'blocked'
-          : 'completed';
+      const completionPhase = requestedActions.length > 0 ? 'awaiting_approval' : continuationBlocked ? 'blocked' : 'completed';
       artifacts = [
         ...artifacts.filter((artifact) => artifact.runId !== payload.runId),
         {
@@ -1446,7 +1614,7 @@ function createInternalEngineMainService() {
         runRecord.resultSummary = resultSummary;
         appendRunTimelineEntry(payload.runId, {
           phase: completionPhase,
-          message: resultSummary,
+          message: requestedActions.length > 0 ? 'Awaiting operator approval for additional internal read-only actions.' : resultSummary,
           details: `Receipts: ${execution.receipts.length}. Errors: ${execution.errors.length}.`,
           at: now(),
         });
@@ -1463,13 +1631,10 @@ function createInternalEngineMainService() {
         providerId: 'internal',
         runtimeKind: 'internal',
         sessionKind: session.kind,
-        requestedActions: [],
-        activityItems: [],
-        engineActionPhase:
-          execution.errors.length > 0 && approvedExecution.receipts.every((receipt) => receipt.status === 'error')
-            ? 'blocked'
-            : 'completed',
-        engineActionMode: 'none',
+        requestedActions,
+        activityItems,
+        engineActionPhase: requestedActions.length > 0 ? 'awaiting_approval' : continuationBlocked ? 'blocked' : 'completed',
+        engineActionMode: requestedActions.length > 0 ? 'read-only' : 'none',
         execution,
       };
     },
@@ -2510,9 +2675,19 @@ app.whenReady().then(async () => {
   ipcMain.handle('internal-engine:set-session-title', async (_event, sessionKey: string, title: string | null) => internalEngineService.setSessionTitle(sessionKey, title));
   ipcMain.handle('internal-engine:delete-session', async (_event, sessionKey: string) => internalEngineService.deleteSession(sessionKey));
   ipcMain.handle('internal-engine:get-history', async (_event, sessionKey: string, limit?: number) => internalEngineService.getHistory(sessionKey, limit));
-  ipcMain.handle('internal-engine:send-chat', async (_event, sessionKey: string, text: string) => internalEngineService.sendChat(sessionKey, text));
-  ipcMain.handle('internal-engine:test-provider-connection', async (_event, providerId: InternalChatProviderId) => internalEngineService.testProviderConnection(providerId));
-  ipcMain.handle('internal-engine:continue-cowork-run', async (_event, payload: InternalEngineCoworkContinuationRequest) => internalEngineService.continueCoworkRun(payload));
+  ipcMain.handle('internal-engine:send-chat', async (event, sessionKey: string, text: string) =>
+    internalEngineService.sendChat(sessionKey, text, (frame) => {
+      event.sender.send('internal-engine:event', frame);
+    }));
+  ipcMain.handle(
+    'internal-engine:test-provider-connection',
+    async (_event, providerId: InternalChatProviderId, configOverride?: Partial<InternalProviderConfig>) =>
+      internalEngineService.testProviderConnection(providerId, configOverride),
+  );
+  ipcMain.handle('internal-engine:continue-cowork-run', async (event, payload: InternalEngineCoworkContinuationRequest) =>
+    internalEngineService.continueCoworkRun(payload, (frame) => {
+      event.sender.send('internal-engine:event', frame);
+    }));
   ipcMain.handle('internal-engine:list-pending-approvals', async () => internalEngineService.listPendingApprovals());
   ipcMain.handle('internal-engine:save-pending-approval', async (_event, flow: InternalApprovalRecoveryFlow) => internalEngineService.savePendingApproval(flow));
   ipcMain.handle('internal-engine:clear-pending-approval', async (_event, runId: string) => internalEngineService.clearPendingApproval(runId));

@@ -10,7 +10,9 @@ export type StoredInternalProviderConfig = {
   openaiBaseUrl: string;
   openaiModels: string;
   anthropicApiKey: string;
+  anthropicModels: string;
   geminiApiKey: string;
+  geminiModels: string;
 };
 
 export type ProviderAwareStoredEngineConfigV2 = {

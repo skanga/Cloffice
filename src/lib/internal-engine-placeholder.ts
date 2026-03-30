@@ -170,6 +170,7 @@ export class InternalEnginePlaceholderClient implements EngineRuntimeClient {
 
   setEventHandler(handler: EngineEventHandler): void {
     this.eventHandler = handler;
+    this.bridge.events.setEventHandler(handler);
   }
 
   getActiveSessionKey(): Promise<string> {

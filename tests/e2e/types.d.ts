@@ -24,7 +24,8 @@ interface Window {
     deleteInternalSession: (sessionKey: string) => Promise<void>;
     getInternalHistory: (sessionKey: string, limit?: number) => Promise<any[]>;
     sendInternalChat: (sessionKey: string, text: string) => Promise<any>;
-    testInternalProviderConnection: (providerId: 'openai' | 'anthropic' | 'gemini') => Promise<any>;
+    setInternalEngineEventHandler: (handler: ((frame: any) => void) | null) => void;
+    testInternalProviderConnection: (providerId: 'openai' | 'anthropic' | 'gemini', config?: any) => Promise<any>;
     continueInternalCoworkRun: (payload: any) => Promise<any>;
     listInternalPendingApprovals: () => Promise<any[]>;
     saveInternalPendingApproval: (flow: any) => Promise<void>;

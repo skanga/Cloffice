@@ -2,6 +2,7 @@ import type {
   EngineChatMessage,
   EngineConnectOptions,
   EngineCronJob,
+  EngineEventFrame,
   EngineModelChoice,
   EngineRuntimeDescriptor,
   EngineSessionSummary,
@@ -215,6 +216,9 @@ export type InternalEngineBridge = {
   status: InternalEngineShellStatus;
   lifecycle: InternalEngineLifecycleBridge;
   sessions: InternalEngineSessionBridge;
+  events: {
+    setEventHandler(handler: ((frame: EngineEventFrame) => void) | null): void;
+  };
   scheduling: InternalEngineSchedulingBridge;
   tools: InternalEngineToolsBridge;
   workspace: InternalEngineWorkspaceBridge;
@@ -238,7 +242,19 @@ export type InternalEngineDesktopBridge = {
   deleteInternalSession(sessionKey: string): Promise<void>;
   getInternalHistory(sessionKey: string, limit?: number): Promise<EngineChatMessage[]>;
   sendInternalChat(sessionKey: string, text: string): Promise<InternalEngineSendChatResult>;
-  testInternalProviderConnection(providerId: InternalChatProviderId): Promise<InternalProviderConnectionTestResult>;
+  setInternalEngineEventHandler(handler: ((frame: EngineEventFrame) => void) | null): void;
+  testInternalProviderConnection(
+    providerId: InternalChatProviderId,
+    config?: Partial<{
+      openaiApiKey: string;
+      openaiBaseUrl: string;
+      openaiModels: string;
+      anthropicApiKey: string;
+      anthropicModels: string;
+      geminiApiKey: string;
+      geminiModels: string;
+    }>,
+  ): Promise<InternalProviderConnectionTestResult>;
   continueInternalCoworkRun(payload: InternalEngineCoworkContinuationRequest): Promise<InternalEngineCoworkContinuationResult>;
   listInternalPendingApprovals(): Promise<InternalApprovalRecoveryFlow[]>;
   saveInternalPendingApproval(flow: InternalApprovalRecoveryFlow): Promise<void>;
@@ -277,6 +293,9 @@ export function createUnavailableInternalEngineBridge(status: InternalEngineShel
       setSessionModel: (_sessionKey, _modelValue) => fail<void>(),
       setSessionTitle: (_sessionKey, _title) => fail<void>(),
       deleteSession: (_sessionKey) => fail<void>(),
+    },
+    events: {
+      setEventHandler: (_handler) => undefined,
     },
     scheduling: {
       listCronJobs: () => fail<EngineCronJob[]>(),
@@ -329,6 +348,9 @@ export function createDesktopBackedInternalEngineBridge(
       setSessionModel: (sessionKey, modelValue) => desktopBridge.setInternalSessionModel(sessionKey, modelValue),
       setSessionTitle: (sessionKey, title) => desktopBridge.setInternalSessionTitle(sessionKey, title),
       deleteSession: (sessionKey) => desktopBridge.deleteInternalSession(sessionKey),
+    },
+    events: {
+      setEventHandler: (handler) => desktopBridge.setInternalEngineEventHandler(handler),
     },
     scheduling: {
       listCronJobs: () => fail<EngineCronJob[]>(),
