@@ -236,6 +236,9 @@ function createInternalEngineMainService() {
     state: string;
     nextRunAt: string | null;
     lastRunAt: string | null;
+    lastRunId?: string;
+    lastRunStatus?: string;
+    lastRunSummary?: string;
     projectId?: string;
     projectTitle?: string;
     rootPath?: string;
@@ -1061,6 +1064,9 @@ function createInternalEngineMainService() {
       state: typeof candidate.state === 'string' && candidate.state.trim() ? candidate.state.trim() : 'idle',
       nextRunAt: normalizeDateString(candidate.nextRunAt),
       lastRunAt: normalizeDateString(candidate.lastRunAt),
+      ...(typeof candidate.lastRunId === 'string' && candidate.lastRunId.trim() ? { lastRunId: candidate.lastRunId.trim() } : {}),
+      ...(typeof candidate.lastRunStatus === 'string' && candidate.lastRunStatus.trim() ? { lastRunStatus: candidate.lastRunStatus.trim() } : {}),
+      ...(typeof candidate.lastRunSummary === 'string' && candidate.lastRunSummary.trim() ? { lastRunSummary: candidate.lastRunSummary.trim() } : {}),
       ...(typeof candidate.projectId === 'string' && candidate.projectId.trim() ? { projectId: candidate.projectId.trim() } : {}),
       ...(typeof candidate.projectTitle === 'string' && candidate.projectTitle.trim() ? { projectTitle: candidate.projectTitle.trim() } : {}),
       ...(typeof candidate.rootPath === 'string' && candidate.rootPath.trim() ? { rootPath: candidate.rootPath.trim() } : {}),
@@ -1108,6 +1114,9 @@ function createInternalEngineMainService() {
     state: schedule.state,
     nextRunAt: schedule.nextRunAt,
     lastRunAt: schedule.lastRunAt,
+    ...(schedule.lastRunId ? { lastRunId: schedule.lastRunId } : {}),
+    ...(schedule.lastRunStatus ? { lastRunStatus: schedule.lastRunStatus } : {}),
+    ...(schedule.lastRunSummary ? { lastRunSummary: schedule.lastRunSummary } : {}),
   });
   const latestArtifactSummary = () => {
     const lastArtifact = artifacts[artifacts.length - 1];
@@ -1349,6 +1358,7 @@ function createInternalEngineMainService() {
         session.model = resolveModelValue(schedule.model.trim());
       }
       const result = await service.sendChat(session.key, schedule.prompt);
+      schedule.lastRunId = result.runId;
       if (schedule.kind === 'cowork' && result.requestedActions && result.requestedActions.length > 0) {
         const approvalContext: EngineApprovalLoopContext = {
           runId: result.runId,
@@ -1382,8 +1392,12 @@ function createInternalEngineMainService() {
           message: `Scheduled cowork awaiting approval for ${schedule.name}.`,
         });
         schedule.state = 'awaiting_approval';
+        schedule.lastRunStatus = 'awaiting_approval';
+        schedule.lastRunSummary = `Awaiting approval for ${result.requestedActions.length} read-only action${result.requestedActions.length === 1 ? '' : 's'}.`;
       } else {
         schedule.state = 'completed';
+        schedule.lastRunStatus = 'completed';
+        schedule.lastRunSummary = result.assistantMessage.text.replace(/\s+/g, ' ').trim().slice(0, 220);
       }
       schedule.lastRunAt = new Date().toISOString();
       schedule.nextRunAt = computeNextRunAt(schedule.intervalMinutes);
@@ -1395,6 +1409,8 @@ function createInternalEngineMainService() {
       schedule.lastError = message;
       schedule.lastRunAt = new Date().toISOString();
       schedule.nextRunAt = computeNextRunAt(schedule.intervalMinutes);
+      schedule.lastRunStatus = 'blocked';
+      schedule.lastRunSummary = message;
       lastScheduledJobName = schedule.name;
       lastScheduleError = message;
     } finally {

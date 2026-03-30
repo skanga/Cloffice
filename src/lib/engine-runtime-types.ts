@@ -37,6 +37,9 @@ export type EngineCronJob = {
   state: string;
   nextRunAt: string | null;
   lastRunAt: string | null;
+  lastRunId?: string;
+  lastRunStatus?: string;
+  lastRunSummary?: string;
 };
 
 export type EngineToolEntry = {

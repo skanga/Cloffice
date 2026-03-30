@@ -263,6 +263,31 @@ export function ScheduledPage({
                             <span>Next run: {formatTime(job.nextRunAt)}</span>
                             <span>Last run: {formatTime(job.lastRunAt)}</span>
                           </div>
+                          {(job.lastRunStatus || job.lastRunSummary || job.lastRunId) ? (
+                            <div className="mt-2 rounded-md border border-border/50 bg-card/60 px-2.5 py-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-sans text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  Last outcome
+                                </span>
+                                {job.lastRunStatus ? (
+                                  <Badge variant="outline" className="font-sans text-[10px]">
+                                    {titleCase(job.lastRunStatus)}
+                                  </Badge>
+                                ) : null}
+                                {job.state === 'awaiting_approval' ? (
+                                  <Badge variant="outline" className="font-sans text-[10px] text-amber-700">
+                                    Pending approval
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              {job.lastRunSummary ? (
+                                <p className="mt-1 font-sans text-[11px] text-muted-foreground">{job.lastRunSummary}</p>
+                              ) : null}
+                              {job.lastRunId ? (
+                                <p className="mt-1 font-mono text-[10px] text-muted-foreground/80">Run: {job.lastRunId}</p>
+                              ) : null}
+                            </div>
+                          ) : null}
                           {scheduleActionsEnabled ? (
                             <div className="mt-2 flex flex-wrap gap-1.5">
                               <Button

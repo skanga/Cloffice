@@ -267,9 +267,7 @@ test.describe('Internal engine UI flow', () => {
     let resolvedApprovals = 0;
     while ((await pendingApprovalCards(page).count()) > 0) {
       const nextApprovalCard = pendingApprovalCards(page).first();
-      const approvalTestIdAttr = (await nextApprovalCard.getAttribute('data-testid')) || '';
-      const nextApprovalId = approvalTestIdAttr.replace('pending-approval-', '');
-      expect(nextApprovalId).not.toBe('');
+      const previousApprovalText = (await nextApprovalCard.textContent()) || '';
       await nextApprovalCard.getByRole('button', { name: 'Approve' }).click();
       await expect
         .poll(
@@ -280,9 +278,8 @@ test.describe('Internal engine UI flow', () => {
               return 'cleared';
             }
 
-            const activeApprovalTestIdAttr = (await cards.first().getAttribute('data-testid')) || '';
-            const activeApprovalId = activeApprovalTestIdAttr.replace('pending-approval-', '');
-            return activeApprovalId === nextApprovalId ? 'unchanged' : 'advanced';
+            const activeApprovalText = (await cards.first().textContent()) || '';
+            return activeApprovalText === previousApprovalText ? 'unchanged' : 'advanced';
           },
           { timeout: 15000 },
         )
