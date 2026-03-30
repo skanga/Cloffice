@@ -96,6 +96,8 @@ export type InternalEngineArtifactRecord = {
 
 export type InternalEngineRunRecord = {
   runId: string;
+  scheduleId?: string;
+  scheduleName?: string;
   sessionKey: string;
   sessionKind: string;
   model: string;

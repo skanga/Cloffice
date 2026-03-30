@@ -30,7 +30,7 @@ type ScheduledPageProps = {
   onToggleJob?: (jobId: string, enabled: boolean) => void | Promise<void>;
   onSetJobInterval?: (jobId: string, intervalMinutes: number) => void | Promise<void>;
   onDeleteJob?: (jobId: string) => void | Promise<void>;
-  onOpenRunHistory?: (runId: string) => void | Promise<void>;
+  onOpenRunHistory?: (jobId: string, runId: string) => void | Promise<void>;
 };
 
 type ViewMode = 'timeline' | 'calendar';
@@ -328,7 +328,7 @@ export function ScheduledPage({
                                       size="sm"
                                       className="h-6 px-2 text-[10px]"
                                       data-testid={`scheduled-job-open-run-${job.id}`}
-                                      onClick={() => void onOpenRunHistory(job.lastRunId!)}
+                                      onClick={() => void onOpenRunHistory(job.id, job.lastRunId!)}
                                     >
                                       Open history
                                     </Button>

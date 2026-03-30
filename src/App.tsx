@@ -4418,7 +4418,8 @@ export default function App() {
                         onSetJobInterval={(jobId, intervalMinutes) => void handleUpdateInternalPromptSchedule(jobId, { intervalMinutes })}
                         onDeleteJob={(jobId) => void handleDeleteInternalPromptSchedule(jobId)}
                         focusedJobId={focusedScheduledJobId}
-                        onOpenRunHistory={(runId) => {
+                        onOpenRunHistory={(jobId, runId) => {
+                          setFocusedScheduledJobId(jobId);
                           setFocusedInternalRunId(runId);
                           setActivePage('settings');
                           setSettingsSection('Developer');
@@ -4438,6 +4439,7 @@ export default function App() {
                       <SettingsPage
                         activeSection={settingsSection}
                         focusedInternalRunId={focusedInternalRunId}
+                        focusedScheduledJobId={focusedScheduledJobId}
                         scheduledJobs={scheduledJobs}
                         draftEngineProviderId={draftEngineProviderId}
                         draftEngineUrl={draftEngineUrl}
@@ -4467,6 +4469,7 @@ export default function App() {
                           setFocusedScheduledJobId(jobId);
                           setActivePage('scheduled');
                         }}
+                        onClearScheduleRunFilter={() => setFocusedScheduledJobId(null)}
                       />
                     )}
                   </ScrollArea>

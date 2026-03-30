@@ -29,6 +29,7 @@ type ThemeOption = UserPreferences['theme'];
 type SettingsPageProps = {
   activeSection: SettingsSection;
   focusedInternalRunId?: string | null;
+  focusedScheduledJobId?: string | null;
   scheduledJobs: ScheduledJob[];
   draftEngineProviderId: EngineProviderId;
   draftEngineUrl: string;
@@ -53,6 +54,7 @@ type SettingsPageProps = {
   onResetPairing: () => void | Promise<void>;
   onUpdatePreferences: (patch: Partial<UserPreferences>) => void;
   onOpenScheduleJob?: (jobId: string) => void | Promise<void>;
+  onClearScheduleRunFilter?: () => void;
 };
 
 const sectionDescriptions: Record<SettingsSection, { en: string; de: string }> = {
@@ -246,6 +248,7 @@ function ThemePreview({ mode, style }: { mode: ThemeOption; style: StyleOption }
 export function SettingsPage({
   activeSection,
   focusedInternalRunId = null,
+  focusedScheduledJobId = null,
   scheduledJobs,
   draftEngineProviderId,
   draftEngineUrl,
@@ -270,6 +273,7 @@ export function SettingsPage({
   onResetPairing,
   onUpdatePreferences,
   onOpenScheduleJob,
+  onClearScheduleRunFilter,
 }: SettingsPageProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -298,15 +302,20 @@ export function SettingsPage({
     [engineProviders, internalRuntimeInfo],
   );
   const selectedEngineProvider = useMemo(() => getEngineProvider(draftEngineProviderId), [draftEngineProviderId]);
-  const scheduledJobsByRunId = useMemo(() => {
+  const scheduledJobsById = useMemo(() => {
     const map = new Map<string, ScheduledJob>();
     for (const job of scheduledJobs) {
-      if (job.lastRunId) {
-        map.set(job.lastRunId, job);
-      }
+      map.set(job.id, job);
     }
     return map;
   }, [scheduledJobs]);
+  const filteredInternalRunHistory = useMemo(
+    () => focusedScheduledJobId
+      ? internalRunHistory.filter((run) => run.scheduleId === focusedScheduledJobId)
+      : internalRunHistory,
+    [focusedScheduledJobId, internalRunHistory],
+  );
+  const focusedSchedule = focusedScheduledJobId ? scheduledJobsById.get(focusedScheduledJobId) ?? null : null;
   const selectedEngineProviderCard = useMemo(
     () => effectiveEngineProviders.find((provider) => provider.id === draftEngineProviderId) ?? selectedEngineProvider,
     [draftEngineProviderId, effectiveEngineProviders, selectedEngineProvider],
@@ -751,11 +760,11 @@ export function SettingsPage({
                       <p><span className="font-medium text-foreground">Recovery:</span> {internalRuntimeInfo.lastRecoveryNote}</p>
                     ) : null}
                   </div>
-                  {internalRunHistory.length > 0 ? (
+                  {filteredInternalRunHistory.length > 0 ? (
                     <div className="mt-3 border-t border-border/40 pt-3">
                       <p className="text-xs font-medium text-foreground">Recent runs</p>
                       <div className="mt-2 grid gap-2">
-                        {internalRunHistory.map((run) => {
+                        {filteredInternalRunHistory.map((run) => {
                           const latestEntry = run.timeline?.[run.timeline.length - 1];
                           return (
                             <div key={run.runId} className="rounded-md border border-border/50 bg-background/40 px-2.5 py-2">
@@ -1228,23 +1237,37 @@ export function SettingsPage({
                           'Die aktuelle interne Runtime-Historie einschliesslich Genehmigungs- und Ausfuehrungsereignissen.',
                         )}
                       </p>
+                      {focusedSchedule ? (
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          {t('Filtered to schedule', 'Gefiltert nach Zeitplan')}: <span className="font-medium text-foreground">{focusedSchedule.name}</span>
+                        </p>
+                      ) : null}
                     </div>
-                    <Badge variant="outline" className="rounded-full font-sans text-[10px]">
-                      {internalRunHistory.length} {t('runs loaded', 'Laeufe geladen')}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="rounded-full font-sans text-[10px]">
+                        {filteredInternalRunHistory.length} {t('runs loaded', 'Laeufe geladen')}
+                      </Badge>
+                      {focusedSchedule && onClearScheduleRunFilter ? (
+                        <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-[11px]" onClick={onClearScheduleRunFilter}>
+                          {t('Clear filter', 'Filter loeschen')}
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
 
-                  {internalRunHistory.length === 0 ? (
+                  {filteredInternalRunHistory.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-border/70 px-3 py-6 text-center text-xs text-muted-foreground">
-                      {t('No internal runs recorded yet.', 'Noch keine internen Laeufe erfasst.')}
+                      {focusedSchedule
+                        ? t('No runs have been recorded for the selected schedule yet.', 'Fuer den gewaehlten Zeitplan wurden noch keine Laeufe aufgezeichnet.')
+                        : t('No internal runs recorded yet.', 'Noch keine internen Laeufe erfasst.')}
                     </div>
                   ) : (
                     <ScrollArea className="max-h-[540px] pr-2">
                       <div className="grid gap-3">
-                        {internalRunHistory.map((run) => {
+                        {filteredInternalRunHistory.map((run) => {
                           const artifact = run.artifact;
                           const isHighlighted = highlightedRunId === run.runId;
-                          const relatedSchedule = scheduledJobsByRunId.get(run.runId);
+                          const relatedSchedule = run.scheduleId ? scheduledJobsById.get(run.scheduleId) : null;
                           return (
                             <div
                               key={run.runId}
@@ -1263,6 +1286,11 @@ export function SettingsPage({
                                   <p className="text-xs text-muted-foreground">
                                     {run.summary ?? run.promptPreview ?? run.runId}
                                   </p>
+                                  {run.scheduleName ? (
+                                    <p className="mt-1 text-[11px] text-muted-foreground">
+                                      {t('Schedule', 'Zeitplan')}: <span className="font-medium text-foreground">{run.scheduleName}</span>
+                                    </p>
+                                  ) : null}
                                 </div>
                                 <div className="flex flex-wrap gap-1">
                                   {run.providerBacked ? (

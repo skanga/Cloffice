@@ -183,6 +183,8 @@ function createInternalEngineMainService() {
   };
   type PersistedInternalRunRecord = {
     runId: string;
+    scheduleId?: string;
+    scheduleName?: string;
     sessionKey: string;
     sessionKind: string;
     model: string;
@@ -949,6 +951,12 @@ function createInternalEngineMainService() {
       : undefined;
     return {
       runId,
+      ...(typeof candidate.scheduleId === 'string' && candidate.scheduleId.trim()
+        ? { scheduleId: candidate.scheduleId.trim() }
+        : {}),
+      ...(typeof candidate.scheduleName === 'string' && candidate.scheduleName.trim()
+        ? { scheduleName: candidate.scheduleName.trim() }
+        : {}),
       sessionKey,
       sessionKind: typeof candidate.sessionKind === 'string' && candidate.sessionKind.trim()
         ? candidate.sessionKind.trim()
@@ -1359,6 +1367,14 @@ function createInternalEngineMainService() {
       }
       const result = await service.sendChat(session.key, schedule.prompt);
       schedule.lastRunId = result.runId;
+      const scheduledRun = runs.get(result.runId);
+      if (scheduledRun) {
+        upsertRunRecord({
+          ...scheduledRun,
+          scheduleId: schedule.id,
+          scheduleName: schedule.name,
+        });
+      }
       if (schedule.kind === 'cowork' && result.requestedActions && result.requestedActions.length > 0) {
         const approvalContext: EngineApprovalLoopContext = {
           runId: result.runId,
