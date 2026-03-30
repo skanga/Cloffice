@@ -19,6 +19,15 @@ type InternalScheduleBridge = {
   deleteInternalPromptSchedule?: (id: string) => Promise<void>;
 };
 
+export type EngineScheduleCreateInput = {
+  kind: 'chat' | 'cowork';
+  prompt: string;
+  name?: string;
+  intervalMinutes?: number;
+  rootPath?: string;
+  model?: string | null;
+};
+
 export async function loadEngineScheduledJobs(
   client: EngineRuntimeClient,
   connectOptions: EngineConnectOptions,
@@ -109,6 +118,58 @@ export async function createEngineCoworkSchedule(params: {
     shouldOpenScheduledPage: true,
     shouldReloadScheduledJobs: false,
   };
+}
+
+export async function createEngineSchedule(params: {
+  providerId: EngineProviderId;
+  bridge: InternalScheduleBridge | null | undefined;
+  schedule: EngineScheduleCreateInput;
+  activeProject: CoworkProject | null;
+}): Promise<{ message: string; shouldReloadScheduledJobs: boolean }> {
+  const prompt = params.schedule.prompt.trim();
+  if (!prompt) {
+    throw new Error('Schedule prompt is required.');
+  }
+
+  if (params.providerId !== 'internal' || !params.bridge?.createInternalPromptSchedule) {
+    throw new Error('Direct schedule creation is available in the internal desktop runtime only.');
+  }
+
+  const kind = params.schedule.kind;
+  const intervalMinutes = params.schedule.intervalMinutes ?? 1;
+  const name = params.schedule.name?.trim() || (kind === 'cowork' ? 'Scheduled cowork prompt' : 'Scheduled chat prompt');
+
+  await params.bridge.createInternalPromptSchedule({
+    kind,
+    prompt,
+    name,
+    projectId: kind === 'cowork' ? params.activeProject?.id ?? undefined : undefined,
+    projectTitle: kind === 'cowork' ? params.activeProject?.name ?? undefined : undefined,
+    rootPath: kind === 'cowork' ? params.schedule.rootPath?.trim() || undefined : undefined,
+    intervalMinutes,
+    model: params.schedule.model?.trim() || null,
+  });
+
+  return {
+    message: `Created internal ${kind} schedule for every ${intervalMinutes} minute${intervalMinutes === 1 ? '' : 's'}.`,
+    shouldReloadScheduledJobs: true,
+  };
+}
+
+export async function createEngineScheduleWithStatus(params: {
+  providerId: EngineProviderId;
+  bridge: InternalScheduleBridge | null | undefined;
+  schedule: EngineScheduleCreateInput;
+  activeProject: CoworkProject | null;
+}): Promise<{ message: string; shouldReloadScheduledJobs: boolean }> {
+  try {
+    return await createEngineSchedule(params);
+  } catch (error) {
+    return {
+      message: error instanceof Error ? error.message : 'Unable to create internal schedule.',
+      shouldReloadScheduledJobs: false,
+    };
+  }
 }
 
 export async function createEngineCoworkScheduleWithStatus(params: {

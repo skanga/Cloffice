@@ -75,11 +75,12 @@ import { Input } from './components/ui/input';
 import { SidebarProvider } from './components/ui/sidebar';
 import { ScrollArea } from './components/ui/scroll-area';
 import { createEngineClient, type EngineClientInstance } from './lib/engine-client';
-import {
-  canManageEngineSchedules,
-  createEngineCoworkScheduleWithStatus,
-  deleteEngineScheduleWithStatus,
-  describeEngineScheduleAccess,
+  import {
+    canManageEngineSchedules,
+    createEngineScheduleWithStatus,
+    createEngineCoworkScheduleWithStatus,
+    deleteEngineScheduleWithStatus,
+    describeEngineScheduleAccess,
   loadEngineScheduledJobsWithStatus,
   updateEngineScheduleWithStatus,
 } from './lib/engine-schedule-controller';
@@ -2707,16 +2708,38 @@ export default function App() {
     setStatus(result.message);
   };
 
-  const handleDeleteInternalPromptSchedule = async (scheduleId: string) => {
-    const result = await deleteEngineScheduleWithStatus({
-      bridge,
-      scheduleId,
-    });
-    if (result.shouldReloadScheduledJobs) {
-      await loadScheduledJobs();
-    }
-    setStatus(result.message);
-  };
+    const handleDeleteInternalPromptSchedule = async (scheduleId: string) => {
+      const result = await deleteEngineScheduleWithStatus({
+        bridge,
+        scheduleId,
+      });
+      if (result.shouldReloadScheduledJobs) {
+        await loadScheduledJobs();
+      }
+      setStatus(result.message);
+    };
+
+    const handleCreateInternalPromptSchedule = async (payload: {
+      kind: 'chat' | 'cowork';
+      prompt: string;
+      name?: string;
+      intervalMinutes?: number;
+      model?: string | null;
+    }) => {
+      const result = await createEngineScheduleWithStatus({
+        providerId: draftEngineProviderId,
+        bridge,
+        schedule: {
+          ...payload,
+          rootPath: payload.kind === 'cowork' ? workingFolderRef.current : undefined,
+        },
+        activeProject: activeCoworkProject,
+      });
+      if (result.shouldReloadScheduledJobs) {
+        await loadScheduledJobs();
+      }
+      setStatus(result.message);
+    };
 
   const handlePickWorkingFolderForProject = async (): Promise<string | undefined> => {
     const selected = await handlePickWorkingFolder();
@@ -3988,6 +4011,10 @@ export default function App() {
                           scheduleActionsEnabled={scheduleAccess.canManage}
                           scheduleAccessLabel={scheduleAccess.modeLabel}
                           scheduleAccessDescription={scheduleAccess.helperText}
+                          createScheduleEnabled={scheduleAccess.canManage}
+                          createScheduleStatus={status}
+                          defaultCreateModel={coworkModel}
+                          onCreateSchedule={(input) => void handleCreateInternalPromptSchedule(input)}
                           onToggleJob={(jobId, enabled) => void handleUpdateInternalPromptSchedule(jobId, { enabled })}
                           onSetJobInterval={(jobId, intervalMinutes) => void handleUpdateInternalPromptSchedule(jobId, { intervalMinutes })}
                           onDeleteJob={(jobId) => void handleDeleteInternalPromptSchedule(jobId)}

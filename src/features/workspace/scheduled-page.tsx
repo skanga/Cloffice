@@ -16,9 +16,11 @@ import {
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import type { ScheduledJob } from '@/app-types';
+import type { EngineScheduleCreateInput } from '@/lib/engine-schedule-controller';
 
 type ScheduledPageProps = {
   jobs: ScheduledJob[];
@@ -29,10 +31,15 @@ type ScheduledPageProps = {
   scheduleActionsEnabled?: boolean;
   scheduleAccessLabel?: 'Read-write' | 'Read-only';
   scheduleAccessDescription?: string;
+  createScheduleEnabled?: boolean;
+  createScheduleStatus?: string;
+  createScheduleBusy?: boolean;
+  defaultCreateModel?: string | null;
   onToggleJob?: (jobId: string, enabled: boolean) => void | Promise<void>;
   onSetJobInterval?: (jobId: string, intervalMinutes: number) => void | Promise<void>;
   onDeleteJob?: (jobId: string) => void | Promise<void>;
   onOpenRunHistory?: (jobId: string, runId: string) => void | Promise<void>;
+  onCreateSchedule?: (input: EngineScheduleCreateInput) => void | Promise<void>;
 };
 
 type ViewMode = 'timeline' | 'calendar';
@@ -137,10 +144,15 @@ export function ScheduledPage({
   scheduleAccessDescription = scheduleActionsEnabled
     ? 'This runtime supports direct schedule controls.'
     : 'This runtime exposes schedule rows for inspection only.',
+  createScheduleEnabled = false,
+  createScheduleStatus = '',
+  createScheduleBusy = false,
+  defaultCreateModel = null,
   onToggleJob,
   onSetJobInterval,
   onDeleteJob,
   onOpenRunHistory,
+  onCreateSchedule,
 }: ScheduledPageProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('timeline');
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
@@ -150,6 +162,15 @@ export function ScheduledPage({
   const [copiedArtifactSummaryJobId, setCopiedArtifactSummaryJobId] = useState<string | null>(null);
   const [copiedArtifactErrorsJobId, setCopiedArtifactErrorsJobId] = useState<string | null>(null);
   const [expandedArtifactJobId, setExpandedArtifactJobId] = useState<string | null>(null);
+  const [createKind, setCreateKind] = useState<'chat' | 'cowork'>('chat');
+  const [createName, setCreateName] = useState('');
+  const [createPrompt, setCreatePrompt] = useState('');
+  const [createIntervalMinutes, setCreateIntervalMinutes] = useState<1 | 5 | 15>(1);
+  const [createModel, setCreateModel] = useState(defaultCreateModel ?? '');
+
+  useEffect(() => {
+    setCreateModel(defaultCreateModel ?? '');
+  }, [defaultCreateModel]);
 
   const now = new Date();
   const sortedJobs = useMemo(() => {
@@ -225,6 +246,21 @@ export function ScheduledPage({
     }
   };
 
+  const handleCreateSchedule = async () => {
+    if (!onCreateSchedule) {
+      return;
+    }
+    await onCreateSchedule({
+      kind: createKind,
+      name: createName.trim() || undefined,
+      prompt: createPrompt,
+      intervalMinutes: createIntervalMinutes,
+      model: createModel.trim() || null,
+    });
+    setCreateName('');
+    setCreatePrompt('');
+  };
+
   return (
     <section className="mx-auto grid h-full w-full max-w-[1060px] min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-3">
       {/* Header */}
@@ -292,6 +328,91 @@ export function ScheduledPage({
           {status.trim() || 'Connected.'}
         </span>
       </div>
+
+      {createScheduleEnabled ? (
+        <div className="rounded-xl border border-border/60 bg-card px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div>
+              <p className="font-sans text-sm font-medium">Create internal schedule</p>
+              <p className="font-sans text-[12px] text-muted-foreground">
+                Schedule a chat or cowork prompt directly from this page.
+              </p>
+            </div>
+            <div className="ml-auto flex rounded-lg border border-border">
+              {(['chat', 'cowork'] as const).map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  className={`px-3 py-1.5 font-sans text-[11px] transition-colors first:rounded-l-lg last:rounded-r-lg ${
+                    createKind === kind ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50'
+                  }`}
+                  data-testid={`schedule-create-kind-${kind}`}
+                  onClick={() => setCreateKind(kind)}
+                >
+                  {kind === 'chat' ? 'Chat' : 'Cowork'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_160px_160px]">
+            <Input
+              value={createName}
+              onChange={(event) => setCreateName(event.target.value)}
+              placeholder={createKind === 'cowork' ? 'Scheduled cowork prompt' : 'Scheduled chat prompt'}
+              data-testid="schedule-create-name"
+            />
+            <Input
+              value={createModel}
+              onChange={(event) => setCreateModel(event.target.value)}
+              placeholder="Optional model override"
+              data-testid="schedule-create-model"
+            />
+            <div className="flex rounded-lg border border-border">
+              {([1, 5, 15] as const).map((minutes) => (
+                <button
+                  key={minutes}
+                  type="button"
+                  className={`flex-1 px-3 py-2 font-sans text-[11px] transition-colors first:rounded-l-lg last:rounded-r-lg ${
+                    createIntervalMinutes === minutes ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50'
+                  }`}
+                  data-testid={`schedule-create-interval-${minutes}`}
+                  onClick={() => setCreateIntervalMinutes(minutes)}
+                >
+                  {minutes}m
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="mt-3 grid gap-2">
+            <textarea
+              value={createPrompt}
+              onChange={(event) => setCreatePrompt(event.target.value)}
+              placeholder={createKind === 'cowork' ? 'Describe the recurring cowork task.' : 'Describe the recurring chat prompt.'}
+              className="min-h-24 rounded-lg border border-border bg-background px-3 py-2 font-sans text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="schedule-create-prompt"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                className="gap-1.5"
+                data-testid="schedule-create-submit"
+                disabled={createScheduleBusy || !createPrompt.trim()}
+                onClick={() => void handleCreateSchedule()}
+              >
+                <Zap className="size-3.5" />
+                {createScheduleBusy ? 'Creating…' : 'Create schedule'}
+              </Button>
+              <span className="font-sans text-[11px] text-muted-foreground/80">
+                Cowork schedules use the active project context when available.
+              </span>
+              {createScheduleStatus.trim() ? (
+                <span className="ml-auto font-sans text-[11px] text-muted-foreground/70">{createScheduleStatus}</span>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Main content */}
       <div className="min-h-0 rounded-xl border border-border/60 bg-card">
