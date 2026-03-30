@@ -116,6 +116,38 @@ import {
   buildUpdatedEngineConnectionStatus,
 } from './lib/engine-config-status';
 import {
+  buildArtifactOpenBridgeUnavailableStatus,
+  buildArtifactOpenFailureStatus,
+  buildArtifactOpenedStatus,
+  buildBrowserSandboxFolderSelectedStatus,
+  buildCreateFileBridgeUnavailableStatus,
+  buildCreateFileFailureStatus,
+  buildCreatedFileStatus,
+  buildFolderPickerFailureStatus,
+  buildLocalActionSmokeFailedStatus,
+  buildLocalActionSmokePassedStatus,
+  buildLocalActionSmokeUnavailableStatus,
+  buildLocalFileOrganizerUnavailableStatus,
+  buildLocalPlanAppliedStatus,
+  buildLocalPlanApplyFailureStatus,
+  buildLocalPlanApplyPreconditionStatus,
+  buildLocalPlanCreationFailureStatus,
+  buildLocalPlanReadyStatus,
+  buildMissingCoworkPromptForSkillStatus,
+  buildNoFolderSelectedStatus,
+  buildRelativeFilePathRequiredStatus,
+  buildSaveSkillBridgeUnavailableStatus,
+  buildSaveSkillFailureStatus,
+  buildSavedSkillDraftStatus,
+  buildWindowCloseFailureStatus,
+  buildWindowControlsUnavailableStatus,
+  buildWindowMinimizeFailureStatus,
+  buildWindowResizeFailureStatus,
+  buildWindowSystemMenuFailureStatus,
+  buildWorkingFolderRequiredStatus,
+  buildWorkingFolderSelectedStatus,
+} from './lib/engine-local-status';
+import {
   buildDeletedRecentSessionStatus,
   buildInvalidSessionKeyStatus,
   buildLoadedSessionStatus,
@@ -2993,13 +3025,13 @@ export default function App() {
 
   const handleCreateLocalPlan = async () => {
     if (!bridge?.planOrganizeFolder) {
-      setStatus('Local file organizer is available in the Electron desktop app only.');
+      setStatus(buildLocalFileOrganizerUnavailableStatus());
       return;
     }
 
     const rootPath = workingFolder.trim();
     if (!rootPath) {
-      setStatus('Select a working folder first.');
+      setStatus(buildWorkingFolderRequiredStatus());
       return;
     }
 
@@ -3008,9 +3040,9 @@ export default function App() {
       const plan = await bridge.planOrganizeFolder(rootPath);
       setLocalPlanActions(plan.actions);
       setLocalPlanRootPath(plan.rootPath);
-      setStatus(`Plan ready: ${plan.actions.length} file action${plan.actions.length === 1 ? '' : 's'} in ${plan.rootPath}`);
+      setStatus(buildLocalPlanReadyStatus(plan.actions.length, plan.rootPath));
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to create local file plan.';
+      const message = error instanceof Error ? error.message : buildLocalPlanCreationFailureStatus();
       setStatus(message);
       setLocalPlanActions([]);
       setLocalPlanRootPath('');
@@ -3034,14 +3066,12 @@ export default function App() {
       });
 
       if (!selected) {
-        setStatus('No folder selected.');
+        setStatus(buildNoFolderSelectedStatus());
         return undefined;
       }
 
       setWorkingFolder(selected);
-      setStatus(
-        `Folder selected in browser sandbox: ${selected}. To apply local file changes, run the Electron desktop app (npm run dev).`,
-      );
+      setStatus(buildBrowserSandboxFolderSelectedStatus(selected));
       return selected;
     }
 
@@ -3049,12 +3079,12 @@ export default function App() {
       const selected = await bridge.selectFolder(workingFolder);
       if (selected && selected.trim()) {
         setWorkingFolder(selected);
-        setStatus(`Working folder selected: ${selected}`);
+        setStatus(buildWorkingFolderSelectedStatus(selected));
         return selected;
       }
       return undefined;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to open folder picker.';
+      const message = error instanceof Error ? error.message : buildFolderPickerFailureStatus();
       setStatus(message);
       return undefined;
     }
@@ -3062,7 +3092,7 @@ export default function App() {
 
   const handleOpenCoworkArtifact = async (artifact: CoworkArtifact) => {
     if (!bridge?.openPath) {
-      setStatus('Opening artifacts requires the Electron desktop bridge.');
+      setStatus(buildArtifactOpenBridgeUnavailableStatus());
       return;
     }
 
@@ -3072,28 +3102,28 @@ export default function App() {
         throw new Error(result.error || 'Unable to open artifact path.');
       }
 
-      setStatus(`Opened artifact: ${artifact.path}`);
+      setStatus(buildArtifactOpenedStatus(artifact.path));
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to open artifact.';
+      const message = error instanceof Error ? error.message : buildArtifactOpenFailureStatus();
       setStatus(message);
     }
   };
 
   const handleSaveCoworkRunAsSkill = async () => {
     if (!bridge?.createFileInFolder) {
-      setStatus('Saving a skill requires the Electron desktop bridge.');
+      setStatus(buildSaveSkillBridgeUnavailableStatus());
       return;
     }
 
     const rootPath = workingFolder.trim();
     if (!rootPath) {
-      setStatus('Select a working folder first.');
+      setStatus(buildWorkingFolderRequiredStatus());
       return;
     }
 
     const latestUserPrompt = [...coworkMessages].reverse().find((message) => message.role === 'user')?.text?.trim() || coworkDraftPrompt.trim();
     if (!latestUserPrompt) {
-      setStatus('No cowork prompt found to save as a skill.');
+      setStatus(buildMissingCoworkPromptForSkillStatus());
       return;
     }
 
@@ -3132,9 +3162,9 @@ export default function App() {
         },
         ...current,
       ].slice(0, 40));
-      setStatus(`Saved skill draft: ${result.filePath}`);
+      setStatus(buildSavedSkillDraftStatus(result.filePath));
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to save skill draft.';
+      const message = error instanceof Error ? error.message : buildSaveSkillFailureStatus();
       setStatus(message);
     }
   };
@@ -3197,26 +3227,22 @@ export default function App() {
 
   const handleApplyLocalPlan = async () => {
     if (!bridge?.applyOrganizeFolderPlan) {
-      setStatus('Local file organizer is available in the Electron desktop app only.');
+      setStatus(buildLocalFileOrganizerUnavailableStatus());
       return;
     }
 
     if (!localPlanRootPath || localPlanActions.length === 0) {
-      setStatus('Create a plan before applying changes.');
+      setStatus(buildLocalPlanApplyPreconditionStatus());
       return;
     }
 
     setLocalApplyLoading(true);
     try {
       const result = await bridge.applyOrganizeFolderPlan(localPlanRootPath, localPlanActions);
-      setStatus(
-        `Applied ${result.applied} action${result.applied === 1 ? '' : 's'}, skipped ${result.skipped}. ${
-          result.errors.length > 0 ? 'Some items had errors.' : 'Done.'
-        }`,
-      );
+      setStatus(buildLocalPlanAppliedStatus(result.applied, result.skipped, result.errors.length > 0));
       setLocalPlanActions([]);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to apply local file plan.';
+      const message = error instanceof Error ? error.message : buildLocalPlanApplyFailureStatus();
       setStatus(message);
     } finally {
       setLocalApplyLoading(false);
@@ -3439,28 +3465,28 @@ export default function App() {
 
   const handleCreateFileInWorkingFolder = async () => {
     if (!bridge?.createFileInFolder) {
-      setStatus('Creating local files is available in the Electron desktop app only.');
+      setStatus(buildCreateFileBridgeUnavailableStatus());
       return;
     }
 
     const rootPath = workingFolder.trim();
     const relativePath = localFileDraftPath.trim();
     if (!rootPath) {
-      setStatus('Select a working folder first.');
+      setStatus(buildWorkingFolderRequiredStatus());
       return;
     }
 
     if (!relativePath) {
-      setStatus('Provide a relative file path (for example: notes/todo.md).');
+      setStatus(buildRelativeFilePathRequiredStatus());
       return;
     }
 
     setLocalFileCreateLoading(true);
     try {
       const result = await bridge.createFileInFolder(rootPath, relativePath, localFileDraftContent);
-      setStatus(`Created file: ${result.filePath}`);
+      setStatus(buildCreatedFileStatus(result.filePath));
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to create file in working folder.';
+      const message = error instanceof Error ? error.message : buildCreateFileFailureStatus();
       setStatus(message);
     } finally {
       setLocalFileCreateLoading(false);
@@ -3469,13 +3495,13 @@ export default function App() {
 
   const handleRunLocalActionSmokeTest = async () => {
     if (!bridge) {
-      setStatus('Local action smoke test is available in the Electron desktop app only.');
+      setStatus(buildLocalActionSmokeUnavailableStatus());
       return;
     }
 
     const rootPath = workingFolder.trim();
     if (!rootPath) {
-      setStatus('Select a working folder first.');
+      setStatus(buildWorkingFolderRequiredStatus());
       return;
     }
 
@@ -3543,9 +3569,9 @@ export default function App() {
     } finally {
       pushLocalActionReceipts(receipts);
       if (errors.length > 0) {
-        setStatus(`Local action smoke test failed: ${errors[0]}`);
+        setStatus(buildLocalActionSmokeFailedStatus(errors[0]));
       } else {
-        setStatus(`Local action smoke test passed. File: ${rootPath}\\${relativePath}`);
+        setStatus(buildLocalActionSmokePassedStatus(rootPath, relativePath));
       }
       setLocalActionSmokeRunning(false);
     }
@@ -3947,20 +3973,20 @@ export default function App() {
 
   const handleMinimize = async () => {
     if (!bridge?.minimizeWindow) {
-      setStatus('Window controls are available only in the Electron desktop app.');
+      setStatus(buildWindowControlsUnavailableStatus());
       return;
     }
 
     try {
       await bridge.minimizeWindow();
     } catch {
-      setStatus('Unable to minimize window.');
+      setStatus(buildWindowMinimizeFailureStatus());
     }
   };
 
   const handleToggleMaximize = async () => {
     if (!bridge?.toggleMaximizeWindow) {
-      setStatus('Window controls are available only in the Electron desktop app.');
+      setStatus(buildWindowControlsUnavailableStatus());
       return;
     }
 
@@ -3968,7 +3994,7 @@ export default function App() {
       const nextState = await bridge.toggleMaximizeWindow();
       setIsMaximized(nextState);
     } catch {
-      setStatus('Unable to resize window.');
+      setStatus(buildWindowResizeFailureStatus());
     }
   };
 
@@ -3978,7 +4004,7 @@ export default function App() {
         await bridge.closeWindow();
         return;
       } catch {
-        setStatus('Unable to close window from bridge.');
+        setStatus(buildWindowCloseFailureStatus());
       }
     }
 
@@ -3993,7 +4019,7 @@ export default function App() {
     try {
       await bridge.showSystemMenu(x, y);
     } catch {
-      setStatus('Unable to open system menu.');
+      setStatus(buildWindowSystemMenuFailureStatus());
     }
   };
 
