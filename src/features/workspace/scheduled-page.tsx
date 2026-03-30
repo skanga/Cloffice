@@ -38,6 +38,8 @@ type ScheduledPageProps = {
   scheduleModels?: Array<{ value: string; label: string }>;
   onRunJobNow?: (jobId: string) => void | Promise<void>;
   onDuplicateJob?: (job: ScheduledJob) => void | Promise<void>;
+  onBulkToggleJobs?: (jobIds: string[], enabled: boolean) => void | Promise<void>;
+  onBulkDeleteJobs?: (jobIds: string[]) => void | Promise<void>;
   onToggleJob?: (jobId: string, enabled: boolean) => void | Promise<void>;
   onSetJobInterval?: (jobId: string, intervalMinutes: number) => void | Promise<void>;
   onDeleteJob?: (jobId: string) => void | Promise<void>;
@@ -155,6 +157,8 @@ export function ScheduledPage({
   scheduleModels = [],
   onRunJobNow,
   onDuplicateJob,
+  onBulkToggleJobs,
+  onBulkDeleteJobs,
   onToggleJob,
   onSetJobInterval,
   onDeleteJob,
@@ -181,6 +185,7 @@ export function ScheduledPage({
   const [editModel, setEditModel] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [stateFilter, setStateFilter] = useState<'all' | 'active' | 'paused' | 'pending'>('all');
+  const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
 
   useEffect(() => {
     setCreateModel(defaultCreateModel ?? '');
@@ -246,6 +251,13 @@ export function ScheduledPage({
     }
     return Array.from(groups.entries());
   }, [scheduleModels]);
+  const visibleJobIds = useMemo(() => visibleJobs.map((job) => job.id), [visibleJobs]);
+  const visibleSelectedCount = useMemo(
+    () => selectedJobIds.filter((id) => visibleJobIds.includes(id)).length,
+    [selectedJobIds, visibleJobIds],
+  );
+  const allVisibleSelected = visibleJobs.length > 0 && visibleSelectedCount === visibleJobs.length;
+  const someVisibleSelected = visibleSelectedCount > 0 && !allVisibleSelected;
 
   useEffect(() => {
     if (!focusedJobId || viewMode !== 'timeline') {
@@ -268,6 +280,10 @@ export function ScheduledPage({
       window.clearTimeout(clearTimer);
     };
   }, [focusedJobId, viewMode, jobs]);
+
+  useEffect(() => {
+    setSelectedJobIds((current) => current.filter((id) => jobs.some((job) => job.id === id)));
+  }, [jobs]);
 
   const copyArtifactText = async (text: string, type: 'summary' | 'errors', jobId: string) => {
     try {
@@ -322,6 +338,35 @@ export function ScheduledPage({
       model: editModel.trim() || null,
     });
     setEditingJobId(null);
+  };
+  const toggleSelectedJob = (jobId: string, checked: boolean) => {
+    setSelectedJobIds((current) => (
+      checked
+        ? current.includes(jobId) ? current : [...current, jobId]
+        : current.filter((id) => id !== jobId)
+    ));
+  };
+  const toggleAllVisibleJobs = (checked: boolean) => {
+    setSelectedJobIds((current) => {
+      const remaining = current.filter((id) => !visibleJobIds.includes(id));
+      return checked ? [...remaining, ...visibleJobIds] : remaining;
+    });
+  };
+  const handleBulkToggle = async (enabled: boolean) => {
+    const targetIds = selectedJobIds.filter((id) => visibleJobIds.includes(id));
+    if (!targetIds.length || !onBulkToggleJobs) {
+      return;
+    }
+    await onBulkToggleJobs(targetIds, enabled);
+    setSelectedJobIds((current) => current.filter((id) => !targetIds.includes(id)));
+  };
+  const handleBulkDelete = async () => {
+    const targetIds = selectedJobIds.filter((id) => visibleJobIds.includes(id));
+    if (!targetIds.length || !onBulkDeleteJobs) {
+      return;
+    }
+    await onBulkDeleteJobs(targetIds);
+    setSelectedJobIds((current) => current.filter((id) => !targetIds.includes(id)));
   };
   const createValidationMessage = !createName.trim()
     ? 'Schedule name is required.'
@@ -515,6 +560,23 @@ export function ScheduledPage({
             <ScrollArea className="h-full">
             <div className="border-b border-border/50 px-4 py-3">
               <div className="flex flex-wrap items-center gap-2">
+                {scheduleActionsEnabled ? (
+                  <label className="flex items-center gap-2 font-sans text-[11px] text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      className="size-4 rounded border border-border"
+                      data-testid="schedule-select-all-visible"
+                      checked={allVisibleSelected}
+                      ref={(node) => {
+                        if (node) {
+                          node.indeterminate = someVisibleSelected;
+                        }
+                      }}
+                      onChange={(event) => toggleAllVisibleJobs(event.target.checked)}
+                    />
+                    Select visible
+                  </label>
+                ) : null}
                 <Input
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
@@ -546,6 +608,46 @@ export function ScheduledPage({
                   Showing {visibleJobs.length} of {sortedJobs.length}
                 </span>
               </div>
+              {scheduleActionsEnabled ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-[11px]"
+                    data-testid="schedule-bulk-pause"
+                    disabled={visibleSelectedCount === 0}
+                    onClick={() => void handleBulkToggle(false)}
+                  >
+                    Pause selected
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-[11px]"
+                    data-testid="schedule-bulk-resume"
+                    disabled={visibleSelectedCount === 0}
+                    onClick={() => void handleBulkToggle(true)}
+                  >
+                    Resume selected
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-[11px] text-destructive"
+                    data-testid="schedule-bulk-delete"
+                    disabled={visibleSelectedCount === 0}
+                    onClick={() => void handleBulkDelete()}
+                  >
+                    Delete selected
+                  </Button>
+                  <span className="font-sans text-[11px] text-muted-foreground/70">
+                    {visibleSelectedCount} selected
+                  </span>
+                </div>
+              ) : null}
             </div>
             {visibleJobs.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -567,6 +669,17 @@ export function ScheduledPage({
 
                     return (
                       <div key={job.id} className="relative flex gap-3 py-1.5" data-testid={`scheduled-job-${job.id}`}>
+                        {scheduleActionsEnabled ? (
+                          <div className="pt-2">
+                            <input
+                              type="checkbox"
+                              className="size-4 rounded border border-border"
+                              data-testid={`scheduled-job-select-${job.id}`}
+                              checked={selectedJobIds.includes(job.id)}
+                              onChange={(event) => toggleSelectedJob(job.id, event.target.checked)}
+                            />
+                          </div>
+                        ) : null}
                         <div
                           className={`relative z-10 flex size-5 shrink-0 items-center justify-center rounded-full border ${
                             isEnabled

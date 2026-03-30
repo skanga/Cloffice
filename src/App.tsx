@@ -2759,6 +2759,31 @@ export default function App() {
       setStatus(result.message);
     };
 
+    const handleBulkToggleInternalPromptSchedules = async (scheduleIds: string[], enabled: boolean) => {
+      for (const scheduleId of scheduleIds) {
+        await updateEngineScheduleWithStatus({
+          bridge,
+          scheduleId,
+          payload: { enabled },
+        });
+      }
+      await loadScheduledJobs();
+      setStatus(enabled
+        ? `Resumed ${scheduleIds.length} internal schedule${scheduleIds.length === 1 ? '' : 's'}.`
+        : `Paused ${scheduleIds.length} internal schedule${scheduleIds.length === 1 ? '' : 's'}.`);
+    };
+
+    const handleBulkDeleteInternalPromptSchedules = async (scheduleIds: string[]) => {
+      for (const scheduleId of scheduleIds) {
+        await deleteEngineScheduleWithStatus({
+          bridge,
+          scheduleId,
+        });
+      }
+      await loadScheduledJobs();
+      setStatus(`Deleted ${scheduleIds.length} internal schedule${scheduleIds.length === 1 ? '' : 's'}.`);
+    };
+
     const handleCreateInternalPromptSchedule = async (payload: {
       kind: 'chat' | 'cowork';
       prompt: string;
@@ -4059,6 +4084,8 @@ export default function App() {
                           onUpdateScheduleDetails={(jobId, input) => void handleUpdateInternalPromptSchedule(jobId, input)}
                           onDuplicateJob={(job) => void handleDuplicateInternalPromptSchedule(job)}
                           onRunJobNow={(jobId) => void handleRunInternalPromptScheduleNow(jobId)}
+                          onBulkToggleJobs={(jobIds, enabled) => void handleBulkToggleInternalPromptSchedules(jobIds, enabled)}
+                          onBulkDeleteJobs={(jobIds) => void handleBulkDeleteInternalPromptSchedules(jobIds)}
                           onToggleJob={(jobId, enabled) => void handleUpdateInternalPromptSchedule(jobId, { enabled })}
                           onSetJobInterval={(jobId, intervalMinutes) => void handleUpdateInternalPromptSchedule(jobId, { intervalMinutes })}
                           onDeleteJob={(jobId) => void handleDeleteInternalPromptSchedule(jobId)}

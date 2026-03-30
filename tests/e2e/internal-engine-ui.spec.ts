@@ -415,6 +415,59 @@ test.describe('Internal engine UI flow', () => {
     await expect(jobCard).toBeHidden({ timeout: 15000 });
   });
 
+  test('operator can bulk pause resume and delete internal schedules through the UI', async () => {
+    await markOnboardingComplete(page);
+    await connectInternalProviderFromSettings(page);
+    await clearInternalSchedules(page);
+    const rootFolder = await prepareProjectRoot(page);
+    await createProjectFromSidebar(page, {
+      title: 'Internal Bulk Schedule Project',
+      description: 'Exercise bulk internal schedule controls through the live UI.',
+      rootFolder,
+    });
+
+    const createdJobs = await page.evaluate(async () => {
+      const bridge = window.cloffice ?? window.relay;
+      const first = await bridge.createInternalPromptSchedule({
+        kind: 'chat',
+        name: 'UI bulk schedule one',
+        prompt: 'Bulk schedule one.',
+        intervalMinutes: 1,
+        model: 'internal/dev-brief',
+      });
+      const second = await bridge.createInternalPromptSchedule({
+        kind: 'chat',
+        name: 'UI bulk schedule two',
+        prompt: 'Bulk schedule two.',
+        intervalMinutes: 5,
+        model: 'internal/dev-brief',
+      });
+      return [first, second];
+    });
+
+    await openSchedulePage(page);
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    for (const createdJob of createdJobs) {
+      await expect(page.getByTestId(`scheduled-job-${createdJob.id}`)).toBeVisible({ timeout: 15000 });
+    }
+
+    await page.getByTestId(`scheduled-job-select-${createdJobs[0].id}`).check();
+    await page.getByTestId(`scheduled-job-select-${createdJobs[1].id}`).check();
+    await page.getByTestId('schedule-bulk-pause').click();
+    await expect(page.getByTestId(`scheduled-job-${createdJobs[0].id}`)).toContainText('Paused');
+    await expect(page.getByTestId(`scheduled-job-${createdJobs[1].id}`)).toContainText('Paused');
+
+    await page.getByTestId('schedule-select-all-visible').check();
+    await page.getByTestId('schedule-bulk-resume').click();
+    await expect(page.getByTestId(`scheduled-job-${createdJobs[0].id}`)).toContainText('Active');
+    await expect(page.getByTestId(`scheduled-job-${createdJobs[1].id}`)).toContainText('Active');
+
+    await page.getByTestId('schedule-select-all-visible').check();
+    await page.getByTestId('schedule-bulk-delete').click();
+    await expect(page.getByTestId(`scheduled-job-${createdJobs[0].id}`)).toBeHidden({ timeout: 15000 });
+    await expect(page.getByTestId(`scheduled-job-${createdJobs[1].id}`)).toBeHidden({ timeout: 15000 });
+  });
+
   test('operator can create and edit an internal schedule directly from the Schedule page UI', async () => {
     await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);
