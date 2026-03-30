@@ -2776,6 +2776,37 @@ export default function App() {
         : `Paused ${scheduleIds.length} internal schedule${scheduleIds.length === 1 ? '' : 's'}.`);
     };
 
+    const handleBulkDuplicateInternalPromptSchedules = async (jobs: ScheduledJob[]) => {
+      for (const job of jobs) {
+        await duplicateEngineScheduleWithStatus({
+          providerId: draftEngineProviderId,
+          bridge,
+          schedule: {
+            kind: job.kind,
+            name: job.name,
+            prompt: job.prompt,
+            model: job.model ?? null,
+            intervalMinutes: job.intervalMinutes,
+          },
+          activeProject: activeCoworkProject,
+          rootPath: job.rootPath,
+        });
+      }
+      await loadScheduledJobs();
+      setStatus(`Duplicated ${jobs.length} internal schedule${jobs.length === 1 ? '' : 's'}.`);
+    };
+
+    const handleBulkRunInternalPromptSchedulesNow = async (scheduleIds: string[]) => {
+      for (const scheduleId of scheduleIds) {
+        await runEngineScheduleNowWithStatus({
+          bridge,
+          scheduleId,
+        });
+      }
+      await loadScheduledJobs();
+      setStatus(`Ran ${scheduleIds.length} internal schedule${scheduleIds.length === 1 ? '' : 's'} now.`);
+    };
+
     const handleBulkDeleteInternalPromptSchedules = async (scheduleIds: string[]) => {
       for (const scheduleId of scheduleIds) {
         await deleteEngineScheduleWithStatus({
@@ -4136,6 +4167,8 @@ export default function App() {
                           onUpdateScheduleDetails={(jobId, input) => void handleUpdateInternalPromptSchedule(jobId, input)}
                           onDuplicateJob={(job) => void handleDuplicateInternalPromptSchedule(job)}
                           onRunJobNow={(jobId) => void handleRunInternalPromptScheduleNow(jobId)}
+                          onBulkRunJobsNow={(jobIds) => void handleBulkRunInternalPromptSchedulesNow(jobIds)}
+                          onBulkDuplicateJobs={(jobs) => void handleBulkDuplicateInternalPromptSchedules(jobs)}
                           onBulkToggleJobs={(jobIds, enabled) => void handleBulkToggleInternalPromptSchedules(jobIds, enabled)}
                           onBulkDeleteJobs={(jobIds) => void handleBulkDeleteInternalPromptSchedules(jobIds)}
                           onExportSchedules={(jobs) => void handleExportInternalPromptSchedules(jobs)}

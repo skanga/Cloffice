@@ -38,6 +38,8 @@ type ScheduledPageProps = {
   scheduleModels?: Array<{ value: string; label: string }>;
   onRunJobNow?: (jobId: string) => void | Promise<void>;
   onDuplicateJob?: (job: ScheduledJob) => void | Promise<void>;
+  onBulkRunJobsNow?: (jobIds: string[]) => void | Promise<void>;
+  onBulkDuplicateJobs?: (jobs: ScheduledJob[]) => void | Promise<void>;
   onBulkToggleJobs?: (jobIds: string[], enabled: boolean) => void | Promise<void>;
   onBulkDeleteJobs?: (jobIds: string[]) => void | Promise<void>;
   onExportSchedules?: (jobs: ScheduledJob[]) => void | Promise<void>;
@@ -170,6 +172,8 @@ export function ScheduledPage({
   scheduleModels = [],
   onRunJobNow,
   onDuplicateJob,
+  onBulkRunJobsNow,
+  onBulkDuplicateJobs,
   onBulkToggleJobs,
   onBulkDeleteJobs,
   onExportSchedules,
@@ -401,6 +405,22 @@ export function ScheduledPage({
     }
     await onBulkDeleteJobs(targetIds);
     setSelectedJobIds((current) => current.filter((id) => !targetIds.includes(id)));
+  };
+  const handleBulkRunNow = async () => {
+    const targetIds = selectedJobIds.filter((id) => visibleJobIds.includes(id));
+    if (!targetIds.length || !onBulkRunJobsNow) {
+      return;
+    }
+    await onBulkRunJobsNow(targetIds);
+    setSelectedJobIds((current) => current.filter((id) => !targetIds.includes(id)));
+  };
+  const handleBulkDuplicate = async () => {
+    const targetJobs = visibleJobs.filter((job) => selectedJobIds.includes(job.id));
+    if (!targetJobs.length || !onBulkDuplicateJobs) {
+      return;
+    }
+    await onBulkDuplicateJobs(targetJobs);
+    setSelectedJobIds((current) => current.filter((id) => !targetJobs.some((job) => job.id === id)));
   };
   const handleImportFileSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -701,6 +721,28 @@ export function ScheduledPage({
               </div>
               {scheduleActionsEnabled ? (
                 <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-[11px]"
+                    data-testid="schedule-bulk-run-now"
+                    disabled={visibleSelectedCount === 0}
+                    onClick={() => void handleBulkRunNow()}
+                  >
+                    Run selected now
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-[11px]"
+                    data-testid="schedule-bulk-duplicate"
+                    disabled={visibleSelectedCount === 0}
+                    onClick={() => void handleBulkDuplicate()}
+                  >
+                    Duplicate selected
+                  </Button>
                   <Button
                     type="button"
                     variant="outline"
