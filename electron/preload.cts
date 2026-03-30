@@ -15,7 +15,6 @@ import type {
   LocalFilePlanResult,
 } from '../src/app-types.js';
 import type { DesktopBridgeEngineConfig, EngineDraftConfig, InternalProviderConfig } from '../src/lib/engine-config.js';
-import type { EngineDiscoveryResult } from '../src/lib/engine-discovery.js';
 import type { EngineConnectOptions, EngineEventFrame, EngineRuntimeHealthResult } from '../src/lib/engine-runtime-types.js';
 import type {
   InternalEngineCoworkContinuationRequest,
@@ -28,7 +27,6 @@ import type {
   InternalEngineShellStatus,
 } from '../src/lib/internal-engine-bridge.js';
 import type { InternalApprovalRecoveryFlow } from '../src/lib/internal-approval-recovery.js';
-import type { OpenClawCompatibilityDiscoveryResult } from '../src/lib/openclaw-compat-engine.js';
 
 const DEFAULT_INTERNAL_ENGINE_ENDPOINT = 'internal://dev-runtime';
 const DEFAULT_COMPAT_ENGINE_ENDPOINT = 'ws://127.0.0.1:18789';
@@ -157,19 +155,6 @@ function prepareDesktopBridgeEngineConfigWrite(draft: EngineDraftConfig): { acti
   };
 }
 
-function normalizeEngineDiscoveryResult(result: OpenClawCompatibilityDiscoveryResult): EngineDiscoveryResult {
-  return {
-    found: result.found,
-    endpointUrl: result.gatewayUrl,
-    binaryFound: result.binaryFound,
-    binaryPath: result.binaryPath,
-    message: result.message,
-    providerId: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.providerId,
-    runtimeKind: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind,
-    transport: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.transport,
-  };
-}
-
 function normalizeEngineRuntimeHealthResult(
   result: HealthCheckResult,
   runtime: typeof OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR,
@@ -269,14 +254,6 @@ const desktopBridgeApi = {
       await ipcRenderer.invoke('backend:health-check', baseUrl) as HealthCheckResult,
       OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR,
     ) as EngineRuntimeHealthResult,
-  discoverGateway: () =>
-    ipcRenderer.invoke('gateway:discover') as Promise<OpenClawCompatibilityDiscoveryResult>,
-  discoverEngine: async () =>
-    normalizeEngineDiscoveryResult(await ipcRenderer.invoke('gateway:discover') as OpenClawCompatibilityDiscoveryResult),
-  checkWorkspacePlugin: () =>
-    ipcRenderer.invoke('plugin:check-workspace') as Promise<{ installed: boolean; error?: string }>,
-  installWorkspacePlugin: () =>
-    ipcRenderer.invoke('plugin:install-workspace') as Promise<{ ok: boolean; output?: string; error?: string }>,
   minimizeWindow: () => ipcRenderer.invoke('window:minimize') as Promise<void>,
   toggleMaximizeWindow: () => ipcRenderer.invoke('window:toggle-maximize') as Promise<boolean>,
   isWindowMaximized: () => ipcRenderer.invoke('window:is-maximized') as Promise<boolean>,

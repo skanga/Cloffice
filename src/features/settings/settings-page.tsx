@@ -289,6 +289,7 @@ export function SettingsPage({
   const [highlightedRunId, setHighlightedRunId] = useState<string | null>(null);
   const [testingProviderId, setTestingProviderId] = useState<'openai' | 'anthropic' | 'gemini' | null>(null);
   const [providerTestResult, setProviderTestResult] = useState<InternalProviderConnectionTestResult | null>(null);
+  const [showLegacyCompatibility, setShowLegacyCompatibility] = useState(draftEngineProviderId === 'openclaw-compat');
   const engineProviders = useMemo(() => listEngineProviders(), []);
   const effectiveEngineProviders = useMemo(
     () => engineProviders.map((provider) => (
@@ -307,6 +308,10 @@ export function SettingsPage({
     [engineProviders, internalRuntimeInfo],
   );
   const selectedEngineProvider = useMemo(() => getEngineProvider(draftEngineProviderId), [draftEngineProviderId]);
+  const mainEngineProviders = useMemo(
+    () => effectiveEngineProviders.filter((provider) => provider.id !== 'openclaw-compat'),
+    [effectiveEngineProviders],
+  );
   const scheduledJobsById = useMemo(() => {
     const map = new Map<string, ScheduledJob>();
     for (const job of scheduledJobs) {
@@ -326,6 +331,12 @@ export function SettingsPage({
     [draftEngineProviderId, effectiveEngineProviders, selectedEngineProvider],
   );
   const t = useCallback((en: string, de: string) => (preferences.language === 'de' ? de : en), [preferences.language]);
+
+  useEffect(() => {
+    if (draftEngineProviderId === 'openclaw-compat') {
+      setShowLegacyCompatibility(true);
+    }
+  }, [draftEngineProviderId]);
   const compatibilityProviderSelected = draftEngineProviderId === 'openclaw-compat';
   const runtimeEndpointPlaceholder = compatibilityProviderSelected
     ? buildOpenClawCompatibilityDefaultEndpoint()
@@ -695,7 +706,7 @@ export function SettingsPage({
                 </p>
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
-                {effectiveEngineProviders.map((provider) => {
+                {mainEngineProviders.map((provider) => {
                   const isSelected = draftEngineProviderId === provider.id;
                   return (
                     <button
@@ -802,27 +813,85 @@ export function SettingsPage({
             </div>
 
             <form className="grid gap-3" onSubmit={onSave}>
-              <label className="grid gap-1">
-                <span className="font-sans text-xs text-muted-foreground">Runtime URL (WebSocket)</span>
-                <Input
-                  value={draftEngineUrl}
-                  onChange={(event) => onDraftEngineUrlChange(event.target.value)}
-                  placeholder={runtimeEndpointPlaceholder}
-                  className="font-sans"
-                />
-              </label>
+              {draftEngineProviderId === 'internal' ? (
+                <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-3">
+                  <p className="text-sm font-medium text-foreground">{t('Built-in internal runtime', 'Integrierte interne Laufzeit')}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t(
+                      'Cloffice uses the built-in internal runtime by default. Runtime URL and token are only needed for the legacy OpenClaw compatibility path.',
+                      'Cloffice verwendet standardmaessig die integrierte interne Laufzeit. Runtime-URL und Token werden nur fuer den Legacy-OpenClaw-Kompatibilitaetspfad benoetigt.',
+                    )}
+                  </p>
+                </div>
+              ) : null}
 
-              <label className="grid gap-1">
-                <span className="font-sans text-xs text-muted-foreground">Runtime token</span>
-                <Input
-                  type="password"
-                  value={draftEngineToken}
-                  onChange={(event) => onDraftEngineTokenChange(event.target.value)}
-                  placeholder={runtimeTokenPlaceholder}
-                  disabled={!compatibilityProviderSelected}
-                  className="font-sans"
-                />
-              </label>
+              <div className="rounded-lg border border-border/70 bg-card p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{t('Legacy OpenClaw compatibility', 'Legacy-OpenClaw-Kompatibilitaet')}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t(
+                        'Optional manual path for existing OpenClaw deployments. Hidden from onboarding and no longer recommended for normal use.',
+                        'Optionaler manueller Pfad fuer bestehende OpenClaw-Bereitstellungen. Im Onboarding ausgeblendet und fuer die normale Nutzung nicht mehr empfohlen.',
+                      )}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowLegacyCompatibility((current) => !current)}
+                  >
+                    {showLegacyCompatibility ? t('Hide', 'Ausblenden') : t('Show', 'Anzeigen')}
+                  </Button>
+                </div>
+
+                {showLegacyCompatibility ? (
+                  <div className="mt-3 grid gap-3 border-t border-border/60 pt-3">
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant={draftEngineProviderId === 'openclaw-compat' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => onDraftEngineProviderIdChange('openclaw-compat')}
+                      >
+                        {t('Use legacy compatibility', 'Legacy-Kompatibilitaet verwenden')}
+                      </Button>
+                      {draftEngineProviderId === 'openclaw-compat' ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onDraftEngineProviderIdChange('internal')}
+                        >
+                          {t('Return to internal engine', 'Zur internen Engine zurueckkehren')}
+                        </Button>
+                      ) : null}
+                    </div>
+
+                    <label className="grid gap-1">
+                      <span className="font-sans text-xs text-muted-foreground">Runtime URL (WebSocket)</span>
+                      <Input
+                        value={draftEngineUrl}
+                        onChange={(event) => onDraftEngineUrlChange(event.target.value)}
+                        placeholder={runtimeEndpointPlaceholder}
+                        className="font-sans"
+                      />
+                    </label>
+
+                    <label className="grid gap-1">
+                      <span className="font-sans text-xs text-muted-foreground">Runtime token</span>
+                      <Input
+                        type="password"
+                        value={draftEngineToken}
+                        onChange={(event) => onDraftEngineTokenChange(event.target.value)}
+                        placeholder={runtimeTokenPlaceholder}
+                        className="font-sans"
+                      />
+                    </label>
+                  </div>
+                ) : null}
+              </div>
 
               {draftEngineProviderId === 'internal' ? (
                 <div className="grid gap-3 rounded-lg border border-border/70 bg-muted/20 p-3">
@@ -982,7 +1051,7 @@ export function SettingsPage({
               </Button>
             </form>
 
-            {effectivePairingId ? (
+            {draftEngineProviderId === 'openclaw-compat' && effectivePairingId ? (
               <div className="mt-3 rounded-lg border border-amber-500/35 bg-amber-500/10 p-3">
                 <p className="font-sans text-xs font-medium text-amber-800 dark:text-amber-200">{t(buildOpenClawCompatibilitySettingsPairingCopy(effectivePairingId).title, 'Geraete-Pairing erforderlich')}</p>
                 <p className="mt-1 font-sans text-xs text-amber-800 dark:text-amber-200">

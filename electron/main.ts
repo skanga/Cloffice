@@ -3350,37 +3350,6 @@ app.whenReady().then(async () => {
       internalEngineService.applyPendingApprovalDecision(runId, decision),
   );
   ipcMain.handle('backend:health-check', async (_event, baseUrl: string) => runHealthCheck(baseUrl));
-  ipcMain.handle('gateway:discover', async () => discoverGateway());
-  ipcMain.handle('plugin:check-workspace', async () => {
-    const binaryPath = await findBinaryOnDisk();
-    if (!binaryPath) return { installed: false, error: 'OpenClaw compatibility binary not found.' };
-    try {
-      const { stdout } = await execFileAsync(binaryPath, ['plugins', 'list'], {
-        timeout: 10_000,
-        shell: process.platform === 'win32',
-      });
-      return { installed: stdout.includes('openclaw-relay-workspace') };
-    } catch {
-      return { installed: false };
-    }
-  });
-  ipcMain.handle('plugin:install-workspace', async () => {
-    const binaryPath = await findBinaryOnDisk();
-    if (!binaryPath) {
-      return { ok: false as const, error: 'OpenClaw compatibility binary not found on this system.' };
-    }
-    try {
-      const { stdout, stderr } = await execFileAsync(
-        binaryPath,
-        ['plugins', 'install', '@seventeenlabs/openclaw-relay-workspace'],
-        { timeout: 60_000, shell: process.platform === 'win32' },
-      );
-      return { ok: true as const, output: stdout || stderr };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return { ok: false as const, error: msg };
-    }
-  });
   ipcMain.handle('window:minimize', (event) => {
     const window = BrowserWindow.fromWebContents(event.sender);
     window?.minimize();

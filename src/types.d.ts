@@ -14,7 +14,6 @@ import type {
   LocalFilePlanResult,
 } from './app-types';
 import type { DesktopBridgeEngineConfig, EngineDraftConfig } from './lib/engine-config';
-import type { EngineDiscoveryResult } from './lib/engine-discovery';
 import type { EngineChatMessage, EngineConnectOptions, EngineCronJob, EngineEventFrame, EngineModelChoice, EngineRuntimeHealthResult, EngineSessionSummary } from './lib/engine-runtime-types';
 import type { InternalProviderConfig } from './lib/engine-config';
 import type {
@@ -29,7 +28,6 @@ import type {
 } from './lib/internal-engine-bridge';
 import type { InternalProviderConnectionTestResult } from './lib/internal-provider-adapter';
 import type { InternalApprovalRecoveryFlow } from './lib/internal-approval-recovery';
-import type { OpenClawCompatibilityDiscoveryResult } from './lib/openclaw-compat-engine';
 
 type DesktopBridgeApi = {
   getConfig: () => Promise<AppConfig>;
@@ -85,10 +83,6 @@ type DesktopBridgeApi = {
   saveEngineConfig: (draft: EngineDraftConfig) => Promise<DesktopBridgeEngineConfig>;
   healthCheck: (baseUrl: string) => Promise<HealthCheckResult>;
   checkRuntimeHealth: (baseUrl: string) => Promise<EngineRuntimeHealthResult>;
-  discoverGateway: () => Promise<OpenClawCompatibilityDiscoveryResult>;
-  discoverEngine: () => Promise<EngineDiscoveryResult>;
-  checkWorkspacePlugin: () => Promise<{ installed: boolean; error?: string }>;
-  installWorkspacePlugin: () => Promise<{ ok: boolean; output?: string; error?: string }>;
   minimizeWindow: () => Promise<void>;
   toggleMaximizeWindow: () => Promise<boolean>;
   isWindowMaximized: () => Promise<boolean>;

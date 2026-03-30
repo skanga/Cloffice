@@ -1,9 +1,6 @@
 import { getDesktopBridge } from '@/lib/desktop-bridge';
-import { getEngineDiscoveryEndpoint } from '@/lib/engine-discovery';
 import { getEngineProvider, listEngineProviders } from '@/lib/engine-provider-registry';
 import {
-  buildOpenClawCompatibilityDiscoveryInstalledButNotRunning,
-  buildOpenClawCompatibilityDiscoveryScanningLabel,
   buildOpenClawCompatibilityEndpointHelpText,
   buildOpenClawCompatibilityOnboardingIntro,
   buildOpenClawCompatibilityPairingPanelCopy,
@@ -14,18 +11,12 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import type { FormEvent } from 'react';
 
 import type { EngineProviderId, HealthCheckResult } from '@/app-types';
-import type { EngineDiscoveryResult } from '@/lib/engine-discovery';
 import type { InternalEngineRunRecord, InternalEngineRuntimeInfo } from '@/lib/internal-engine-bridge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
 type OnboardingStep = 'welcome' | 'connect' | 'pairing' | 'ready';
-
-type DiscoveryState =
-  | { status: 'idle' }
-  | { status: 'scanning' }
-  | { status: 'done'; result: EngineDiscoveryResult };
 
 type OnboardingPageProps = {
   draftEngineProviderId: EngineProviderId;
@@ -141,7 +132,6 @@ export function OnboardingPage({
   const [step, setStep] = useState<OnboardingStep>('welcome');
   const [copied, setCopied] = useState(false);
   const [connectAttempted, setConnectAttempted] = useState(false);
-  const [discovery, setDiscovery] = useState<DiscoveryState>({ status: 'idle' });
   const [showToken, setShowToken] = useState(false);
   const [internalRuntimeInfo, setInternalRuntimeInfo] = useState<InternalEngineRuntimeInfo | null>(null);
   const [internalRunHistory, setInternalRunHistory] = useState<InternalEngineRunRecord[]>([]);
@@ -184,29 +174,6 @@ export function OnboardingPage({
   const runtimeTokenPlaceholder = compatibilityProviderSelected
     ? 'Paste your access token'
     : 'Not used for the internal engine';
-
-  // Auto-discover a local runtime on mount.
-  useEffect(() => {
-    const bridge = getDesktopBridge();
-    if (!bridge?.discoverEngine && !bridge?.discoverGateway) return;
-
-    let cancelled = false;
-    setDiscovery({ status: 'scanning' });
-
-    (bridge.discoverEngine?.() ?? bridge.discoverGateway?.())?.then((result) => {
-      if (cancelled) return;
-      setDiscovery({ status: 'done', result });
-
-      const discoveredEndpoint = getEngineDiscoveryEndpoint(result);
-      if (result.found && discoveredEndpoint) {
-        onDraftEngineUrlChange(discoveredEndpoint);
-      }
-    }).catch(() => {
-      if (!cancelled) setDiscovery({ status: 'idle' });
-    });
-
-    return () => { cancelled = true; };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const bridge = getDesktopBridge();

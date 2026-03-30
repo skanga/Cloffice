@@ -52,10 +52,6 @@ interface Window {
     saveEngineConfig: (draft: any) => Promise<any>;
     healthCheck: (baseUrl: string) => Promise<any>;
     checkRuntimeHealth: (baseUrl: string) => Promise<any>;
-    discoverGateway: () => Promise<any>;
-    discoverEngine: () => Promise<any>;
-    checkWorkspacePlugin: () => Promise<{ installed: boolean; error?: string }>;
-    installWorkspacePlugin: () => Promise<{ ok: boolean; output?: string; error?: string }>;
     minimizeWindow: () => Promise<void>;
     toggleMaximizeWindow: () => Promise<boolean>;
     isWindowMaximized: () => Promise<boolean>;
