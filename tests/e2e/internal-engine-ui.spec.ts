@@ -383,5 +383,6 @@ test.describe('Internal engine UI flow', () => {
     await expect(scheduledJobCard).toBeVisible({ timeout: 15000 });
     await expect(scheduledJobCard).toContainText('Pending approval');
     await expect(scheduledJobCard).toContainText('List directory .');
+    await expect(scheduledJobCard.getByTestId(/^scheduled-job-open-pending-run-/)).toBeVisible();
   });
 });

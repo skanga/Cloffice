@@ -341,6 +341,18 @@ export function ScheduledPage({
                                     <Badge variant="outline" className="font-sans text-[10px] text-amber-700">
                                       {job.pendingApprovalCount} pending approval{job.pendingApprovalCount === 1 ? '' : 's'}
                                     </Badge>
+                                    {job.lastRunId && onOpenRunHistory ? (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-6 px-2 text-[10px]"
+                                        data-testid={`scheduled-job-open-pending-run-${job.id}`}
+                                        onClick={() => void onOpenRunHistory(job.id, job.lastRunId!)}
+                                      >
+                                        Open run
+                                      </Button>
+                                    ) : null}
                                   </div>
                                   {job.pendingApprovalSummary ? (
                                     <p className="mt-1 font-sans text-[11px] text-muted-foreground">{job.pendingApprovalSummary}</p>
@@ -362,6 +374,18 @@ export function ScheduledPage({
                                       <Badge variant="outline" className="font-sans text-[10px] text-destructive">
                                         {job.lastArtifactErrorCount} error{job.lastArtifactErrorCount === 1 ? '' : 's'}
                                       </Badge>
+                                    ) : null}
+                                    {job.lastRunId && onOpenRunHistory ? (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-6 px-2 text-[10px]"
+                                        data-testid={`scheduled-job-open-artifact-${job.id}`}
+                                        onClick={() => void onOpenRunHistory(job.id, job.lastRunId!)}
+                                      >
+                                        Open artifact
+                                      </Button>
                                     ) : null}
                                   </div>
                                   {job.lastArtifactSummary ? (
