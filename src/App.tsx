@@ -85,10 +85,6 @@ import {
 } from './lib/engine-schedule-controller';
 import {
   buildEngineChatDispatchStatus,
-  buildEngineConnectSuccessHealthMessage,
-  buildEngineResetPairingSuccess,
-  describeEngineConnectFailure,
-  describeEngineResetPairingFailure,
   shouldRestoreInternalApprovalRecovery,
 } from './lib/engine-connection-status';
 import {
@@ -252,6 +248,11 @@ import {
   } from './lib/engine-session-events';
 import { handleEngineCoworkEvent } from './lib/engine-cowork-event-controller';
 import { handleEngineChatEvent } from './lib/engine-chat-event-controller';
+import {
+  connectEngineRuntimeShell,
+  persistEngineRuntimeConfig,
+  resetEngineRuntimePairing,
+} from './lib/engine-runtime-shell-controller';
 import {
   type InternalApprovalRecoveryFlow,
 } from './lib/internal-approval-recovery';
@@ -2231,51 +2232,46 @@ export default function App() {
     }
 
     let cancelled = false;
-      const runtimeEndpointUrl = normalizeEngineEndpointUrl(config.gatewayUrl);
-      const runtimeAccessToken = config.gatewayToken ?? '';
+    const runtimeEndpointUrl = normalizeEngineEndpointUrl(config.gatewayUrl);
+    const runtimeAccessToken = config.gatewayToken ?? '';
 
-    void client
-      .connect({
+    void connectEngineRuntimeShell({
+      client,
+      providerId: draftEngineProviderId,
+      connectOptions: {
         endpointUrl: runtimeEndpointUrl,
         accessToken: runtimeAccessToken,
-      })
-      .then(async () => {
-        if (cancelled) {
-          return;
-        }
-        setEngineConnected(true);
-        setHealth({ ok: true, message: buildEngineConnectSuccessHealthMessage(runtimeEndpointUrl) });
-        markEngineConnectionLastUsed({ gatewayUrl: runtimeEndpointUrl, gatewayToken: runtimeAccessToken });
-        if (shouldRestoreInternalApprovalRecovery(draftEngineProviderId)) {
-          await restoreInternalApprovalRecoveryFlows();
-        } else {
-          clearRecoveredApprovalCards();
-        }
-        if (!onboardingComplete) {
-          completeOnboarding();
-        }
-        try {
-          await loadRecentChatsFromBackend(client);
-          await loadModelsForSession(client, normalizeSessionKey(activeSessionKeyRef.current));
-        } catch (error) {
-          if (cancelled) {
-            return;
-          }
-          const message = error instanceof Error ? error.message : buildConnectedRefreshFailureStatus();
-          setStatus(message);
-        }
-      })
-      .catch((error: unknown) => {
-        if (cancelled) {
-          return;
-        }
+      },
+      onboardingComplete,
+      shouldRestoreRecovery: shouldRestoreInternalApprovalRecovery(draftEngineProviderId),
+      readEngineError,
+      onMarkLastUsed: markEngineConnectionLastUsed,
+      onRestoreInternalApprovalRecovery: restoreInternalApprovalRecoveryFlows,
+      onClearRecoveredApprovals: clearRecoveredApprovalCards,
+      onCompleteOnboarding: completeOnboarding,
+      onRefreshState: async () => {
+        await loadRecentChatsFromBackend(client);
+        await loadModelsForSession(client, normalizeSessionKey(activeSessionKeyRef.current));
+      },
+    }).then((result) => {
+      if (cancelled) {
+        return;
+      }
+
+      if (result.kind === 'failed') {
         setEngineConnected(false);
-        const info = readEngineError(error);
-        const description = describeEngineConnectFailure(draftEngineProviderId, info);
-        setPairingRequestId(description.pairingRequestId);
-        setHealth({ ok: false, message: description.healthMessage });
-        setStatus(description.statusMessage);
-      });
+        setPairingRequestId(result.pairingRequestId);
+        setHealth({ ok: false, message: result.healthMessage });
+        setStatus(result.statusMessage);
+        return;
+      }
+
+      setEngineConnected(true);
+      setHealth({ ok: true, message: result.healthMessage });
+      if (result.refreshErrorMessage) {
+        setStatus(result.refreshErrorMessage || buildConnectedRefreshFailureStatus());
+      }
+    });
 
     return () => {
       cancelled = true;
@@ -2315,38 +2311,24 @@ export default function App() {
     setStatus(buildSavingAndConnectingStatus());
     setPairingRequestId(null);
 
-    // Persist config
-    if (bridge) {
-      try {
-        const savedEngineConfig = bridge.saveEngineConfig
-          ? await bridge.saveEngineConfig(nextEngineDraft)
-          : {
-              appConfig: await bridge.saveConfig(nextConfig),
-              engineDraft: nextEngineDraft,
-              storageVersion: 1 as const,
-            };
-        flushSync(() => {
-          setConfig(savedEngineConfig.appConfig);
-          setDraftEngineUrl(savedEngineConfig.engineDraft.endpointUrl);
-          setDraftEngineToken(savedEngineConfig.engineDraft.accessToken);
-          setDraftEngineProviderId(savedEngineConfig.engineDraft.providerId);
-          setDraftInternalProviderConfig(savedEngineConfig.engineDraft.internalProviderConfig);
-        });
-        persistLocalConfig(savedEngineConfig.appConfig);
-      } catch {
-        setStatus(buildFailedToSaveConfigurationStatus());
-        setSaving(false);
-        return;
-      }
-    } else {
-      flushSync(() => {
-        setConfig(nextConfig);
-        setDraftEngineUrl(nextEngineDraft.endpointUrl);
-        setDraftEngineToken(nextEngineDraft.accessToken);
-        setDraftEngineProviderId(nextEngineDraft.providerId);
-        setDraftInternalProviderConfig(nextEngineDraft.internalProviderConfig);
+    try {
+      const savedEngineConfig = await persistEngineRuntimeConfig({
+        bridge,
+        nextEngineDraft,
+        nextConfig,
+        persistLocalConfig,
       });
-      persistLocalConfig(nextConfig);
+      flushSync(() => {
+        setConfig(savedEngineConfig.appConfig);
+        setDraftEngineUrl(savedEngineConfig.engineDraft.endpointUrl);
+        setDraftEngineToken(savedEngineConfig.engineDraft.accessToken);
+        setDraftEngineProviderId(savedEngineConfig.engineDraft.providerId);
+        setDraftInternalProviderConfig(savedEngineConfig.engineDraft.internalProviderConfig);
+      });
+    } catch {
+      setStatus(buildFailedToSaveConfigurationStatus());
+      setSaving(false);
+      return;
     }
 
     try {
@@ -2368,34 +2350,38 @@ export default function App() {
     setStatus(buildResetPairingStartStatus());
 
     try {
-      client.disconnect();
-      const clientWithReset = client as EngineClientInstance & {
-        resetDeviceIdentity?: () => void;
-      };
-      if (typeof clientWithReset.resetDeviceIdentity === 'function') {
-        clientWithReset.resetDeviceIdentity();
-      } else {
-        // Fallback for stale runtime instances that predate resetDeviceIdentity().
-        localStorage.removeItem(OPENCLAW_COMPAT_DEVICE_IDENTITY_STORAGE_KEY);
-      }
-      await client.connect(engineConnectOptionsFromDraft(getCurrentEngineDraft()));
+      const result = await resetEngineRuntimePairing({
+        client,
+        providerId: draftEngineProviderId,
+        connectOptions: engineConnectOptionsFromDraft(getCurrentEngineDraft()),
+        currentSessionKey: activeSessionKeyRef.current,
+        readEngineError,
+        resetDeviceIdentity: () => {
+          const clientWithReset = client as EngineClientInstance & {
+            resetDeviceIdentity?: () => void;
+          };
+          if (typeof clientWithReset.resetDeviceIdentity === 'function') {
+            clientWithReset.resetDeviceIdentity();
+          } else {
+            localStorage.removeItem(OPENCLAW_COMPAT_DEVICE_IDENTITY_STORAGE_KEY);
+          }
+        },
+      });
 
-      const sessionKey = normalizeSessionKey(activeSessionKeyRef.current);
-      if (sessionKey) {
-        commitActiveSessionKey(sessionKey);
+      if (result.kind === 'failed') {
+        setEngineConnected(false);
+        setPairingRequestId(result.pairingRequestId);
+        setHealth({ ok: false, message: result.healthMessage });
+        setStatus(result.statusMessage);
+        return;
+      }
+
+      if (result.sessionKey) {
+        commitActiveSessionKey(result.sessionKey);
       }
       setEngineConnected(true);
-      const success = buildEngineResetPairingSuccess(draftEngineProviderId, getCurrentEngineDraft().endpointUrl);
-      setHealth({ ok: true, message: success.healthMessage });
-      setStatus(success.statusMessage);
-    } catch (error) {
-      console.error('[Cloffice] reset pairing error:', error);
-      setEngineConnected(false);
-      const info = readEngineError(error);
-      const description = describeEngineResetPairingFailure(draftEngineProviderId, info);
-      setPairingRequestId(description.pairingRequestId);
-      setHealth({ ok: false, message: description.healthMessage });
-      setStatus(description.statusMessage);
+      setHealth({ ok: true, message: result.healthMessage });
+      setStatus(result.statusMessage);
     } finally {
       setChecking(false);
     }
