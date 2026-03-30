@@ -11,7 +11,6 @@ import {
   Clock,
   Code,
   Copy,
-  Download,
   Edit3,
   Eye,
   File,
@@ -34,7 +33,6 @@ import {
   Search,
   Shield,
   Sparkles,
-  Terminal,
   Trash2,
   Upload,
   X,
@@ -280,26 +278,6 @@ const FILE_PERMISSIONS: PermissionRef[] = [
   { id: 'file-move', name: 'Move', risk: 'medium' },
 ];
 
-/* ─── Copy Command Button ─────────────────── */
-function CopyCommandButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
-      title="Copy to clipboard"
-      onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 2000);
-        });
-      }}
-    >
-      {copied ? <Check className="size-3.5 text-primary" /> : <Copy className="size-3.5" />}
-    </button>
-  );
-}
-
 /* ═══════════════════════════════════════════ Main Component ═══════════════════════════════════════════ */
 
 export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder, fileService, localFileService, engineUrl, root: rootProp }: FilesPageProps) {
@@ -371,25 +349,8 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
   const [remoteUnsupported, setRemoteUnsupported] = useState(false);
   const [agentTools, setAgentTools] = useState<Array<{ name: string; group?: string }>>([]);
   const [agentHasFileTools, setAgentHasFileTools] = useState(false);
-  const [installStatus, setInstallStatus] = useState<'idle' | 'installing' | 'success' | 'error'>('idle');
-  const [installError, setInstallError] = useState('');
-  // null = not checked yet, true/false = result
-  const [pluginInstalled, setPluginInstalled] = useState<boolean | null>(null);
-
   const isRemote = fileService.mode === 'remote';
 
-  // Check on mount whether the workspace plugin is already installed.
-  // Only meaningful for local runtimes — for remote connections the plugin
-  // lives on the host, so we skip the local binary check and rely on
-  // the RPC call itself to tell us if the plugin is missing (remoteUnsupported).
-  useEffect(() => {
-    if (isRemote) return; // skip local binary check for remote runtimes
-    const bridge = getDesktopBridge();
-    if (!bridge?.checkWorkspacePlugin) return;
-    bridge.checkWorkspacePlugin()
-      .then((r) => setPluginInstalled(r.installed))
-      .catch(() => setPluginInstalled(null));
-  }, [isRemote]);
   const activeRoot: ExplorerRoot = rootProp ?? 'workspace';
   const isLocalRuntime = !engineUrl || /127\.0\.0\.1|localhost/.test(engineUrl);
 
@@ -440,27 +401,6 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
     },
     [activeExplorerService, activeRootPath, fileService],
   );
-
-  /* ── Plugin Install ── */
-  const handleInstallPlugin = useCallback(async () => {
-    const bridge = getDesktopBridge();
-    if (!bridge?.installWorkspacePlugin) return;
-    setInstallStatus('installing');
-    setInstallError('');
-    const result = await bridge.installWorkspacePlugin();
-    if (result.ok) {
-      setInstallStatus('success');
-      setTimeout(() => {
-        setPluginInstalled(true);
-        setRemoteUnsupported(false);
-        setInstallStatus('idle');
-        void loadDirectory('');
-      }, 1200);
-    } else {
-      setInstallStatus('error');
-      setInstallError(result.error ?? 'Installation failed.');
-    }
-  }, [loadDirectory]);
 
   const loadSubDir = useCallback(
     async (relPath: string) => {
@@ -815,81 +755,31 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
     );
   }
 
-  /* ── Render: workspace plugin not installed or RPCs unsupported ── */
-  // For local runtimes: show install UI if local binary check says the plugin is missing.
-  // For remote runtimes: only show install UI if the RPC call actually fails (remoteUnsupported).
+  /* ── Render: compatibility workspace access unavailable ── */
   const showPluginInstallUi = rootProp !== 'working-folder' &&
-    ((!isRemote && pluginInstalled === false) || (remoteUnsupported && activeRoot === 'workspace'));
+    (remoteUnsupported && activeRoot === 'workspace');
   if (showPluginInstallUi) {
-    const INSTALL_CMD = 'openclaw plugins install @seventeenlabs/openclaw-relay-workspace';
     return (
       <section className="flex h-full items-center justify-center overflow-y-auto p-6">
         <div className="w-full max-w-md">
-          {/* Header */}
           <div className="mb-6 text-center">
             <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl border border-primary/30 bg-primary/10">
-              {installStatus === 'success'
-                ? <Check className="size-7 text-primary" />
-                : <Download className="size-7 text-primary" />}
+              <HardDrive className="size-7 text-primary" />
             </div>
-            <h2 className="text-base font-semibold">Workspace plugin required</h2>
+            <h2 className="text-base font-semibold">Workspace access unavailable</h2>
             <p className="mt-1.5 text-sm text-muted-foreground">
-              The remote runtime needs the{' '}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">openclaw-relay-workspace</code>{' '}
-              plugin to expose the file explorer.
+              Cloffice no longer guides OpenClaw compatibility workspace setup here.
+              Use the internal engine for built-in workspace access, or keep this legacy runtime for chat/session compatibility only.
             </p>
           </div>
 
-          {/* Local: auto-install */}
-          {isLocalRuntime && desktopBridgeAvailable && (
-            <div className="rounded-xl border border-border bg-card p-5">
-              <p className="mb-3 text-sm font-medium">Install automatically</p>
-              <p className="mb-4 text-xs text-muted-foreground">
-                Cloffice can install the compatibility plugin on your local OpenClaw instance with one click.
-                The compatibility runtime will need to be restarted after installation.
-              </p>
-              {installStatus === 'error' && (
-                <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
-                  <span className="font-medium">Installation failed: </span>{installError}
-                </div>
-              )}
-              <Button
-                type="button"
-                variant="default"
-                className="w-full gap-2"
-                disabled={installStatus === 'installing' || installStatus === 'success'}
-                onClick={() => void handleInstallPlugin()}
-              >
-                {installStatus === 'installing' && (
-                  <svg className="size-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                  </svg>
-                )}
-                {installStatus === 'success' && <Check className="size-4" />}
-                {installStatus === 'installing' ? 'Installing…' : installStatus === 'success' ? 'Installed — loading…' : 'Install Plugin'}
-              </Button>
-            </div>
-          )}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <p className="text-sm font-medium">Recommended next step</p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Switch to the internal engine in Settings if you need local workspace browsing, read-only inspections, scheduling, or governed cowork actions.
+            </p>
+          </div>
 
-          {/* Remote or no bridge: show copy command */}
-          {(!isLocalRuntime || !desktopBridgeAvailable) && (
-            <div className="rounded-xl border border-border bg-card p-5">
-              <div className="mb-2 flex items-center gap-2">
-                <Terminal className="size-3.5 text-muted-foreground" />
-                <p className="text-sm font-medium">Run on your server</p>
-              </div>
-              <p className="mb-3 text-xs text-muted-foreground">
-                SSH into the host running the compatibility runtime, run this command, then restart it.
-              </p>
-              <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 p-3">
-                <code className="flex-1 break-all font-mono text-xs">{INSTALL_CMD}</code>
-                <CopyCommandButton text={INSTALL_CMD} />
-              </div>
-            </div>
-          )}
-
-          {/* Retry / fallback buttons */}
           <div className="mt-4 flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
             <Button
               type="button"
@@ -897,16 +787,7 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
               size="sm"
               onClick={() => {
                 setRemoteUnsupported(false);
-                if (getDesktopBridge()?.checkWorkspacePlugin) {
-                  getDesktopBridge()?.checkWorkspacePlugin()
-                    .then((r) => {
-                      setPluginInstalled(r.installed);
-                      if (r.installed) void loadDirectory('');
-                    })
-                    .catch(() => void loadDirectory(''));
-                } else {
-                  void loadDirectory('');
-                }
+                void loadDirectory('');
               }}
             >
               <RefreshCw className="mr-1.5 size-3.5" />

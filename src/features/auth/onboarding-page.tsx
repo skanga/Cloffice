@@ -162,6 +162,10 @@ export function OnboardingPage({
     )),
     [engineProviders, internalRuntimeInfo],
   );
+  const onboardingEngineProviders = useMemo(
+    () => effectiveEngineProviders.filter((provider) => provider.id !== 'openclaw-compat'),
+    [effectiveEngineProviders],
+  );
   const selectedEngineProvider = useMemo(() => getEngineProvider(draftEngineProviderId), [draftEngineProviderId]);
   const selectedEngineProviderCard = useMemo(
     () => effectiveEngineProviders.find((provider) => provider.id === draftEngineProviderId) ?? selectedEngineProvider,
@@ -353,7 +357,7 @@ export function OnboardingPage({
                   Engine provider
                 </label>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {effectiveEngineProviders.map((provider) => {
+                  {onboardingEngineProviders.map((provider) => {
                     const isSelected = draftEngineProviderId === provider.id;
                     return (
                       <button
