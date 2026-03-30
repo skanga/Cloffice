@@ -178,6 +178,17 @@ import {
   buildStartedNewChatStatus,
   buildUnableToResolveActiveSessionError,
 } from './lib/engine-session-status';
+import {
+  buildChatDisconnectedStatus,
+  buildChatEmptyPromptStatus,
+  buildChatSendFailureStatus,
+  buildChatSendRetryStatus,
+  buildChatSessionLoadFailureStatus,
+  buildConnectedRefreshFailureStatus,
+  buildCoworkSessionLoadFailureStatus,
+  buildMissingCoworkPromptForScheduleStatus,
+  buildResetPairingStartStatus,
+} from './lib/engine-runtime-status';
 import { createFileService, LocalFileService } from './lib/file-service';
 import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
 import {
@@ -1740,7 +1751,7 @@ export default function App() {
         }));
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to load chat session.';
+      const message = error instanceof Error ? error.message : buildChatSessionLoadFailureStatus();
       const normalizedMessage = message.toLowerCase();
       const isMissingSession =
         normalizedMessage.includes('no session found') ||
@@ -1800,7 +1811,7 @@ export default function App() {
         }));
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to load cowork session.';
+      const message = error instanceof Error ? error.message : buildCoworkSessionLoadFailureStatus();
       setStatus(message);
     }
   };
@@ -2674,7 +2685,7 @@ export default function App() {
           if (cancelled) {
             return;
           }
-          const message = error instanceof Error ? error.message : 'Connected to runtime, but failed to refresh recent chats.';
+          const message = error instanceof Error ? error.message : buildConnectedRefreshFailureStatus();
           setStatus(message);
         }
       })
@@ -2778,7 +2789,7 @@ export default function App() {
 
     setChecking(true);
     setPairingRequestId(null);
-    setStatus('Resetting local device identity and requesting fresh pairing...');
+    setStatus(buildResetPairingStartStatus());
 
     try {
       client.disconnect();
@@ -3184,7 +3195,7 @@ export default function App() {
   const handleScheduleCoworkRun = () => {
     const latestUserPrompt = [...coworkMessages].reverse().find((message) => message.role === 'user')?.text?.trim() || coworkDraftPrompt.trim();
     if (!latestUserPrompt) {
-      setStatus('No cowork prompt available to schedule.');
+      setStatus(buildMissingCoworkPromptForScheduleStatus());
       return;
     }
     void createEngineCoworkScheduleWithStatus({
@@ -3588,7 +3599,7 @@ export default function App() {
   const handleSendChat = async (event: FormEvent) => {
     event.preventDefault();
     if (!engineConnected) {
-      setStatus('Runtime disconnected. Connect in Settings > Engine to send chat messages.');
+      setStatus(buildChatDisconnectedStatus());
       setAwaitingChatStream(false);
       setSendingChat(false);
       return;
@@ -3596,7 +3607,7 @@ export default function App() {
 
     const text = chatDraftPrompt.trim();
     if (!text) {
-      setStatus('Type a message before sending.');
+      setStatus(buildChatEmptyPromptStatus());
       return;
     }
 
@@ -3658,7 +3669,7 @@ export default function App() {
           if (!isMissing || attempt === 3) {
             throw error;
           }
-          setStatus(`Send retry ${attempt}/3: session=${sessionKey} failed (${message}). Resolving session...`);
+          setStatus(buildChatSendRetryStatus({ attempt, sessionKey, message }));
           sessionKey = await getOrResolveSession(client);
         }
       }
@@ -3667,7 +3678,7 @@ export default function App() {
       setStatus(buildEngineChatDispatchStatus(draftEngineProviderId, sessionKey));
     } catch (error) {
       setAwaitingChatStream(false);
-      const message = error instanceof Error ? error.message : 'Failed to send chat message.';
+      const message = error instanceof Error ? error.message : buildChatSendFailureStatus();
       setStatus(message);
     } finally {
       setSendingChat(false);
