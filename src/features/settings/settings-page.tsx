@@ -27,6 +27,7 @@ type ThemeOption = UserPreferences['theme'];
 
 type SettingsPageProps = {
   activeSection: SettingsSection;
+  focusedInternalRunId?: string | null;
   draftEngineProviderId: EngineProviderId;
   draftEngineUrl: string;
   draftEngineToken: string;
@@ -241,6 +242,7 @@ function ThemePreview({ mode, style }: { mode: ThemeOption; style: StyleOption }
 
 export function SettingsPage({
   activeSection,
+  focusedInternalRunId = null,
   draftEngineProviderId,
   draftEngineUrl,
   draftEngineToken,
@@ -270,6 +272,7 @@ export function SettingsPage({
   const [connectionNameDraft, setConnectionNameDraft] = useState('');
   const [internalRuntimeInfo, setInternalRuntimeInfo] = useState<InternalEngineRuntimeInfo | null>(null);
   const [internalRunHistory, setInternalRunHistory] = useState<InternalEngineRunRecord[]>([]);
+  const [highlightedRunId, setHighlightedRunId] = useState<string | null>(null);
   const [testingProviderId, setTestingProviderId] = useState<'openai' | 'anthropic' | 'gemini' | null>(null);
   const [providerTestResult, setProviderTestResult] = useState<InternalProviderConnectionTestResult | null>(null);
   const engineProviders = useMemo(() => listEngineProviders(), []);
@@ -337,6 +340,28 @@ export function SettingsPage({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (activeSection !== 'Developer' || !focusedInternalRunId) {
+      return;
+    }
+
+    setHighlightedRunId(focusedInternalRunId);
+    const scrollTimer = window.setTimeout(() => {
+      document.getElementById(`internal-run-${focusedInternalRunId}`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    }, 60);
+    const clearTimer = window.setTimeout(() => {
+      setHighlightedRunId((current) => (current === focusedInternalRunId ? null : current));
+    }, 2500);
+
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [activeSection, focusedInternalRunId, internalRunHistory]);
 
   const useDarkPreview =
     preferences.theme === 'dark' || (preferences.theme === 'auto' && prefersDarkSystem);
@@ -1204,8 +1229,17 @@ export function SettingsPage({
                       <div className="grid gap-3">
                         {internalRunHistory.map((run) => {
                           const artifact = run.artifact;
+                          const isHighlighted = highlightedRunId === run.runId;
                           return (
-                            <div key={run.runId} className="rounded-lg border border-border/60 bg-background/50 p-3">
+                            <div
+                              key={run.runId}
+                              id={`internal-run-${run.runId}`}
+                              className={`rounded-lg border p-3 transition-colors ${
+                                isHighlighted
+                                  ? 'border-amber-400 bg-amber-50/70 dark:border-amber-700 dark:bg-amber-950/20'
+                                  : 'border-border/60 bg-background/50'
+                              }`}
+                            >
                               <div className="flex flex-wrap items-start justify-between gap-2">
                                 <div className="min-w-0">
                                   <p className="text-sm font-medium text-foreground">

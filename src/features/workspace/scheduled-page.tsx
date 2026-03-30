@@ -28,6 +28,7 @@ type ScheduledPageProps = {
   onToggleJob?: (jobId: string, enabled: boolean) => void | Promise<void>;
   onSetJobInterval?: (jobId: string, intervalMinutes: number) => void | Promise<void>;
   onDeleteJob?: (jobId: string) => void | Promise<void>;
+  onOpenRunHistory?: (runId: string) => void | Promise<void>;
 };
 
 type ViewMode = 'timeline' | 'calendar';
@@ -109,6 +110,7 @@ export function ScheduledPage({
   onToggleJob,
   onSetJobInterval,
   onDeleteJob,
+  onOpenRunHistory,
 }: ScheduledPageProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('timeline');
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
@@ -284,7 +286,21 @@ export function ScheduledPage({
                                 <p className="mt-1 font-sans text-[11px] text-muted-foreground">{job.lastRunSummary}</p>
                               ) : null}
                               {job.lastRunId ? (
-                                <p className="mt-1 font-mono text-[10px] text-muted-foreground/80">Run: {job.lastRunId}</p>
+                                <div className="mt-1 flex flex-wrap items-center gap-2">
+                                  <p className="font-mono text-[10px] text-muted-foreground/80">Run: {job.lastRunId}</p>
+                                  {onOpenRunHistory ? (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-6 px-2 text-[10px]"
+                                      data-testid={`scheduled-job-open-run-${job.id}`}
+                                      onClick={() => void onOpenRunHistory(job.lastRunId!)}
+                                    >
+                                      Open history
+                                    </Button>
+                                  ) : null}
+                                </div>
                               ) : null}
                             </div>
                           ) : null}

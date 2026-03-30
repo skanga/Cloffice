@@ -532,6 +532,7 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
   const [pairingRequestId, setPairingRequestId] = useState<string | null>(null);
+  const [focusedInternalRunId, setFocusedInternalRunId] = useState<string | null>(null);
   const [activeMenuItem, setActiveMenuItem] = useState('');
   const [activePage, setActivePage] = useState<AppPage>('cowork');
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('Profile');
@@ -4415,6 +4416,11 @@ export default function App() {
                         onToggleJob={(jobId, enabled) => void handleUpdateInternalPromptSchedule(jobId, { enabled })}
                         onSetJobInterval={(jobId, intervalMinutes) => void handleUpdateInternalPromptSchedule(jobId, { intervalMinutes })}
                         onDeleteJob={(jobId) => void handleDeleteInternalPromptSchedule(jobId)}
+                        onOpenRunHistory={(runId) => {
+                          setFocusedInternalRunId(runId);
+                          setActivePage('settings');
+                          setSettingsSection('Developer');
+                        }}
                       />
                     )}
 
@@ -4429,6 +4435,7 @@ export default function App() {
                     {activePage === 'settings' && (
                       <SettingsPage
                         activeSection={settingsSection}
+                        focusedInternalRunId={focusedInternalRunId}
                         draftEngineProviderId={draftEngineProviderId}
                         draftEngineUrl={draftEngineUrl}
                         draftEngineToken={draftEngineToken}
