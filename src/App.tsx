@@ -74,8 +74,9 @@ import {
 import { createFileService, LocalFileService } from './lib/file-service';
 import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
 import {
-  buildOpenClawCompatibilityAdminPairingHint,
-  buildOpenClawCompatibilityPairingHint,
+  buildOpenClawCompatibilityChatDispatchStatus,
+  describeOpenClawCompatibilityConnectFailure,
+  describeOpenClawCompatibilityResetPairingFailure,
   OPENCLAW_COMPAT_DEVICE_IDENTITY_STORAGE_KEY,
 } from './lib/openclaw-compat-engine';
 import { accumulateTodayUsage, addUsage, loadTodayUsage, parseUsageFromPayload } from './lib/token-usage';
@@ -2581,19 +2582,10 @@ export default function App() {
         }
         setEngineConnected(false);
         const info = readEngineError(error);
-        const isPairing =
-          info.code === 'PAIRING_REQUIRED' ||
-          /pairing.required/i.test(info.message);
-        if (isPairing) {
-          setPairingRequestId(info.requestId ?? null);
-          const approvalHint = ` ${buildOpenClawCompatibilityPairingHint(info.requestId)}`;
-          setHealth({ ok: false, message: `Pairing required.${approvalHint}` });
-          setStatus(`Pairing required.${approvalHint}`);
-        } else {
-          const offlineMessage = info.message || 'Runtime is offline or unreachable.';
-          setHealth({ ok: false, message: offlineMessage });
-          setStatus(offlineMessage);
-        }
+        const description = describeOpenClawCompatibilityConnectFailure(info);
+        setPairingRequestId(description.pairingRequestId);
+        setHealth({ ok: false, message: description.healthMessage });
+        setStatus(description.statusMessage);
       });
 
     return () => {
@@ -2710,18 +2702,10 @@ export default function App() {
       console.error('[Cloffice] reset pairing error:', error);
       setEngineConnected(false);
       const info = readEngineError(error);
-      const isPairing =
-        info.code === 'PAIRING_REQUIRED' ||
-        /pairing.required/i.test(info.message);
-      if (isPairing) {
-        setPairingRequestId(info.requestId ?? null);
-        const approvalHint = buildOpenClawCompatibilityAdminPairingHint(info.requestId);
-        setHealth({ ok: false, message: 'New pairing request created. Approve it with admin scope.' });
-        setStatus(`New pairing request created. Approve with admin scope: ${approvalHint}`);
-      } else {
-        setHealth({ ok: false, message: info.message || 'Failed to reset pairing.' });
-        setStatus(info.message || 'Failed to reset pairing.');
-      }
+      const description = describeOpenClawCompatibilityResetPairingFailure(info);
+      setPairingRequestId(description.pairingRequestId);
+      setHealth({ ok: false, message: description.healthMessage });
+      setStatus(description.statusMessage);
     } finally {
       setChecking(false);
     }
@@ -3586,7 +3570,11 @@ export default function App() {
       }
 
       commitActiveSessionKey(sessionKey);
-      setStatus(`Message sent to the current runtime connection (session: ${sessionKey}). Waiting for streaming events...`);
+      setStatus(
+        draftEngineProviderId === 'openclaw-compat'
+          ? buildOpenClawCompatibilityChatDispatchStatus(sessionKey)
+          : `Message sent to the current runtime connection (session: ${sessionKey}). Waiting for streaming events...`,
+      );
     } catch (error) {
       setAwaitingChatStream(false);
       const message = error instanceof Error ? error.message : 'Failed to send chat message.';

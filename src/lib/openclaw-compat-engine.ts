@@ -273,6 +273,68 @@ export function buildOpenClawCompatibilityAdminPairingHint(requestId?: string): 
     : 'openclaw devices list then openclaw devices approve <requestId>';
 }
 
+export function describeOpenClawCompatibilityConnectFailure(info: EngineErrorInfo): {
+  pairingRequired: boolean;
+  pairingRequestId: string | null;
+  healthMessage: string;
+  statusMessage: string;
+} {
+  const pairingRequired =
+    info.code === 'PAIRING_REQUIRED' ||
+    /pairing.required/i.test(info.message);
+
+  if (pairingRequired) {
+    const approvalHint = ` ${buildOpenClawCompatibilityPairingHint(info.requestId)}`;
+    return {
+      pairingRequired: true,
+      pairingRequestId: info.requestId ?? null,
+      healthMessage: `Pairing required.${approvalHint}`,
+      statusMessage: `Pairing required.${approvalHint}`,
+    };
+  }
+
+  const offlineMessage = info.message || 'Runtime is offline or unreachable.';
+  return {
+    pairingRequired: false,
+    pairingRequestId: null,
+    healthMessage: offlineMessage,
+    statusMessage: offlineMessage,
+  };
+}
+
+export function describeOpenClawCompatibilityResetPairingFailure(info: EngineErrorInfo): {
+  pairingRequired: boolean;
+  pairingRequestId: string | null;
+  healthMessage: string;
+  statusMessage: string;
+} {
+  const pairingRequired =
+    info.code === 'PAIRING_REQUIRED' ||
+    /pairing.required/i.test(info.message);
+
+  if (pairingRequired) {
+    const approvalHint = buildOpenClawCompatibilityAdminPairingHint(info.requestId);
+    return {
+      pairingRequired: true,
+      pairingRequestId: info.requestId ?? null,
+      healthMessage: 'New pairing request created. Approve it with admin scope.',
+      statusMessage: `New pairing request created. Approve with admin scope: ${approvalHint}`,
+    };
+  }
+
+  const message = info.message || 'Failed to reset pairing.';
+  return {
+    pairingRequired: false,
+    pairingRequestId: null,
+    healthMessage: message,
+    statusMessage: message,
+  };
+}
+
+export function buildOpenClawCompatibilityChatDispatchStatus(sessionKey: string): string {
+  return `Message sent to the current OpenClaw compatibility runtime (session: ${sessionKey}). Waiting for streaming events...`;
+}
+
 export { GatewayRequestError as OpenClawCompatibilityRequestError };
 
 function normalizeOpenClawCompatibilityEventPayload(eventName: string, payload: unknown): unknown {
