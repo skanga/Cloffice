@@ -49,6 +49,30 @@ export function canManageEngineSchedules(
   return providerId === 'internal' && Boolean(bridge?.updateInternalPromptSchedule) && Boolean(bridge?.deleteInternalPromptSchedule);
 }
 
+export function describeEngineScheduleAccess(
+  providerId: EngineProviderId,
+  bridge: InternalScheduleBridge | null | undefined,
+): {
+  canManage: boolean;
+  modeLabel: 'Read-write' | 'Read-only';
+  helperText: string;
+} {
+  const canManage = canManageEngineSchedules(providerId, bridge);
+  if (canManage) {
+    return {
+      canManage: true,
+      modeLabel: 'Read-write',
+      helperText: 'This runtime supports schedule pause, resume, retime, and delete controls.',
+    };
+  }
+
+  return {
+    canManage: false,
+    modeLabel: 'Read-only',
+    helperText: 'This runtime exposes schedule rows for inspection only. Create or edit cron jobs from the runtime that owns them.',
+  };
+}
+
 export async function createEngineCoworkSchedule(params: {
   providerId: EngineProviderId;
   bridge: InternalScheduleBridge | null | undefined;

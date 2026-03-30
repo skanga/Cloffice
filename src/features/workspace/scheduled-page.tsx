@@ -27,6 +27,8 @@ type ScheduledPageProps = {
   focusedJobId?: string | null;
   onRefresh: () => void | Promise<void>;
   scheduleActionsEnabled?: boolean;
+  scheduleAccessLabel?: 'Read-write' | 'Read-only';
+  scheduleAccessDescription?: string;
   onToggleJob?: (jobId: string, enabled: boolean) => void | Promise<void>;
   onSetJobInterval?: (jobId: string, intervalMinutes: number) => void | Promise<void>;
   onDeleteJob?: (jobId: string) => void | Promise<void>;
@@ -131,6 +133,10 @@ export function ScheduledPage({
   focusedJobId = null,
   onRefresh,
   scheduleActionsEnabled = false,
+  scheduleAccessLabel = scheduleActionsEnabled ? 'Read-write' : 'Read-only',
+  scheduleAccessDescription = scheduleActionsEnabled
+    ? 'This runtime supports direct schedule controls.'
+    : 'This runtime exposes schedule rows for inspection only.',
   onToggleJob,
   onSetJobInterval,
   onDeleteJob,
@@ -230,9 +236,15 @@ export function ScheduledPage({
             <Badge variant="outline" className="ml-2 font-sans text-[11px]">
               {jobs.length} {jobs.length === 1 ? 'Job' : 'Jobs'}
             </Badge>
+            <Badge variant="outline" className="font-sans text-[11px]">
+              {scheduleAccessLabel}
+            </Badge>
           </div>
           <p className="mt-1 font-sans text-sm text-muted-foreground">
             Overview of scheduled jobs reported by the current runtime connection.
+          </p>
+          <p className="mt-1 font-sans text-[12px] text-muted-foreground/80">
+            {scheduleAccessDescription}
           </p>
         </div>
         <div className="flex items-center gap-2">

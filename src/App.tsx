@@ -67,6 +67,7 @@ import {
   canManageEngineSchedules,
   createEngineCoworkScheduleWithStatus,
   deleteEngineScheduleWithStatus,
+  describeEngineScheduleAccess,
   loadEngineScheduledJobsWithStatus,
   updateEngineScheduleWithStatus,
 } from './lib/engine-schedule-controller';
@@ -4393,24 +4394,31 @@ export default function App() {
                       />
                     )}
 
-                      {activePage === 'scheduled' && (
+                    {activePage === 'scheduled' && (
+                      (() => {
+                        const scheduleAccess = describeEngineScheduleAccess(draftEngineProviderId, bridge);
+                        return (
                         <ScheduledPage
                           jobs={scheduledJobs}
                           loading={scheduledLoading}
                           status={status}
                           onRefresh={loadScheduledJobs}
-                          scheduleActionsEnabled={canManageEngineSchedules(draftEngineProviderId, bridge)}
+                          scheduleActionsEnabled={scheduleAccess.canManage}
+                          scheduleAccessLabel={scheduleAccess.modeLabel}
+                          scheduleAccessDescription={scheduleAccess.helperText}
                           onToggleJob={(jobId, enabled) => void handleUpdateInternalPromptSchedule(jobId, { enabled })}
                           onSetJobInterval={(jobId, intervalMinutes) => void handleUpdateInternalPromptSchedule(jobId, { intervalMinutes })}
                           onDeleteJob={(jobId) => void handleDeleteInternalPromptSchedule(jobId)}
-                        focusedJobId={focusedScheduledJobId}
-                        onOpenRunHistory={(jobId, runId) => {
+                          focusedJobId={focusedScheduledJobId}
+                          onOpenRunHistory={(jobId, runId) => {
                           setFocusedScheduledJobId(jobId);
                           setFocusedInternalRunId(runId);
                           setActivePage('settings');
-                          setSettingsSection('Developer');
-                        }}
-                      />
+                            setSettingsSection('Developer');
+                          }}
+                        />
+                        );
+                      })()
                     )}
 
                     {activePage === 'safety' && (
