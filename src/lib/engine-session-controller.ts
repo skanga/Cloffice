@@ -1,11 +1,24 @@
 import type { ChatMessage } from '@/app-types';
 import type { EngineConnectOptions, EngineRuntimeClient } from './engine-runtime-types';
 import { deriveThreadTitleFromMessages, findMatchingSessionKey, normalizeSessionKey } from './chat-utils';
+import {
+  buildMissingActiveSessionError,
+  buildMissingCreatedSessionKeyError,
+  buildNoActiveChatSessionError,
+  buildSessionReadyStatus,
+  buildUnableToResolveActiveSessionError,
+} from './engine-session-status';
 
 export type LoadedEngineSessionResult = {
   requestedSessionKey: string;
   resolvedSessionKey: string;
   history: ChatMessage[];
+  titleFromHistory: string;
+};
+
+export type PreparedEngineRecentSessionOpen = {
+  sessionKey: string;
+  cachedHistory: ChatMessage[];
   titleFromHistory: string;
 };
 
@@ -122,4 +135,82 @@ export async function loadEngineCoworkSession(
 
 export function isMissingEngineSessionError(error: unknown): boolean {
   return isMissingSessionError(error);
+}
+
+export async function ensureConnectedEngineClient(
+  client: EngineRuntimeClient,
+  connectOptions: EngineConnectOptions,
+): Promise<void> {
+  await client.connect(connectOptions);
+}
+
+export async function resolveEngineActiveSession(
+  client: EngineRuntimeClient,
+): Promise<{ sessionKey: string; statusText: string }> {
+  try {
+    const sessionKey = normalizeSessionKey(await client.getActiveSessionKey());
+    if (!sessionKey) {
+      throw new Error(buildMissingActiveSessionError());
+    }
+
+    return {
+      sessionKey,
+      statusText: buildSessionReadyStatus(sessionKey),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(buildUnableToResolveActiveSessionError(message));
+  }
+}
+
+export async function createEngineChatSession(
+  client: EngineRuntimeClient,
+  connectOptions: EngineConnectOptions,
+): Promise<string> {
+  await ensureConnectedEngineClient(client, connectOptions);
+
+  const sessionKey = normalizeSessionKey(await client.createChatSession());
+  if (!sessionKey) {
+    throw new Error(buildMissingCreatedSessionKeyError());
+  }
+
+  return sessionKey;
+}
+
+export async function ensureEngineActiveChatSession(params: {
+  client: EngineRuntimeClient;
+  connectOptions: EngineConnectOptions;
+  activeSessionKey?: string | null;
+  createIfMissing?: boolean;
+}): Promise<string> {
+  const { client, connectOptions, activeSessionKey, createIfMissing } = params;
+  await ensureConnectedEngineClient(client, connectOptions);
+
+  const current = normalizeSessionKey(activeSessionKey ?? '');
+  if (current) {
+    return current;
+  }
+
+  if (createIfMissing) {
+    return createEngineChatSession(client, connectOptions);
+  }
+
+  throw new Error(buildNoActiveChatSessionError());
+}
+
+export function prepareEngineRecentSessionOpen(
+  sessionKeyInput: string,
+  cachedHistory?: ChatMessage[] | null,
+): PreparedEngineRecentSessionOpen | null {
+  const sessionKey = normalizeSessionKey(sessionKeyInput);
+  if (!sessionKey) {
+    return null;
+  }
+
+  const history = cachedHistory ? [...cachedHistory] : [];
+  return {
+    sessionKey,
+    cachedHistory: history,
+    titleFromHistory: deriveThreadTitleFromMessages(history),
+  };
 }

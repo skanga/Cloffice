@@ -172,9 +172,6 @@ import {
   buildInvalidSessionKeyStatus,
   buildLoadedSessionStatus,
   buildLoadingRecentSessionStatus,
-  buildMissingActiveSessionError,
-  buildMissingCreatedSessionKeyError,
-  buildNoActiveChatSessionError,
   buildOpenedRecentSessionStatus,
   buildPendingCoworkModelSelectionStatus,
   buildRenamedRecentSessionStatus,
@@ -182,9 +179,7 @@ import {
   buildSessionOperationFailureStatus,
   buildSessionModelResetStatus,
   buildSessionModelUpdatedStatus,
-  buildSessionReadyStatus,
   buildStartedNewChatStatus,
-  buildUnableToResolveActiveSessionError,
 } from './lib/engine-session-status';
 import {
   buildChatDisconnectedStatus,
@@ -198,9 +193,14 @@ import {
   buildResetPairingStartStatus,
 } from './lib/engine-runtime-status';
 import {
+  createEngineChatSession,
+  ensureConnectedEngineClient,
+  ensureEngineActiveChatSession,
   isMissingEngineSessionError,
   loadEngineChatSession,
   loadEngineCoworkSession,
+  prepareEngineRecentSessionOpen,
+  resolveEngineActiveSession,
 } from './lib/engine-session-controller';
 import { createFileService, LocalFileService } from './lib/file-service';
 import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
@@ -1784,53 +1784,6 @@ export default function App() {
     }
   };
 
-  const ensureConnectedClient = async (client: EngineClientInstance) => {
-    await client.connect(engineConnectOptionsFromDraft(getCurrentEngineDraft()));
-  };
-
-  const getOrResolveSession = async (client: EngineClientInstance) => {
-    try {
-      const sessionKey = normalizeSessionKey(await client.getActiveSessionKey());
-      if (!sessionKey) {
-        throw new Error(buildMissingActiveSessionError());
-      }
-
-      commitActiveSessionKey(sessionKey);
-      await loadRecentChatsFromBackend(client);
-      setStatus(buildSessionReadyStatus(sessionKey));
-      return sessionKey;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(buildUnableToResolveActiveSessionError(message));
-    }
-  };
-
-  const ensureActiveChatSession = async (
-    client: EngineClientInstance,
-    options?: { createIfMissing?: boolean },
-  ) => {
-    await ensureConnectedClient(client);
-
-    const current = normalizeSessionKey(activeSessionKeyRef.current);
-    if (current) {
-      commitActiveSessionKey(current);
-      return current;
-    }
-
-    if (options?.createIfMissing) {
-      const sessionKey = normalizeSessionKey(await client.createChatSession());
-      if (!sessionKey) {
-        throw new Error(buildMissingCreatedSessionKeyError());
-      }
-      commitActiveSessionKey(sessionKey);
-      await loadRecentChatsFromBackend(client);
-      setStatus(buildSessionReadyStatus(sessionKey));
-      return sessionKey;
-    }
-
-    throw new Error(buildNoActiveChatSessionError());
-  };
-
   const loadModelsForSession = async (client: EngineClientInstance, sessionKey?: string | null) => {
     if (!client.isConnected()) {
       setChatModels([]);
@@ -2831,7 +2784,7 @@ export default function App() {
     }
 
     try {
-      await ensureConnectedClient(client);
+      await ensureConnectedEngineClient(client, engineConnectOptionsFromDraft(getCurrentEngineDraft()));
 
       let sessionKey = normalizeSessionKey(coworkSessionKeyRef.current);
       if (!sessionKey) {
@@ -3594,17 +3547,23 @@ export default function App() {
 
       let sessionKey = '';
       if (shouldCreateFreshSession) {
-        await ensureConnectedClient(client);
-        sessionKey = normalizeSessionKey(await client.createChatSession());
-        if (!sessionKey) {
-          throw new Error(buildMissingCreatedSessionKeyError());
-        }
+        sessionKey = await createEngineChatSession(
+          client,
+          engineConnectOptionsFromDraft(getCurrentEngineDraft()),
+        );
         // Avoid loading history immediately after creating a fresh session,
         // which can race and overwrite the optimistic first user message.
         skipNextChatEffectLoadRef.current = true;
         commitActiveSessionKey(sessionKey);
+        await loadRecentChatsFromBackend(client);
       } else {
-        sessionKey = await ensureActiveChatSession(client, { createIfMissing: true });
+        sessionKey = await ensureEngineActiveChatSession({
+          client,
+          connectOptions: engineConnectOptionsFromDraft(getCurrentEngineDraft()),
+          activeSessionKey: activeSessionKeyRef.current,
+          createIfMissing: true,
+        });
+        commitActiveSessionKey(sessionKey);
       }
 
       setChatMessages((current) => {
@@ -3638,7 +3597,11 @@ export default function App() {
             throw error;
           }
           setStatus(buildChatSendRetryStatus({ attempt, sessionKey, message }));
-          sessionKey = await getOrResolveSession(client);
+          const resolved = await resolveEngineActiveSession(client);
+          sessionKey = resolved.sessionKey;
+          commitActiveSessionKey(sessionKey);
+          await loadRecentChatsFromBackend(client);
+          setStatus(resolved.statusText);
         }
       }
 
@@ -3666,7 +3629,14 @@ export default function App() {
 
     setChangingModel(true);
     try {
-      const sessionKey = await ensureActiveChatSession(client, { createIfMissing: true });
+      const sessionKey = await ensureEngineActiveChatSession({
+        client,
+        connectOptions: engineConnectOptionsFromDraft(getCurrentEngineDraft()),
+        activeSessionKey: activeSessionKeyRef.current,
+        createIfMissing: true,
+      });
+      commitActiveSessionKey(sessionKey);
+      await loadRecentChatsFromBackend(client);
       await client.setSessionModel(sessionKey, nextModelValue || null);
       setStatus(
         nextModelValue
@@ -3701,7 +3671,7 @@ export default function App() {
 
     setChangingCoworkModel(true);
     try {
-      await ensureConnectedClient(client);
+      await ensureConnectedEngineClient(client, engineConnectOptionsFromDraft(getCurrentEngineDraft()));
       await client.setSessionModel(sessionKey, nextModelValue || null);
       setStatus(
         nextModelValue
@@ -3738,12 +3708,12 @@ export default function App() {
     handleChatPromptChange('');
 
     try {
-      await ensureConnectedClient(client);
-      const sessionKey = normalizeSessionKey(await client.createChatSession());
-      if (!sessionKey) {
-        throw new Error(buildMissingCreatedSessionKeyError());
-      }
+      const sessionKey = await createEngineChatSession(
+        client,
+        engineConnectOptionsFromDraft(getCurrentEngineDraft()),
+      );
       commitActiveSessionKey(sessionKey);
+      await loadRecentChatsFromBackend(client);
       setActivePage('chat');
       setStatus(buildStartedNewChatStatus(sessionKey));
       void loadModelsForSession(client, sessionKey);
@@ -3755,10 +3725,14 @@ export default function App() {
   };
 
   const handleOpenRecentChat = (sessionKey: string) => {
-    const normalized = sessionKey.trim();
-    if (!normalized) {
+    const preparedOpen = prepareEngineRecentSessionOpen(
+      sessionKey,
+      threadMessageCache.current.get(sessionKey.trim()) ?? null,
+    );
+    if (!preparedOpen) {
       return;
     }
+    const { sessionKey: normalized, cachedHistory, titleFromHistory } = preparedOpen;
 
     // Save current chat messages before switching
     const currentKey = activeSessionKeyRef.current;
@@ -3777,11 +3751,9 @@ export default function App() {
     setAwaitingChatStream(false);
 
     // Restore from local cache first
-    const cached = threadMessageCache.current.get(normalized);
-    if (cached && cached.length > 0) {
-      setChatMessages(cached);
-      const titleFromCache = deriveThreadTitleFromMessages(cached);
-      setStatus(buildOpenedRecentSessionStatus('chat', titleFromCache || undefined));
+    if (cachedHistory.length > 0) {
+      setChatMessages(cachedHistory);
+      setStatus(buildOpenedRecentSessionStatus('chat', titleFromHistory || undefined));
       skipNextChatEffectLoadRef.current = true;
       return;
     }
@@ -3795,10 +3767,14 @@ export default function App() {
   };
 
   const handleOpenRecentCowork = (sessionKey: string) => {
-    const normalized = sessionKey.trim();
-    if (!normalized) {
+    const preparedOpen = prepareEngineRecentSessionOpen(
+      sessionKey,
+      coworkMessageCache.current.get(sessionKey.trim()) ?? null,
+    );
+    if (!preparedOpen) {
       return;
     }
+    const { sessionKey: normalized, cachedHistory, titleFromHistory } = preparedOpen;
 
     setActivePage('cowork');
     commitCoworkSessionKey(normalized);
@@ -3807,11 +3783,9 @@ export default function App() {
     setCoworkRunPhase('idle');
     setCoworkRunStatus(buildOpenedPreviousCoworkSessionStatus());
 
-    const cached = coworkMessageCache.current.get(normalized);
-    if (cached && cached.length > 0) {
-      setCoworkMessages(cached);
-      const titleFromCache = deriveThreadTitleFromMessages(cached);
-      setStatus(buildOpenedRecentSessionStatus('cowork', titleFromCache || undefined));
+    if (cachedHistory.length > 0) {
+      setCoworkMessages(cachedHistory);
+      setStatus(buildOpenedRecentSessionStatus('cowork', titleFromHistory || undefined));
       return;
     }
 
@@ -3848,7 +3822,7 @@ export default function App() {
     try {
       if (client) {
         try {
-          await ensureConnectedClient(client);
+          await ensureConnectedEngineClient(client, engineConnectOptionsFromDraft(getCurrentEngineDraft()));
           await client.setSessionTitle(recentRenameTarget.sessionKey, nextTitle);
         } catch {
           setStatus(buildSessionOperationFailureStatus('sync_title'));
@@ -3881,7 +3855,7 @@ export default function App() {
 
     setRecentActionBusy(true);
     try {
-      await ensureConnectedClient(client);
+      await ensureConnectedEngineClient(client, engineConnectOptionsFromDraft(getCurrentEngineDraft()));
       await client.deleteSession(recentDeleteTarget.sessionKey);
       removeThread(recentDeleteTarget.sessionKey, recentDeleteTarget.kind);
       setStatus(buildDeletedRecentSessionStatus(recentDeleteTarget.kind));
@@ -3932,7 +3906,7 @@ export default function App() {
       if (client.isConnected()) {
         void loadCoworkModels(client, sessionKey || undefined);
       } else {
-        void ensureConnectedClient(client)
+        void ensureConnectedEngineClient(client, engineConnectOptionsFromDraft(getCurrentEngineDraft()))
           .then(() => loadCoworkModels(client, sessionKey || undefined))
           .catch(() => {
             setCoworkModels([]);
