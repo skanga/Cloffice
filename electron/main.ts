@@ -1115,6 +1115,22 @@ function createInternalEngineMainService() {
       }),
   });
   const toEngineCronJob = (schedule: PersistedInternalScheduleRecord): EngineCronJob => ({
+    ...(schedule.lastRunId
+      ? (() => {
+          const pendingApprovals = pendingApprovalFlows.filter((flow) => flow.runId === schedule.lastRunId);
+          const latestPendingApproval = pendingApprovals[pendingApprovals.length - 1];
+          const artifact = artifacts.find((entry) => entry.runId === schedule.lastRunId);
+          return {
+            ...(pendingApprovals.length > 0 ? { pendingApprovalCount: pendingApprovals.length } : {}),
+            ...(latestPendingApproval?.currentApproval?.summary
+              ? { pendingApprovalSummary: latestPendingApproval.currentApproval.summary }
+              : {}),
+            ...(artifact?.summary ? { lastArtifactSummary: artifact.summary } : {}),
+            ...(artifact ? { lastArtifactReceiptCount: artifact.receiptCount } : {}),
+            ...(artifact && artifact.errors.length > 0 ? { lastArtifactErrorCount: artifact.errors.length } : {}),
+          };
+        })()
+      : {}),
     id: schedule.id,
     name: schedule.name,
     schedule: schedule.schedule,

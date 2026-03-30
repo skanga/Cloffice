@@ -168,6 +168,11 @@ export type ScheduledJob = {
   lastRunId?: string;
   lastRunStatus?: string;
   lastRunSummary?: string;
+  pendingApprovalCount?: number;
+  pendingApprovalSummary?: string;
+  lastArtifactSummary?: string;
+  lastArtifactReceiptCount?: number;
+  lastArtifactErrorCount?: number;
 };
 
 export type LocalFilePlanAction = {

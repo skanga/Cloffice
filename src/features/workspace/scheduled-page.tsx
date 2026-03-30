@@ -335,6 +335,40 @@ export function ScheduledPage({
                                   ) : null}
                                 </div>
                               ) : null}
+                              {typeof job.pendingApprovalCount === 'number' && job.pendingApprovalCount > 0 ? (
+                                <div className="mt-2 rounded-md border border-amber-200/70 bg-amber-50/70 px-2 py-1.5 dark:border-amber-900/40 dark:bg-amber-950/20">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Badge variant="outline" className="font-sans text-[10px] text-amber-700">
+                                      {job.pendingApprovalCount} pending approval{job.pendingApprovalCount === 1 ? '' : 's'}
+                                    </Badge>
+                                  </div>
+                                  {job.pendingApprovalSummary ? (
+                                    <p className="mt-1 font-sans text-[11px] text-muted-foreground">{job.pendingApprovalSummary}</p>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                              {(job.lastArtifactSummary || typeof job.lastArtifactReceiptCount === 'number') ? (
+                                <div className="mt-2 rounded-md border border-border/50 bg-background/70 px-2 py-1.5">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="font-sans text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      Last artifact
+                                    </span>
+                                    {typeof job.lastArtifactReceiptCount === 'number' ? (
+                                      <Badge variant="outline" className="font-sans text-[10px]">
+                                        {job.lastArtifactReceiptCount} receipt{job.lastArtifactReceiptCount === 1 ? '' : 's'}
+                                      </Badge>
+                                    ) : null}
+                                    {typeof job.lastArtifactErrorCount === 'number' && job.lastArtifactErrorCount > 0 ? (
+                                      <Badge variant="outline" className="font-sans text-[10px] text-destructive">
+                                        {job.lastArtifactErrorCount} error{job.lastArtifactErrorCount === 1 ? '' : 's'}
+                                      </Badge>
+                                    ) : null}
+                                  </div>
+                                  {job.lastArtifactSummary ? (
+                                    <p className="mt-1 font-sans text-[11px] text-muted-foreground">{job.lastArtifactSummary}</p>
+                                  ) : null}
+                                </div>
+                              ) : null}
                             </div>
                           ) : null}
                           {scheduleActionsEnabled ? (

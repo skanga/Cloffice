@@ -377,5 +377,11 @@ test.describe('Internal engine UI flow', () => {
     await expect(approvalCard).toBeVisible({ timeout: 90000 });
     await expect(approvalCard).toContainText('Internal Scheduled Project');
     await expect(page.getByRole('button', { name: 'Approve' }).first()).toBeVisible({ timeout: 30000 });
+
+    await openSchedulePage(page);
+    const scheduledJobCard = page.getByTestId(/^scheduled-job-/).filter({ hasText: scheduleName }).first();
+    await expect(scheduledJobCard).toBeVisible({ timeout: 15000 });
+    await expect(scheduledJobCard).toContainText('Pending approval');
+    await expect(scheduledJobCard).toContainText('List directory .');
   });
 });
