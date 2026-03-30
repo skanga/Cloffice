@@ -26,7 +26,7 @@ import type {
   GatewayDiscoveryResult,
 } from '../src/app-types.js';
 import { describeInternalEngineShell } from '../src/lib/internal-engine-placeholder.js';
-import type { EngineChatMessage, EngineConnectOptions, EngineModelChoice, EngineSessionSummary } from '../src/lib/engine-runtime-types.js';
+import type { EngineChatMessage, EngineConnectOptions, EngineCronJob, EngineModelChoice, EngineSessionSummary } from '../src/lib/engine-runtime-types.js';
 import { EMPTY_INTERNAL_PROVIDER_CONFIG, parseStoredEngineConfig, type InternalProviderConfig } from '../src/lib/engine-config.js';
 import type {
   InternalEngineCoworkContinuationRequest,
@@ -217,10 +217,28 @@ function createInternalEngineMainService() {
     version: 1;
     flows: InternalApprovalRecoveryFlow[];
   };
+  type PersistedInternalScheduleRecord = {
+    id: string;
+    name: string;
+    prompt: string;
+    schedule: string;
+    intervalMinutes: number;
+    enabled: boolean;
+    state: string;
+    nextRunAt: string | null;
+    lastRunAt: string | null;
+    model?: string;
+    lastError?: string;
+  };
+  type PersistedInternalScheduleJournal = {
+    version: 1;
+    schedules: PersistedInternalScheduleRecord[];
+  };
   const stateFilePath = path.join(runtimeHome, 'state.v1.json');
   const runJournalFilePath = path.join(runtimeHome, 'runs.v1.json');
   const artifactJournalFilePath = path.join(runtimeHome, 'artifacts.v1.json');
   const pendingApprovalJournalFilePath = path.join(runtimeHome, 'pending-approvals.v1.json');
+  const scheduleJournalFilePath = path.join(runtimeHome, 'schedules.v1.json');
   let stateLoaded = false;
   let stateWriteChain: Promise<void> = Promise.resolve();
   let stateRestoreStatus: 'fresh' | 'restored' | 'recovered_after_interruption' | 'load_failed' = 'fresh';
@@ -234,6 +252,11 @@ function createInternalEngineMainService() {
   const runs = new Map<string, PersistedInternalRunRecord>();
   let artifacts: PersistedInternalArtifactRecord[] = [];
   let pendingApprovalFlows: InternalApprovalRecoveryFlow[] = [];
+  let schedules: PersistedInternalScheduleRecord[] = [];
+  let schedulerTimer: NodeJS.Timeout | null = null;
+  const runningScheduleIds = new Set<string>();
+  let lastScheduledJobName: string | null = null;
+  let lastScheduleError: string | null = null;
   const isReadOnlyInternalAction = (action: EngineRequestedAction) => (
     action.type === 'list_dir'
     || action.type === 'read_file'
@@ -995,6 +1018,40 @@ function createInternalEngineMainService() {
     }
     return candidate as unknown as InternalApprovalRecoveryFlow;
   };
+  const parsePersistedSchedule = (value: unknown): PersistedInternalScheduleRecord | null => {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+    const candidate = value as Record<string, unknown>;
+    const id = typeof candidate.id === 'string' && candidate.id.trim() ? candidate.id.trim() : null;
+    const name = typeof candidate.name === 'string' && candidate.name.trim() ? candidate.name.trim() : null;
+    const prompt = typeof candidate.prompt === 'string' && candidate.prompt.trim() ? candidate.prompt.trim() : null;
+    if (!id || !name || !prompt) {
+      return null;
+    }
+    const intervalMinutes =
+      Number.isFinite(candidate.intervalMinutes) && Number(candidate.intervalMinutes) >= 1
+        ? Math.max(1, Math.round(Number(candidate.intervalMinutes)))
+        : 1;
+    const normalizeDateString = (entry: unknown) =>
+      typeof entry === 'string' && entry.trim() ? entry.trim() : null;
+    return {
+      id,
+      name,
+      prompt,
+      schedule:
+        typeof candidate.schedule === 'string' && candidate.schedule.trim()
+          ? candidate.schedule.trim()
+          : `every ${intervalMinutes} minute${intervalMinutes === 1 ? '' : 's'}`,
+      intervalMinutes,
+      enabled: candidate.enabled !== false,
+      state: typeof candidate.state === 'string' && candidate.state.trim() ? candidate.state.trim() : 'idle',
+      nextRunAt: normalizeDateString(candidate.nextRunAt),
+      lastRunAt: normalizeDateString(candidate.lastRunAt),
+      ...(typeof candidate.model === 'string' && candidate.model.trim() ? { model: candidate.model.trim() } : {}),
+      ...(typeof candidate.lastError === 'string' && candidate.lastError.trim() ? { lastError: candidate.lastError.trim() } : {}),
+    };
+  };
   const buildPersistedState = (): PersistedInternalEngineState => ({
     version: 1,
     activeSessionKey,
@@ -1016,6 +1073,25 @@ function createInternalEngineMainService() {
   const buildPersistedPendingApprovalJournal = (): PersistedInternalPendingApprovalJournal => ({
     version: 1,
     flows: pendingApprovalFlows,
+  });
+  const buildPersistedScheduleJournal = (): PersistedInternalScheduleJournal => ({
+    version: 1,
+    schedules: schedules
+      .slice()
+      .sort((left, right) => {
+        const leftNext = left.nextRunAt ? new Date(left.nextRunAt).getTime() : Number.MAX_SAFE_INTEGER;
+        const rightNext = right.nextRunAt ? new Date(right.nextRunAt).getTime() : Number.MAX_SAFE_INTEGER;
+        return leftNext - rightNext;
+      }),
+  });
+  const toEngineCronJob = (schedule: PersistedInternalScheduleRecord): EngineCronJob => ({
+    id: schedule.id,
+    name: schedule.name,
+    schedule: schedule.schedule,
+    enabled: schedule.enabled,
+    state: schedule.state,
+    nextRunAt: schedule.nextRunAt,
+    lastRunAt: schedule.lastRunAt,
   });
   const latestArtifactSummary = () => {
     const lastArtifact = artifacts[artifacts.length - 1];
@@ -1043,6 +1119,7 @@ function createInternalEngineMainService() {
     await fs.writeFile(runJournalFilePath, JSON.stringify(buildPersistedRunJournal(), null, 2), 'utf8');
     await fs.writeFile(artifactJournalFilePath, JSON.stringify(buildPersistedArtifactJournal(), null, 2), 'utf8');
     await fs.writeFile(pendingApprovalJournalFilePath, JSON.stringify(buildPersistedPendingApprovalJournal(), null, 2), 'utf8');
+    await fs.writeFile(scheduleJournalFilePath, JSON.stringify(buildPersistedScheduleJournal(), null, 2), 'utf8');
   };
   const persistState = async (override?: Partial<Pick<PersistedInternalEngineState, 'cleanShutdown'>>): Promise<void> => {
     stateWriteChain = stateWriteChain.then(() => writePersistedState(override));
@@ -1206,6 +1283,20 @@ function createInternalEngineMainService() {
       }
       pendingApprovalFlows = [];
     }
+    try {
+      const rawSchedules = await fs.readFile(scheduleJournalFilePath, 'utf8');
+      const parsedSchedules = JSON.parse(rawSchedules) as Record<string, unknown>;
+      schedules = Array.isArray(parsedSchedules.schedules)
+        ? parsedSchedules.schedules
+            .map((entry) => parsePersistedSchedule(entry))
+            .filter((entry): entry is PersistedInternalScheduleRecord => Boolean(entry))
+        : [];
+    } catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || (error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.warn('[Cloffice] Failed to load internal schedule journal, starting with an empty schedule journal.', error);
+      }
+      schedules = [];
+    }
 
     ensureSession(mainSessionKey, 'main');
     activeSessionKey = activeSessionKey && sessions.has(activeSessionKey) ? activeSessionKey : mainSessionKey;
@@ -1218,6 +1309,71 @@ function createInternalEngineMainService() {
       appendRecoveryNote(activeSessionKey || mainSessionKey, lastRecoveryNote);
     }
     stateLoaded = true;
+  };
+  const computeNextRunAt = (intervalMinutes: number, fromTime = now()) =>
+    new Date(fromTime + (Math.max(1, intervalMinutes) * 60_000)).toISOString();
+  const stopSchedulerLoop = () => {
+    if (schedulerTimer) {
+      clearInterval(schedulerTimer);
+      schedulerTimer = null;
+    }
+  };
+  const runScheduledPrompt = async (schedule: PersistedInternalScheduleRecord) => {
+    if (runningScheduleIds.has(schedule.id)) {
+      return;
+    }
+    runningScheduleIds.add(schedule.id);
+    schedule.state = 'running';
+    schedule.lastError = undefined;
+    await persistState();
+    const scheduledSessionKey = `internal:scheduled:chat:${schedule.id}`;
+    try {
+      const session = ensureSession(scheduledSessionKey, 'chat');
+      if (schedule.model?.trim()) {
+        session.model = resolveModelValue(schedule.model.trim());
+      }
+      await service.sendChat(session.key, schedule.prompt);
+      schedule.state = 'completed';
+      schedule.lastRunAt = new Date().toISOString();
+      schedule.nextRunAt = computeNextRunAt(schedule.intervalMinutes);
+      lastScheduledJobName = schedule.name;
+      lastScheduleError = null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Scheduled internal prompt run failed.';
+      schedule.state = 'blocked';
+      schedule.lastError = message;
+      schedule.lastRunAt = new Date().toISOString();
+      schedule.nextRunAt = computeNextRunAt(schedule.intervalMinutes);
+      lastScheduledJobName = schedule.name;
+      lastScheduleError = message;
+    } finally {
+      runningScheduleIds.delete(schedule.id);
+      await persistState();
+    }
+  };
+  const runDueSchedules = async () => {
+    if (!connected || schedules.length === 0) {
+      return;
+    }
+    const currentTime = now();
+    for (const schedule of schedules) {
+      if (!schedule.enabled || !schedule.nextRunAt) {
+        continue;
+      }
+      const dueAt = new Date(schedule.nextRunAt).getTime();
+      if (!Number.isFinite(dueAt) || dueAt > currentTime) {
+        continue;
+      }
+      await runScheduledPrompt(schedule);
+    }
+  };
+  const startSchedulerLoop = () => {
+    if (schedulerTimer) {
+      return;
+    }
+    schedulerTimer = setInterval(() => {
+      void runDueSchedules();
+    }, 15_000);
   };
 
   const ensureSession = (sessionKey: string, kind: string = 'chat') => {
@@ -1239,7 +1395,7 @@ function createInternalEngineMainService() {
     return created;
   };
 
-  return {
+  const service = {
     getStatus() {
       return shellStatus;
     },
@@ -1252,10 +1408,12 @@ function createInternalEngineMainService() {
       await loadPersistedState();
       connected = true;
       activeSessionKey = activeSessionKey && sessions.has(activeSessionKey) ? activeSessionKey : mainSessionKey;
+      startSchedulerLoop();
       await persistState({ cleanShutdown: false });
     },
     async disconnect(): Promise<void> {
       connected = false;
+      stopSchedulerLoop();
       if (stateLoaded) {
         await persistState({ cleanShutdown: true });
       }
@@ -1278,6 +1436,7 @@ function createInternalEngineMainService() {
         sessionCount: sessions.size,
         runCount: runs.size,
         artifactCount: artifacts.length,
+        scheduleCount: schedules.length,
         pendingApprovalCount: pendingApprovalFlows.length,
         interruptedRunCount,
         activeSessionKey,
@@ -1291,6 +1450,8 @@ function createInternalEngineMainService() {
         providerBackedModelCount: providerModelChoices.length,
         lastProviderId,
         lastProviderError,
+        lastScheduledJobName,
+        lastScheduleError,
       };
     },
     async getRunHistory(limit = 10): Promise<InternalEngineRunRecord[]> {
@@ -1358,6 +1519,42 @@ function createInternalEngineMainService() {
       requireConnected();
       await refreshProviderCatalogFromConfig();
       return listAvailableModels();
+    },
+    async listCronJobs(): Promise<EngineCronJob[]> {
+      requireConnected();
+      return schedules.map(toEngineCronJob);
+    },
+    async createPromptSchedule(payload: {
+      prompt: string;
+      name?: string;
+      intervalMinutes?: number;
+      model?: string | null;
+    }): Promise<EngineCronJob> {
+      requireConnected();
+      const prompt = payload.prompt.trim();
+      if (!prompt) {
+        throw new Error('Cannot create an internal schedule without a prompt.');
+      }
+      const intervalMinutes =
+        Number.isFinite(payload.intervalMinutes) && Number(payload.intervalMinutes) >= 1
+          ? Math.max(1, Math.round(Number(payload.intervalMinutes)))
+          : 1;
+      const preview = previewPrompt(prompt) || 'Scheduled prompt';
+      const record: PersistedInternalScheduleRecord = {
+        id: crypto.randomUUID(),
+        name: payload.name?.trim() || `Scheduled chat: ${preview}`,
+        prompt,
+        schedule: `every ${intervalMinutes} minute${intervalMinutes === 1 ? '' : 's'}`,
+        intervalMinutes,
+        enabled: true,
+        state: 'idle',
+        nextRunAt: computeNextRunAt(intervalMinutes),
+        lastRunAt: null,
+        ...(payload.model?.trim() ? { model: payload.model.trim() } : {}),
+      };
+      schedules = [...schedules, record];
+      await persistState();
+      return toEngineCronJob(record);
     },
     async getSessionModel(sessionKey: string): Promise<string | null> {
       requireConnected();
@@ -1918,6 +2115,7 @@ function createInternalEngineMainService() {
       return connected;
     },
   };
+  return service;
 }
 
 const extensionCategories: Record<string, string> = {
@@ -2890,6 +3088,12 @@ app.whenReady().then(async () => {
   ipcMain.handle('internal-engine:set-session-title', async (_event, sessionKey: string, title: string | null) => internalEngineService.setSessionTitle(sessionKey, title));
   ipcMain.handle('internal-engine:delete-session', async (_event, sessionKey: string) => internalEngineService.deleteSession(sessionKey));
   ipcMain.handle('internal-engine:get-history', async (_event, sessionKey: string, limit?: number) => internalEngineService.getHistory(sessionKey, limit));
+  ipcMain.handle('internal-engine:list-cron-jobs', async () => internalEngineService.listCronJobs());
+  ipcMain.handle(
+    'internal-engine:create-prompt-schedule',
+    async (_event, payload: { prompt: string; name?: string; intervalMinutes?: number; model?: string | null }) =>
+      internalEngineService.createPromptSchedule(payload),
+  );
   ipcMain.handle('internal-engine:send-chat', async (event, sessionKey: string, text: string) =>
     internalEngineService.sendChat(sessionKey, text, (frame) => {
       event.sender.send('internal-engine:event', frame);

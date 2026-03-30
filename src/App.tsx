@@ -3092,6 +3092,25 @@ export default function App() {
       return;
     }
 
+    if (draftEngineProviderId === 'internal' && bridge?.createInternalPromptSchedule) {
+      void bridge.createInternalPromptSchedule({
+        prompt: latestUserPrompt,
+        name: 'Scheduled cowork prompt',
+        intervalMinutes: 1,
+        model: coworkModel.trim() || null,
+      })
+        .then(() => {
+          setActivePage('scheduled');
+          setStatus('Created an internal one-minute schedule from the current task prompt.');
+          void loadScheduledJobs();
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : 'Unable to create internal schedule.';
+          setStatus(message);
+        });
+      return;
+    }
+
     setActivePage('scheduled');
     setStatus('Opened Schedule. Create a cron job for this task prompt from your runtime scheduler.');
   };
@@ -3793,11 +3812,6 @@ export default function App() {
 
   const loadScheduledJobs = useCallback(async () => {
     if (!configReady) {
-      return;
-    }
-
-    if (draftEngineProviderId === 'internal') {
-      setScheduledJobs([]);
       return;
     }
 

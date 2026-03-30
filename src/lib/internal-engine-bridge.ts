@@ -41,6 +41,7 @@ export type InternalEngineRuntimeInfo = {
   sessionCount: number;
   runCount: number;
   artifactCount: number;
+  scheduleCount: number;
   pendingApprovalCount: number;
   interruptedRunCount: number;
   activeSessionKey: string | null;
@@ -54,6 +55,8 @@ export type InternalEngineRuntimeInfo = {
   providerBackedModelCount: number;
   lastProviderId: InternalChatProviderId | null;
   lastProviderError: string | null;
+  lastScheduledJobName: string | null;
+  lastScheduleError: string | null;
 };
 
 export type InternalEngineRunTimelineEntry = {
@@ -243,6 +246,13 @@ export type InternalEngineDesktopBridge = {
   setInternalSessionTitle(sessionKey: string, title: string | null): Promise<void>;
   deleteInternalSession(sessionKey: string): Promise<void>;
   getInternalHistory(sessionKey: string, limit?: number): Promise<EngineChatMessage[]>;
+  listInternalCronJobs(): Promise<EngineCronJob[]>;
+  createInternalPromptSchedule(payload: {
+    prompt: string;
+    name?: string;
+    intervalMinutes?: number;
+    model?: string | null;
+  }): Promise<EngineCronJob>;
   sendInternalChat(sessionKey: string, text: string): Promise<InternalEngineSendChatResult>;
   setInternalEngineEventHandler(handler: ((frame: EngineEventFrame) => void) | null): void;
   testInternalProviderConnection(
@@ -355,7 +365,7 @@ export function createDesktopBackedInternalEngineBridge(
       setEventHandler: (handler) => desktopBridge.setInternalEngineEventHandler(handler),
     },
     scheduling: {
-      listCronJobs: () => fail<EngineCronJob[]>(),
+      listCronJobs: () => desktopBridge.listInternalCronJobs(),
     },
     tools: {
       fetchToolsCatalog: () => fail<EngineToolsCatalog>(),

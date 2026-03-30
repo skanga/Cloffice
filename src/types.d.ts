@@ -15,7 +15,7 @@ import type {
 } from './app-types';
 import type { DesktopBridgeEngineConfig, EngineDraftConfig } from './lib/engine-config';
 import type { EngineDiscoveryResult } from './lib/engine-discovery';
-import type { EngineChatMessage, EngineConnectOptions, EngineEventFrame, EngineModelChoice, EngineRuntimeHealthResult, EngineSessionSummary } from './lib/engine-runtime-types';
+import type { EngineChatMessage, EngineConnectOptions, EngineCronJob, EngineEventFrame, EngineModelChoice, EngineRuntimeHealthResult, EngineSessionSummary } from './lib/engine-runtime-types';
 import type { InternalProviderConfig } from './lib/engine-config';
 import type {
   InternalEngineCoworkContinuationRequest,
@@ -50,6 +50,13 @@ type DesktopBridgeApi = {
   setInternalSessionTitle: (sessionKey: string, title: string | null) => Promise<void>;
   deleteInternalSession: (sessionKey: string) => Promise<void>;
   getInternalHistory: (sessionKey: string, limit?: number) => Promise<EngineChatMessage[]>;
+  listInternalCronJobs: () => Promise<EngineCronJob[]>;
+  createInternalPromptSchedule: (payload: {
+    prompt: string;
+    name?: string;
+    intervalMinutes?: number;
+    model?: string | null;
+  }) => Promise<EngineCronJob>;
   sendInternalChat: (sessionKey: string, text: string) => Promise<InternalEngineSendChatResult>;
   setInternalEngineEventHandler: (handler: ((frame: EngineEventFrame) => void) | null) => void;
   testInternalProviderConnection: (

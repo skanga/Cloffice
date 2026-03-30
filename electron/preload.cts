@@ -216,6 +216,10 @@ const desktopBridgeApi = {
     ipcRenderer.invoke('internal-engine:delete-session', sessionKey) as Promise<void>,
   getInternalHistory: (sessionKey: string, limit?: number) =>
     ipcRenderer.invoke('internal-engine:get-history', sessionKey, limit) as Promise<Array<{ id: string; role: 'user' | 'assistant' | 'system'; text: string }>>,
+  listInternalCronJobs: () =>
+    ipcRenderer.invoke('internal-engine:list-cron-jobs') as Promise<Array<{ id: string; name: string; schedule: string; enabled: boolean; state: string; nextRunAt: string | null; lastRunAt: string | null }>>,
+  createInternalPromptSchedule: (payload: { prompt: string; name?: string; intervalMinutes?: number; model?: string | null }) =>
+    ipcRenderer.invoke('internal-engine:create-prompt-schedule', payload) as Promise<{ id: string; name: string; schedule: string; enabled: boolean; state: string; nextRunAt: string | null; lastRunAt: string | null }>,
   sendInternalChat: (sessionKey: string, text: string) =>
     ipcRenderer.invoke('internal-engine:send-chat', sessionKey, text) as Promise<InternalEngineSendChatResult>,
   setInternalEngineEventHandler: (() => {

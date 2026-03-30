@@ -23,6 +23,13 @@ interface Window {
     setInternalSessionTitle: (sessionKey: string, title: string | null) => Promise<void>;
     deleteInternalSession: (sessionKey: string) => Promise<void>;
     getInternalHistory: (sessionKey: string, limit?: number) => Promise<any[]>;
+    listInternalCronJobs: () => Promise<any[]>;
+    createInternalPromptSchedule: (payload: {
+      prompt: string;
+      name?: string;
+      intervalMinutes?: number;
+      model?: string | null;
+    }) => Promise<any>;
     sendInternalChat: (sessionKey: string, text: string) => Promise<any>;
     setInternalEngineEventHandler: (handler: ((frame: any) => void) | null) => void;
     testInternalProviderConnection: (providerId: 'openai' | 'anthropic' | 'gemini', config?: any) => Promise<any>;

@@ -139,13 +139,60 @@ try {
       throw new Error(`cowork continuation missing stat preview: ${JSON.stringify(continuation.execution)}`);
     }
 
+    const schedulerToken = `scheduler-smoke-${Date.now()}`;
+    const scheduledPrompt = `Internal scheduler smoke prompt ${schedulerToken}. Reply with a concise acknowledgement.`;
+    const createdSchedule = await callBridge(`(async () => {
+      const bridge = window.cloffice ?? window.relay;
+      return bridge.createInternalPromptSchedule({
+        prompt: ${JSON.stringify(scheduledPrompt)},
+        name: ${JSON.stringify(`Scheduler smoke ${Date.now()}`)},
+        intervalMinutes: 1,
+        model: 'internal/dev-brief',
+      });
+    })()`);
+    if (!createdSchedule?.id || typeof createdSchedule.name !== 'string' || !createdSchedule.name.startsWith('Scheduler smoke')) {
+      throw new Error(`internal schedule was not created: ${JSON.stringify(createdSchedule)}`);
+    }
+
+    const listedSchedules = await callBridge(`(async () => {
+      const bridge = window.cloffice ?? window.relay;
+      return bridge.listInternalCronJobs();
+    })()`);
+    if (!Array.isArray(listedSchedules) || !listedSchedules.some((job) => job.id === createdSchedule.id)) {
+      throw new Error(`created internal schedule missing from list: ${JSON.stringify(listedSchedules)}`);
+    }
+
+    const scheduleWaitStartedAt = Date.now();
+    let scheduledRun = null;
+    while (!scheduledRun && Date.now() - scheduleWaitStartedAt < 90_000) {
+      const history = await callBridge(`(async () => {
+        const bridge = window.cloffice ?? window.relay;
+        return bridge.getInternalRunHistory(30);
+      })()`);
+      scheduledRun = Array.isArray(history)
+        ? history.find((run) => typeof run?.sessionKey === 'string'
+          && run.sessionKey.startsWith('internal:scheduled:chat:')
+          && typeof run?.promptPreview === 'string'
+          && run.promptPreview.includes(schedulerToken))
+        : null;
+      if (!scheduledRun) {
+        await sleep(5_000);
+      }
+    }
+    if (!scheduledRun) {
+      throw new Error('scheduled internal prompt did not fire within the expected window');
+    }
+
     const after = await callBridge(`(async () => {
       const bridge = window.cloffice ?? window.relay;
       return bridge.getInternalEngineRuntimeInfo();
     })()`);
 
-    if (after.connected !== true || after.readiness !== 'ready' || after.activeSessionKey !== coworkSessionKey) {
+    if (after.connected !== true || after.readiness !== 'ready') {
       throw new Error(`unexpected post-chat runtime info: ${JSON.stringify(after)}`);
+    }
+    if (after.lastScheduledJobName !== createdSchedule.name) {
+      throw new Error(`scheduled runtime info did not record the fired job: ${JSON.stringify(after)}`);
     }
 
     await callBridge(`(async () => {
@@ -164,6 +211,9 @@ try {
       coworkActionMode: cowork.engineActionMode,
       coworkActionTypes: cowork.requestedActions?.map((action) => action.type) ?? [],
       continuationPhase: continuation.engineActionPhase,
+      scheduleId: createdSchedule.id,
+      scheduleCount: after.scheduleCount,
+      lastScheduledJobName: after.lastScheduledJobName,
       sessionCount: after.sessionCount,
       activeSessionKey: after.activeSessionKey,
     };
