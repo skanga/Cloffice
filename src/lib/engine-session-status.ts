@@ -1,4 +1,10 @@
 export type EngineSessionScope = 'chat' | 'cowork';
+export type EngineSessionOperation =
+  | 'resolve_active'
+  | 'create_chat'
+  | 'update_model'
+  | 'delete'
+  | 'sync_title';
 
 function labelForScope(scope: EngineSessionScope): string {
   return scope === 'cowork' ? 'task' : 'chat';
@@ -81,4 +87,43 @@ export function buildRenamedRecentSessionStatus(scope: EngineSessionScope): stri
 
 export function buildDeletedRecentSessionStatus(scope: EngineSessionScope): string {
   return `${titleForScope(scope)} deleted.`;
+}
+
+export function buildRuntimeClientUnavailableStatus(): string {
+  return 'Runtime client not initialized.';
+}
+
+export function buildMissingActiveSessionError(): string {
+  return 'No active session available from the current runtime.';
+}
+
+export function buildUnableToResolveActiveSessionError(message: string): string {
+  return `Unable to get active session. ${message}`;
+}
+
+export function buildMissingCreatedSessionKeyError(): string {
+  return 'No session key returned from the current runtime.';
+}
+
+export function buildNoActiveChatSessionError(): string {
+  return 'No active chat session. Start a new chat first.';
+}
+
+export function buildSessionOperationFailureStatus(
+  operation: EngineSessionOperation,
+  scope: EngineSessionScope = 'chat',
+): string {
+  if (operation === 'create_chat') {
+    return 'Failed to create chat session.';
+  }
+  if (operation === 'update_model') {
+    return scope === 'cowork' ? 'Failed to update cowork model.' : 'Failed to update model.';
+  }
+  if (operation === 'delete') {
+    return 'Unable to delete session.';
+  }
+  if (operation === 'sync_title') {
+    return 'Renamed locally. Runtime title sync is not available on this server.';
+  }
+  return 'Unable to get active session.';
 }

@@ -88,13 +88,19 @@ import {
   buildInvalidSessionKeyStatus,
   buildLoadedSessionStatus,
   buildLoadingRecentSessionStatus,
+  buildMissingActiveSessionError,
+  buildMissingCreatedSessionKeyError,
+  buildNoActiveChatSessionError,
   buildOpenedRecentSessionStatus,
   buildPendingCoworkModelSelectionStatus,
   buildRenamedRecentSessionStatus,
+  buildRuntimeClientUnavailableStatus,
+  buildSessionOperationFailureStatus,
   buildSessionModelResetStatus,
   buildSessionModelUpdatedStatus,
   buildSessionReadyStatus,
   buildStartedNewChatStatus,
+  buildUnableToResolveActiveSessionError,
 } from './lib/engine-session-status';
 import { createFileService, LocalFileService } from './lib/file-service';
 import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
@@ -1731,7 +1737,7 @@ export default function App() {
     try {
       const sessionKey = normalizeSessionKey(await client.getActiveSessionKey());
       if (!sessionKey) {
-        throw new Error('No active session available from the current runtime.');
+        throw new Error(buildMissingActiveSessionError());
       }
 
       commitActiveSessionKey(sessionKey);
@@ -1740,7 +1746,7 @@ export default function App() {
       return sessionKey;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Unable to get active session. ${message}`);
+      throw new Error(buildUnableToResolveActiveSessionError(message));
     }
   };
 
@@ -1759,7 +1765,7 @@ export default function App() {
     if (options?.createIfMissing) {
       const sessionKey = normalizeSessionKey(await client.createChatSession());
       if (!sessionKey) {
-        throw new Error('No session key returned from the current runtime.');
+        throw new Error(buildMissingCreatedSessionKeyError());
       }
       commitActiveSessionKey(sessionKey);
       await loadRecentChatsFromBackend(client);
@@ -1767,7 +1773,7 @@ export default function App() {
       return sessionKey;
     }
 
-    throw new Error('No active chat session. Start a new chat first.');
+    throw new Error(buildNoActiveChatSessionError());
   };
 
   const loadModelsForSession = async (client: EngineClientInstance, sessionKey?: string | null) => {
@@ -2690,7 +2696,7 @@ export default function App() {
   const handleResetPairing = async () => {
     const client = engineClientRef.current;
     if (!client) {
-      setStatus('Runtime client not initialized.');
+      setStatus(buildRuntimeClientUnavailableStatus());
       return;
     }
 
@@ -2762,7 +2768,7 @@ export default function App() {
 
     const client = engineClientRef.current;
     if (!client) {
-      setStatus('Runtime client not initialized.');
+      setStatus(buildRuntimeClientUnavailableStatus());
       setCoworkSending(false);
       return;
     }
@@ -3527,7 +3533,7 @@ export default function App() {
 
     const client = engineClientRef.current;
     if (!client) {
-      setStatus('Runtime client not initialized.');
+      setStatus(buildRuntimeClientUnavailableStatus());
       return;
     }
 
@@ -3543,7 +3549,7 @@ export default function App() {
         await ensureConnectedClient(client);
         sessionKey = normalizeSessionKey(await client.createChatSession());
         if (!sessionKey) {
-          throw new Error('No session key returned from the current runtime.');
+          throw new Error(buildMissingCreatedSessionKeyError());
         }
         // Avoid loading history immediately after creating a fresh session,
         // which can race and overwrite the optimistic first user message.
@@ -3605,7 +3611,7 @@ export default function App() {
 
     const client = engineClientRef.current;
     if (!client) {
-      setStatus('Runtime client not initialized.');
+      setStatus(buildRuntimeClientUnavailableStatus());
       setSelectedModel(previousModel);
       return;
     }
@@ -3620,7 +3626,7 @@ export default function App() {
           : buildSessionModelResetStatus({ scope: 'chat', sessionKey }),
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to update model.';
+      const message = error instanceof Error ? error.message : buildSessionOperationFailureStatus('update_model', 'chat');
       setStatus(message);
       setSelectedModel(previousModel);
     } finally {
@@ -3634,7 +3640,7 @@ export default function App() {
 
     const client = engineClientRef.current;
     if (!client) {
-      setStatus('Runtime client not initialized.');
+      setStatus(buildRuntimeClientUnavailableStatus());
       setCoworkModel(previousModel);
       return;
     }
@@ -3655,7 +3661,7 @@ export default function App() {
           : buildSessionModelResetStatus({ scope: 'cowork', sessionKey }),
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to update cowork model.';
+      const message = error instanceof Error ? error.message : buildSessionOperationFailureStatus('update_model', 'cowork');
       setStatus(message);
       setCoworkModel(previousModel);
     } finally {
@@ -3666,7 +3672,7 @@ export default function App() {
   const handleStartNewChat = async () => {
     const client = engineClientRef.current;
     if (!client) {
-      setStatus('Runtime client not initialized.');
+      setStatus(buildRuntimeClientUnavailableStatus());
       return;
     }
 
@@ -3687,7 +3693,7 @@ export default function App() {
       await ensureConnectedClient(client);
       const sessionKey = normalizeSessionKey(await client.createChatSession());
       if (!sessionKey) {
-        throw new Error('No session key returned from the current runtime.');
+        throw new Error(buildMissingCreatedSessionKeyError());
       }
       commitActiveSessionKey(sessionKey);
       setActivePage('chat');
@@ -3695,7 +3701,7 @@ export default function App() {
       void loadModelsForSession(client, sessionKey);
 
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to create chat session.';
+      const message = error instanceof Error ? error.message : buildSessionOperationFailureStatus('create_chat');
       setStatus(message);
     }
   };
@@ -3797,7 +3803,7 @@ export default function App() {
           await ensureConnectedClient(client);
           await client.setSessionTitle(recentRenameTarget.sessionKey, nextTitle);
         } catch {
-          setStatus('Renamed locally. Runtime title sync is not available on this server.');
+          setStatus(buildSessionOperationFailureStatus('sync_title'));
         }
       }
 
@@ -3821,7 +3827,7 @@ export default function App() {
 
     const client = engineClientRef.current;
     if (!client) {
-      setStatus('Runtime client not initialized.');
+      setStatus(buildRuntimeClientUnavailableStatus());
       return;
     }
 
@@ -3833,7 +3839,7 @@ export default function App() {
       setStatus(buildDeletedRecentSessionStatus(recentDeleteTarget.kind));
       setRecentDeleteTarget(null);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to delete session.';
+      const message = error instanceof Error ? error.message : buildSessionOperationFailureStatus('delete');
       setStatus(message);
     } finally {
       setRecentActionBusy(false);
@@ -3847,7 +3853,7 @@ export default function App() {
 
     const client = engineClientRef.current;
     if (!client) {
-      setStatus('Runtime client not initialized.');
+      setStatus(buildRuntimeClientUnavailableStatus());
       return;
     }
 

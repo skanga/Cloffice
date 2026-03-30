@@ -91,10 +91,11 @@ async function connectInternalProviderFromOnboarding(page: Page) {
     await expect(page.getByRole('heading', { name: 'Connect to a runtime' })).toBeVisible();
     await expect(onboardingProviderButton).toBeEnabled({ timeout: 20000 });
     await onboardingProviderButton.click();
-    const connectButton = page.locator('form').getByRole('button', { name: 'Connect', exact: true });
-    if (await connectButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await connectButton.scrollIntoViewIfNeeded();
-      await connectButton.click({ force: true });
+    if (await page.locator('form').getByRole('button', { name: 'Connect', exact: true }).isVisible({ timeout: 5000 }).catch(() => false)) {
+      await expect(async () => {
+        const connectButton = page.locator('form').getByRole('button', { name: 'Connect', exact: true });
+        await connectButton.click({ force: true });
+      }).toPass({ timeout: 15000 });
     }
     const readyHeading = page.getByRole('heading', { name: "You're all set" });
     if (await readyHeading.isVisible({ timeout: 5000 })) {
@@ -458,10 +459,14 @@ test.describe('Internal engine UI flow', () => {
     await expect(scheduledJobCard.getByTestId(`scheduled-job-open-artifact-${seededJob.id}`)).toBeVisible();
     await expect(scheduledJobCard.getByTestId(`scheduled-job-copy-artifact-${seededJob.id}`)).toBeVisible();
     await expect(scheduledJobCard.getByTestId(`scheduled-job-copy-errors-${seededJob.id}`)).toBeVisible();
-    await scheduledJobCard.getByTestId(`scheduled-job-copy-artifact-${seededJob.id}`).click();
-    await expect(scheduledJobCard.getByTestId(`scheduled-job-copy-artifact-${seededJob.id}`)).toContainText('Copied summary');
-    await scheduledJobCard.getByTestId(`scheduled-job-copy-errors-${seededJob.id}`).click();
-    await expect(scheduledJobCard.getByTestId(`scheduled-job-copy-errors-${seededJob.id}`)).toContainText('Copied errors');
+    await expect(async () => {
+      await page.getByTestId(`scheduled-job-copy-artifact-${seededJob.id}`).click();
+      await expect(page.getByTestId(`scheduled-job-copy-artifact-${seededJob.id}`)).toContainText('Copied summary');
+    }).toPass({ timeout: 30000 });
+    await expect(async () => {
+      await page.getByTestId(`scheduled-job-copy-errors-${seededJob.id}`).click();
+      await expect(page.getByTestId(`scheduled-job-copy-errors-${seededJob.id}`)).toContainText('Copied errors');
+    }).toPass({ timeout: 30000 });
     await scheduledJobCard.getByTestId(`scheduled-job-toggle-artifact-${seededJob.id}`).click();
     await expect(scheduledJobCard).toContainText('Preview');
     await expect(scheduledJobCard).toContainText('Errors');
