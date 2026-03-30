@@ -178,6 +178,8 @@ function createInternalEngineMainService() {
     sessionKey: string;
     sessionKind: string;
     model: string;
+    providerBacked?: boolean;
+    providerPhase?: 'chat' | 'planning' | 'continuation';
     actionMode: 'none' | 'read-only';
     status: PersistedInternalRunStatus;
     startedAt: number;
@@ -784,6 +786,10 @@ function createInternalEngineMainService() {
         ? candidate.sessionKind.trim()
         : (sessionKey.startsWith('internal:cowork:') ? 'cowork' : 'chat'),
       model: resolveModelValue(typeof candidate.model === 'string' ? candidate.model : resolveDefaultModel()),
+      ...(typeof candidate.providerBacked === 'boolean' ? { providerBacked: candidate.providerBacked } : {}),
+      ...(candidate.providerPhase === 'chat' || candidate.providerPhase === 'planning' || candidate.providerPhase === 'continuation'
+        ? { providerPhase: candidate.providerPhase }
+        : {}),
       actionMode: candidate.actionMode === 'read-only' ? 'read-only' : 'none',
       status,
       startedAt: Number.isFinite(candidate.startedAt) ? Number(candidate.startedAt) : now(),
@@ -1403,6 +1409,10 @@ function createInternalEngineMainService() {
         sessionKey: session.key,
         sessionKind: session.kind,
         model: nextModel,
+        ...(providerBackedChat ? { providerBacked: true as const } : {}),
+        ...(providerBackedChat
+          ? { providerPhase: session.kind === 'cowork' ? ('planning' as const) : ('chat' as const) }
+          : {}),
         actionMode: requestedActions.length > 0 ? 'read-only' : 'none',
         status: requestedActions.length > 0 ? 'awaiting_approval' : 'completed',
         startedAt: now(),
@@ -1536,7 +1546,10 @@ function createInternalEngineMainService() {
       let assistantText: string;
       const streamMessageId = crypto.randomUUID();
       const priorActionIdentities = new Set(
-        [...payload.approvedActions, ...payload.rejectedActions].map((action) => `${action.type ?? action.actionType}:${action.path}`),
+        [
+          ...payload.approvedActions.map((action) => `${action.type}:${action.path}`),
+          ...payload.rejectedActions.map((action) => `${action.actionType}:${action.path}`),
+        ],
       );
       if (providerBackedCowork) {
         await refreshProviderCatalogFromConfig();
@@ -1625,6 +1638,7 @@ function createInternalEngineMainService() {
         sessionKey: session.key,
         sessionKind: session.kind,
         model: nextModel,
+        ...(providerBackedCowork ? { providerBacked: true as const, providerPhase: 'continuation' as const } : {}),
         actionMode: requestedActions.length > 0 ? 'read-only' : 'none',
         status: requestedActions.length > 0 ? 'awaiting_approval' : continuationBlocked ? 'blocked' : 'completed',
         startedAt: existingRun?.startedAt ?? now(),

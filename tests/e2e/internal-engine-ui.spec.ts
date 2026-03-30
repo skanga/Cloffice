@@ -274,7 +274,7 @@ test.describe('Internal engine UI flow', () => {
     expect(resolvedApprovals).toBeGreaterThanOrEqual(2);
 
     await waitForPromptStatus(page, 'UI-READ-ONLY-1', 'running');
-    await expect(page.getByText('Listed: .')).toBeVisible({ timeout: 30000 });
+    await expect(page.getByRole('button', { name: 'Listed: .' })).toBeVisible({ timeout: 30000 });
     await waitForPromptStatus(page, 'UI-READ-ONLY-1', 'completed');
   });
 });

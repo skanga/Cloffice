@@ -96,6 +96,8 @@ export type InternalEngineRunRecord = {
   sessionKey: string;
   sessionKind: string;
   model: string;
+  providerBacked?: boolean;
+  providerPhase?: 'chat' | 'planning' | 'continuation';
   actionMode: 'none' | 'read-only';
   status: 'running' | 'awaiting_approval' | 'executing' | 'completed' | 'blocked' | 'interrupted';
   startedAt: number;

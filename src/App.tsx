@@ -4205,6 +4205,9 @@ export default function App() {
                   pendingApprovals={visiblePendingApprovals}
                   projectTasks={visibleCoworkTasks}
                   sending={coworkSending}
+                  runPhase={coworkRunPhase}
+                  runStatus={coworkRunStatus}
+                  streamingText={coworkStreamingText}
                   engineConnected={engineConnected}
                   webSearchEnabled={coworkWebSearchEnabled}
                   projectPathReferences={coworkProjectPathReferences}

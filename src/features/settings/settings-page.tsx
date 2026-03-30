@@ -1205,6 +1205,16 @@ export function SettingsPage({
                                   </p>
                                 </div>
                                 <div className="flex flex-wrap gap-1">
+                                  {run.providerBacked ? (
+                                    <Badge variant="outline" className="rounded-full font-sans text-[10px]">
+                                      {t('Provider-backed', 'Provider-gestuetzt')}
+                                    </Badge>
+                                  ) : null}
+                                  {run.providerPhase ? (
+                                    <Badge variant="outline" className="rounded-full font-sans text-[10px]">
+                                      {t('Phase', 'Phase')}: {run.providerPhase}
+                                    </Badge>
+                                  ) : null}
                                   {run.actionMode === 'read-only' ? (
                                     <Badge variant="outline" className="rounded-full font-sans text-[10px]">
                                       {t('Read-only actions', 'Nur Leseaktionen')}

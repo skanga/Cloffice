@@ -47,6 +47,9 @@ type CoworkPageProps = {
   pendingApprovals: PendingApprovalAction[];
   projectTasks: CoworkProjectTask[];
   sending: boolean;
+  runPhase: 'idle' | 'sending' | 'streaming' | 'completed' | 'error';
+  runStatus: string;
+  streamingText: string;
   engineConnected: boolean;
   webSearchEnabled: boolean;
   projectPathReferences: ProjectPathReference[];
@@ -173,6 +176,9 @@ export function CoworkPage({
   pendingApprovals,
   projectTasks,
   sending,
+  runPhase,
+  runStatus,
+  streamingText,
   engineConnected,
   webSearchEnabled,
   projectPathReferences,
@@ -200,6 +206,14 @@ export function CoworkPage({
   const canSend = composerText.trim().length > 0 && !sending && projectSelected && engineConnected;
   const visibleMessages = useMemo(() => messages.filter((message) => !isSystemLikeMessage(message)), [messages]);
   const isInitialWorkspace = visibleMessages.length === 0;
+  const trimmedStreamingText = streamingText.trim();
+  const normalizedRunStatus = runStatus.trim();
+  const showRunBanner =
+    runPhase !== 'idle'
+    || (Boolean(normalizedRunStatus) && normalizedRunStatus !== 'Ready for a new task.')
+    || sending
+    || awaitingStream
+    || Boolean(trimmedStreamingText);
   const dateTimeFormatter = useMemo(
     () =>
       new Intl.DateTimeFormat(undefined, {
@@ -585,6 +599,43 @@ export function CoworkPage({
     );
   };
 
+  const renderRunBanner = () => {
+    if (!showRunBanner) {
+      return null;
+    }
+
+    const toneClass =
+      runPhase === 'error'
+        ? 'border-destructive/35 bg-destructive/10 text-destructive'
+        : runPhase === 'completed'
+          ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+          : 'border-sky-500/30 bg-sky-500/10 text-sky-800 dark:text-sky-200';
+
+    return (
+      <Card className={`overflow-hidden rounded-2xl border shadow-sm ${toneClass}`} data-testid="cowork-run-banner">
+        <CardContent className="space-y-2 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="font-sans text-xs font-semibold uppercase tracking-wide">
+              {runPhase === 'idle' ? 'Ready' : runPhase}
+            </p>
+            {(sending || awaitingStream) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          </div>
+          {normalizedRunStatus ? (
+            <p className="font-sans text-sm text-current">{normalizedRunStatus}</p>
+          ) : null}
+          {trimmedStreamingText ? (
+            <div className="rounded-xl border border-current/15 bg-background/60 px-2.5 py-2">
+              <p className="mb-1 font-sans text-[10px] uppercase tracking-wide text-muted-foreground">Live output</p>
+              <p className="font-sans text-xs leading-5 text-foreground whitespace-pre-wrap">
+                {trimmedStreamingText}
+              </p>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+    );
+  };
+
   return (
     !engineConnected ? (
       <section className="grid h-full w-full place-items-center p-6">
@@ -631,6 +682,7 @@ export function CoworkPage({
                 </div>
 
                 <div className="mt-4 grid gap-2">
+                  {renderRunBanner()}
                   {renderPendingApprovalsPanel()}
                   {renderCoworkComposer('min-h-[90px]')}
                 </div>
@@ -638,6 +690,7 @@ export function CoworkPage({
             </div>
           ) : (
             <div className="mx-auto grid w-full max-w-[860px] gap-3" role="log" aria-live="polite" aria-relevant="additions">
+              {renderRunBanner()}
               {visibleMessages.map((message) => {
                 const inline = extractInlineActivityCards(message);
 
@@ -715,7 +768,7 @@ export function CoworkPage({
                 );
               })}
 
-              {(sending || awaitingStream) && (
+              {(sending || awaitingStream) && !trimmedStreamingText && (
                 <article className="w-[min(95%,720px)] px-2 py-0 font-sans text-sm text-muted-foreground">
                   <div className="inline-flex items-center gap-2 rounded-xl bg-muted px-3 py-2">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
