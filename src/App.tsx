@@ -46,6 +46,14 @@ import { AppSidebar } from './components/layout/app-sidebar';
 import { AppTitlebar } from './components/layout/app-titlebar';
 import { Button } from './components/ui/button';
 import {
+  buildCoworkReadyStatus,
+  buildOpenedPreviousCoworkSessionStatus,
+  buildPageLoadingFallback,
+  buildSearchDialogDescription,
+  buildSearchEmptyState,
+  buildSearchInputPlaceholder,
+} from './lib/app-shell-status';
+import {
   Command,
   CommandDialog,
   CommandEmpty,
@@ -695,7 +703,7 @@ export default function App() {
   const [coworkStreamingText, setCoworkStreamingText] = useState('');
   const [coworkModel, setCoworkModel] = useState('');
   const [coworkRunPhase, setCoworkRunPhase] = useState<CoworkRunPhase>('idle');
-  const [coworkRunStatus, setCoworkRunStatus] = useState('Ready for a new task.');
+  const [coworkRunStatus, setCoworkRunStatus] = useState(buildCoworkReadyStatus());
   const [coworkWebSearchEnabled, setCoworkWebSearchEnabled] = useState<boolean>(() => {
     try {
       return localStorage.getItem(COWORK_WEB_SEARCH_MODE_STORAGE_KEY) === 'true';
@@ -2078,10 +2086,10 @@ export default function App() {
           setCoworkAwaitingStream(false);
           setCoworkStreamingText('');
           setCoworkRunPhase('idle');
-          setCoworkRunStatus('Ready for a new task.');
+          setCoworkRunStatus(buildCoworkReadyStatus());
           setLocalPlanActions([]);
           handleCoworkPromptChange('');
-          setStatus('Ready for a new task.');
+          setStatus(buildCoworkReadyStatus());
           setCoworkResetKey((c) => c + 1);
         } else {
           void handleStartNewChat();
@@ -3837,7 +3845,7 @@ export default function App() {
     handleCoworkPromptChange('');
     setCoworkAwaitingStream(false);
     setCoworkRunPhase('idle');
-    setCoworkRunStatus('Opened previous cowork session.');
+    setCoworkRunStatus(buildOpenedPreviousCoworkSessionStatus());
 
     const cached = coworkMessageCache.current.get(normalized);
     if (cached && cached.length > 0) {
@@ -4077,7 +4085,7 @@ export default function App() {
 
   const pageLoadingFallback = (
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-      Loading page...
+      {buildPageLoadingFallback()}
     </div>
   );
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
@@ -4288,17 +4296,17 @@ export default function App() {
               open={searchOpen}
               onOpenChange={handleSearchOpenChange}
               title="Search"
-              description="Search chats and projects"
+              description={buildSearchDialogDescription()}
               className="w-[min(980px,94vw)] max-w-none"
             >
               <Command>
                 <CommandInput
-                  placeholder="Search chats and projects"
+                  placeholder={buildSearchInputPlaceholder()}
                   value={searchQuery}
                   onValueChange={setSearchQuery}
                 />
                 <CommandList>
-                  <CommandEmpty>No results found.</CommandEmpty>
+                  <CommandEmpty>{buildSearchEmptyState()}</CommandEmpty>
                   <CommandGroup>
                     {matchingChats.map((thread) => (
                       <CommandItem
