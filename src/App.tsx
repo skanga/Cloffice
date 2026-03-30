@@ -83,6 +83,19 @@ import {
   describeEngineResetPairingFailure,
   shouldRestoreInternalApprovalRecovery,
 } from './lib/engine-connection-status';
+import {
+  buildDeletedRecentSessionStatus,
+  buildInvalidSessionKeyStatus,
+  buildLoadedSessionStatus,
+  buildLoadingRecentSessionStatus,
+  buildOpenedRecentSessionStatus,
+  buildPendingCoworkModelSelectionStatus,
+  buildRenamedRecentSessionStatus,
+  buildSessionModelResetStatus,
+  buildSessionModelUpdatedStatus,
+  buildSessionReadyStatus,
+  buildStartedNewChatStatus,
+} from './lib/engine-session-status';
 import { createFileService, LocalFileService } from './lib/file-service';
 import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
 import {
@@ -1565,7 +1578,7 @@ export default function App() {
 
     const requestedSessionKey = normalizeSessionKey(sessionKeyInput);
     if (!requestedSessionKey) {
-      setStatus('Invalid session key.');
+      setStatus(buildInvalidSessionKeyStatus('chat'));
       return;
     }
     commitActiveSessionKey(requestedSessionKey);
@@ -1636,13 +1649,13 @@ export default function App() {
       });
 
       if (statusMessage) {
-        if (titleFromHistory) {
-          setStatus(`${statusMessage}: ${titleFromHistory}`);
-        } else if (history.length === 0) {
-          setStatus(`${statusMessage}: no messages in this chat yet.`);
-        } else {
-          setStatus(`${statusMessage}: ${toFallbackThreadTitle(resolvedSessionKey, 'chat')}`);
-        }
+        setStatus(buildLoadedSessionStatus({
+          scope: 'chat',
+          prefix: statusMessage,
+          titleFromHistory: titleFromHistory || undefined,
+          hasMessages: history.length > 0,
+          fallbackTitle: toFallbackThreadTitle(resolvedSessionKey, 'chat'),
+        }));
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to load chat session.';
@@ -1666,7 +1679,7 @@ export default function App() {
 
     const requestedSessionKey = normalizeSessionKey(sessionKeyInput);
     if (!requestedSessionKey) {
-      setStatus('Invalid cowork session key.');
+      setStatus(buildInvalidSessionKeyStatus('cowork'));
       return;
     }
 
@@ -1697,11 +1710,12 @@ export default function App() {
       });
 
       if (statusMessage) {
-        setStatus(
-          titleFromHistory
-            ? `${statusMessage}: ${titleFromHistory}`
-            : `${statusMessage}: ${toFallbackThreadTitle(requestedSessionKey, 'cowork')}`,
-        );
+        setStatus(buildLoadedSessionStatus({
+          scope: 'cowork',
+          prefix: statusMessage,
+          titleFromHistory: titleFromHistory || undefined,
+          fallbackTitle: toFallbackThreadTitle(requestedSessionKey, 'cowork'),
+        }));
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to load cowork session.';
@@ -1722,7 +1736,7 @@ export default function App() {
 
       commitActiveSessionKey(sessionKey);
       await loadRecentChatsFromBackend(client);
-      setStatus(`Session ready: ${sessionKey}`);
+      setStatus(buildSessionReadyStatus(sessionKey));
       return sessionKey;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1749,7 +1763,7 @@ export default function App() {
       }
       commitActiveSessionKey(sessionKey);
       await loadRecentChatsFromBackend(client);
-      setStatus(`Session ready: ${sessionKey}`);
+      setStatus(buildSessionReadyStatus(sessionKey));
       return sessionKey;
     }
 
@@ -3602,8 +3616,8 @@ export default function App() {
       await client.setSessionModel(sessionKey, nextModelValue || null);
       setStatus(
         nextModelValue
-          ? `Model updated for session ${sessionKey}: ${nextModelValue}`
-          : `Model reset to default for session ${sessionKey}.`,
+          ? buildSessionModelUpdatedStatus({ scope: 'chat', sessionKey, modelValue: nextModelValue })
+          : buildSessionModelResetStatus({ scope: 'chat', sessionKey }),
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update model.';
@@ -3627,11 +3641,7 @@ export default function App() {
 
     const sessionKey = normalizeSessionKey(coworkSessionKeyRef.current);
     if (!sessionKey) {
-      setStatus(
-        nextModelValue
-          ? `Cowork model selected: ${nextModelValue}. It will apply on the next task run.`
-          : 'Cowork model reset to default. It will apply on the next task run.',
-      );
+      setStatus(buildPendingCoworkModelSelectionStatus(nextModelValue));
       return;
     }
 
@@ -3641,8 +3651,8 @@ export default function App() {
       await client.setSessionModel(sessionKey, nextModelValue || null);
       setStatus(
         nextModelValue
-          ? `Cowork model updated for session ${sessionKey}: ${nextModelValue}`
-          : `Cowork model reset to default for session ${sessionKey}.`,
+          ? buildSessionModelUpdatedStatus({ scope: 'cowork', sessionKey, modelValue: nextModelValue })
+          : buildSessionModelResetStatus({ scope: 'cowork', sessionKey }),
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update cowork model.';
@@ -3681,7 +3691,7 @@ export default function App() {
       }
       commitActiveSessionKey(sessionKey);
       setActivePage('chat');
-      setStatus(`Started a new chat: ${sessionKey}.`);
+      setStatus(buildStartedNewChatStatus(sessionKey));
       void loadModelsForSession(client, sessionKey);
 
     } catch (error) {
@@ -3717,7 +3727,7 @@ export default function App() {
     if (cached && cached.length > 0) {
       setChatMessages(cached);
       const titleFromCache = deriveThreadTitleFromMessages(cached);
-      setStatus(titleFromCache ? `Opened chat: ${titleFromCache}` : 'Opened chat.');
+      setStatus(buildOpenedRecentSessionStatus('chat', titleFromCache || undefined));
       skipNextChatEffectLoadRef.current = true;
       return;
     }
@@ -3725,7 +3735,7 @@ export default function App() {
     // Fall back to runtime history
     setChatMessages([]);
     setAwaitingChatStream(false);
-    setStatus('Loading recent chat...');
+    setStatus(buildLoadingRecentSessionStatus('chat'));
     skipNextChatEffectLoadRef.current = true;
     void loadChatSession(normalized, 'Opened chat');
   };
@@ -3747,12 +3757,12 @@ export default function App() {
     if (cached && cached.length > 0) {
       setCoworkMessages(cached);
       const titleFromCache = deriveThreadTitleFromMessages(cached);
-      setStatus(titleFromCache ? `Opened task: ${titleFromCache}` : 'Opened task.');
+      setStatus(buildOpenedRecentSessionStatus('cowork', titleFromCache || undefined));
       return;
     }
 
     setCoworkMessages([]);
-    setStatus('Loading recent cowork task...');
+    setStatus(buildLoadingRecentSessionStatus('cowork'));
     void loadCoworkSession(normalized, 'Opened task');
   };
 
@@ -3792,7 +3802,7 @@ export default function App() {
       }
 
       renameThread(recentRenameTarget.sessionKey, nextTitle, recentRenameTarget.kind);
-      setStatus(`${recentRenameTarget.kind === 'cowork' ? 'Task' : 'Chat'} renamed.`);
+      setStatus(buildRenamedRecentSessionStatus(recentRenameTarget.kind));
       setRecentRenameTarget(null);
       setRecentRenameValue('');
     } finally {
@@ -3820,7 +3830,7 @@ export default function App() {
       await ensureConnectedClient(client);
       await client.deleteSession(recentDeleteTarget.sessionKey);
       removeThread(recentDeleteTarget.sessionKey, recentDeleteTarget.kind);
-      setStatus(`${recentDeleteTarget.kind === 'cowork' ? 'Task' : 'Chat'} deleted.`);
+      setStatus(buildDeletedRecentSessionStatus(recentDeleteTarget.kind));
       setRecentDeleteTarget(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to delete session.';

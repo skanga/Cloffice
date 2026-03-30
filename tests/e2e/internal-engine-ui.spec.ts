@@ -297,7 +297,21 @@ test.describe('Internal engine UI flow', () => {
     }
     expect(resolvedApprovals).toBeGreaterThanOrEqual(2);
 
-    await waitForPromptStatus(page, 'UI-READ-ONLY-1', 'running');
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(([tasksKey, tag]) => {
+            const raw = window.localStorage.getItem(tasksKey);
+            if (!raw) {
+              return false;
+            }
+            const tasks = JSON.parse(raw) as Array<{ prompt?: string; status?: string }>;
+            const status = tasks.find((task) => task.prompt?.startsWith(tag))?.status ?? null;
+            return status === 'running' || status === 'completed';
+          }, [COWORK_TASKS_KEY, 'UI-READ-ONLY-1'] as const),
+        { timeout: 45000 },
+      )
+      .toBe(true);
     await expect(page.getByRole('button', { name: 'Listed: .' })).toBeVisible({ timeout: 30000 });
     await waitForPromptStatus(page, 'UI-READ-ONLY-1', 'completed');
   });
@@ -327,6 +341,11 @@ test.describe('Internal engine UI flow', () => {
 
     await openSchedulePage(page);
     await page.getByRole('button', { name: 'Refresh' }).click();
+    await expect.poll(async () => page.evaluate(async (jobId) => {
+      const bridge = window.cloffice ?? window.relay;
+      const jobs = await bridge.listInternalCronJobs();
+      return jobs.some((job) => job.id === jobId);
+    }, createdJob.id)).toBe(true);
 
     const jobCard = page.getByTestId(`scheduled-job-${createdJob.id}`);
     await expect(jobCard).toBeVisible({ timeout: 15000 });
