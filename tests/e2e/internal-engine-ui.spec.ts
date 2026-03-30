@@ -91,12 +91,24 @@ async function connectInternalProviderFromOnboarding(page: Page) {
     await expect(page.getByRole('heading', { name: 'Connect to a runtime' })).toBeVisible();
     await expect(onboardingProviderButton).toBeEnabled({ timeout: 20000 });
     await onboardingProviderButton.click();
-    if (await page.locator('form').getByRole('button', { name: 'Connect', exact: true }).isVisible({ timeout: 5000 }).catch(() => false)) {
-      await expect(async () => {
-        const connectButton = page.locator('form').getByRole('button', { name: 'Connect', exact: true });
-        await connectButton.click({ force: true });
-      }).toPass({ timeout: 15000 });
-    }
+    await expect(async () => {
+      const readyHeading = page.getByRole('heading', { name: "You're all set" });
+      const diagnosticsPanel = page.getByText('Internal runtime diagnostics');
+      const connectedButton = page.getByRole('button', { name: 'Connected' });
+      if (await readyHeading.isVisible().catch(() => false)) {
+        return;
+      }
+      if (await diagnosticsPanel.isVisible().catch(() => false)) {
+        return;
+      }
+      if (await connectedButton.isVisible().catch(() => false)) {
+        return;
+      }
+
+      const connectButton = page.locator('form').getByRole('button', { name: 'Connect', exact: true });
+      await expect(connectButton).toBeVisible();
+      await connectButton.click({ force: true });
+    }).toPass({ timeout: 20000 });
     const readyHeading = page.getByRole('heading', { name: "You're all set" });
     if (await readyHeading.isVisible({ timeout: 5000 })) {
       await expect(page.getByText('Internal runtime diagnostics')).toBeVisible();

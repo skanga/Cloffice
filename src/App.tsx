@@ -217,7 +217,7 @@ import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
 import {
   OPENCLAW_COMPAT_DEVICE_IDENTITY_STORAGE_KEY,
 } from './lib/openclaw-compat-engine';
-import { accumulateTodayUsage, addUsage, loadTodayUsage, parseUsageFromPayload } from './lib/token-usage';
+import { accumulateTodayUsage, addUsage, loadTodayUsage } from './lib/token-usage';
 import { registerConnector, hydrateConnectors } from './lib/connectors';
 import { createFilesystemConnector } from './lib/connectors/filesystem';
 import { createShellConnector } from './lib/connectors/shell';
@@ -247,13 +247,11 @@ import {
   normalizeCoworkMessage,
 } from './lib/chat-utils';
   import {
-    getEngineSessionMessageIds,
     getEngineSessionResult,
-    isEngineSessionError,
-    isEngineSessionStreaming,
     parseEngineChatEvent,
   } from './lib/engine-session-events';
 import { handleEngineCoworkEvent } from './lib/engine-cowork-event-controller';
+import { handleEngineChatEvent } from './lib/engine-chat-event-controller';
 import {
   type InternalApprovalRecoveryFlow,
 } from './lib/internal-approval-recovery';
@@ -2169,69 +2167,45 @@ export default function App() {
           return;
         }
 
-        if (eventSessionKey && eventSessionKey !== activeSessionKeyRef.current) {
-          const previousActive = normalizeSessionKey(activeSessionKeyRef.current);
-          if (previousActive) {
-            rekeyChatThread(previousActive, eventSessionKey);
+        void handleEngineChatEvent({
+          chatEvent,
+          sessionResult,
+          activeSessionKey: normalizeSessionKey(activeSessionKeyRef.current),
+          onRekeySession: (fromSessionKey, toSessionKey) => {
+            const previousActive = normalizeSessionKey(fromSessionKey);
+            if (!previousActive) {
+              return;
+            }
+            rekeyChatThread(previousActive, toSessionKey);
             const cachedMessages = threadMessageCache.current.get(previousActive);
             if (cachedMessages) {
-              threadMessageCache.current.set(eventSessionKey, cachedMessages);
+              threadMessageCache.current.set(toSessionKey, cachedMessages);
               threadMessageCache.current.delete(previousActive);
             }
-          }
-          commitActiveSessionKey(eventSessionKey);
-        }
-
-        if (sessionResult?.status === 'failed' && isEngineSessionError(chatEvent)) {
-          setAwaitingChatStream(false);
-          setStatus(sessionResult.statusMessage || 'Chat stream failed.');
-          return;
-        }
-
-        if (isEngineSessionStreaming(chatEvent)) {
-          setAwaitingChatStream(false);
-          const { streamId } = getEngineSessionMessageIds('chat', runId);
-          setChatMessages((current) => {
-            const index = current.findIndex((entry) => entry.id === streamId);
-            if (index >= 0) {
-              const next = [...current];
-              next[index] = { ...next[index], text, role };
-              return next;
-            }
-            return [...current, { id: streamId, role, text }];
-          });
-          return;
-        }
-
-        if (sessionResult && sessionResult.status !== 'failed' && text) {
-          setAwaitingChatStream(false);
-          const { streamId, finalId } = getEngineSessionMessageIds('chat', runId);
-          const activeModel = chatEvent.model;
-          const usage = parseUsageFromPayload(payload, activeModel);
-          if (usage) {
+          },
+          onCommitActiveSessionKey: commitActiveSessionKey,
+          onSetAwaitingStream: setAwaitingChatStream,
+          onSetStatus: setStatus,
+          onUsage: (usage) => {
             accumulateTodayUsage(usage);
             setSessionUsage((prev) => addUsage(prev, usage));
-          }
-          setChatMessages((current) => {
-            const withoutStream = current.filter((entry) => entry.id !== streamId);
-            if (withoutStream.some((entry) => entry.id === finalId)) {
-              return withoutStream;
-            }
-            const finalMsg = { id: finalId, role, text, ...(usage ? { usage } : {}) };
-            const next = [...withoutStream, finalMsg];
-            const cacheKey = activeSessionKeyRef.current;
-            if (cacheKey) {
-              threadMessageCache.current.set(cacheKey, next);
-            }
-            return next;
-          });
-
-          if (eventSessionKey) {
-            upsertChatThread(eventSessionKey, {
+          },
+          onUpdateMessages: (updater, cacheKey) => {
+            setChatMessages((current) => {
+              const next = updater(current);
+              const resolvedCacheKey = cacheKey || activeSessionKeyRef.current;
+              if (resolvedCacheKey) {
+                threadMessageCache.current.set(resolvedCacheKey, next);
+              }
+              return next;
+            });
+          },
+          onTouchThread: (sessionKey) => {
+            upsertChatThread(sessionKey, {
               touchedAt: Date.now(),
             });
-          }
-        }
+          },
+        });
       }
     });
 
