@@ -365,6 +365,38 @@ function createInternalEngineMainService() {
         }]
       : []),
   ];
+  const sanitizeCoworkReadOnlyActions = (
+    actions: EngineRequestedAction[],
+    options?: { exclude?: Set<string> },
+  ): EngineRequestedAction[] => {
+    const seen = new Set<string>();
+    return actions.filter(isReadOnlyInternalAction).filter((action) => {
+      const identity = `${action.type}:${action.path}`;
+      if (options?.exclude?.has(identity)) {
+        return false;
+      }
+      if (seen.has(identity)) {
+        return false;
+      }
+      seen.add(identity);
+      return true;
+    });
+  };
+  const buildProviderBackedCoworkPlanningPrompt = (taskAndContext: string) => [
+    'You are Cloffice Cowork operating in a guarded read-only planning phase.',
+    'Respond with concise prose, not filler.',
+    'Use this structure in order:',
+    '1. Goal',
+    '2. Plan',
+    '3. Next step',
+    'Only request engine_actions when you need more context to plan accurately.',
+    'Supported action types are exactly: list_dir, read_file, exists, stat.',
+    'Do not request shell_exec, web_fetch, create_file, append_file, rename, or delete.',
+    'Do not repeat the same action unless new information justifies it.',
+    buildInternalEngineActionInstruction(),
+    'Task and project context follows.',
+    taskAndContext,
+  ].join('\n\n');
   const toInternalActionErrorCode = (message: string): string => {
     const normalized = message.toLowerCase();
     if (normalized.includes('not found') || normalized.includes('enoent')) {
@@ -525,7 +557,14 @@ function createInternalEngineMainService() {
     };
   }) => [
     'Continue the cowork task using the latest execution results.',
+    'Respond with concise prose, not filler.',
+    'Use this structure in order:',
+    '1. Findings',
+    '2. Recommendation',
+    '3. Next step',
     'You may request additional safe read-only actions only if they are necessary.',
+    'Supported action types are exactly: list_dir, read_file, exists, stat.',
+    'Do not re-request an action if the current execution results already answered it.',
     buildInternalEngineActionInstruction(),
     '',
     `Session key: ${params.sessionKey}`,
@@ -1293,7 +1332,13 @@ function createInternalEngineMainService() {
         try {
           const providerResult = await sendInternalProviderChat(
             nextModel,
-            [...session.messages, userMessage],
+            [
+              ...session.messages,
+              {
+                ...userMessage,
+                text: session.kind === 'cowork' ? buildProviderBackedCoworkPlanningPrompt(text) : text,
+              },
+            ],
             storedInternalProviderConfig,
             {
               onTextDelta: emitEvent
@@ -1328,7 +1373,7 @@ function createInternalEngineMainService() {
           lastProviderError = null;
           assistantText = stripEngineActionPayloadFromText(providerResult.text);
           if (session.kind === 'cowork') {
-            requestedActions = parseEngineRequestedActions(providerResult.text).filter(isReadOnlyInternalAction);
+            requestedActions = sanitizeCoworkReadOnlyActions(parseEngineRequestedActions(providerResult.text));
             activityItems =
               requestedActions.length > 0
                 ? buildCoworkFoundationActivityItems(requestedActions)
@@ -1364,7 +1409,9 @@ function createInternalEngineMainService() {
         updatedAt: now(),
         ...(previewPrompt(text) ? { promptPreview: previewPrompt(text) } : {}),
         summary: requestedActions.length > 0
-          ? 'Awaiting operator approval for internal read-only actions.'
+          ? providerBackedChat && lastProviderId
+            ? `Awaiting operator approval for provider-backed read-only cowork actions via ${lastProviderId}.`
+            : 'Awaiting operator approval for internal read-only actions.'
           : providerBackedChat && lastProviderId
             ? session.kind === 'cowork'
               ? `Internal provider cowork planning completed via ${lastProviderId}.`
@@ -1382,7 +1429,9 @@ function createInternalEngineMainService() {
             at: now(),
             phase: requestedActions.length > 0 ? 'awaiting_approval' : 'completed',
             message: requestedActions.length > 0
-              ? 'Awaiting operator approval for internal read-only actions.'
+              ? providerBackedChat && lastProviderId
+                ? `Awaiting operator approval for provider-backed read-only cowork actions via ${lastProviderId}.`
+                : 'Awaiting operator approval for internal read-only actions.'
               : providerBackedChat && lastProviderId
                 ? session.kind === 'cowork'
                   ? `Internal provider cowork planning completed via ${lastProviderId}.`
@@ -1486,6 +1535,9 @@ function createInternalEngineMainService() {
       let activityItems: ChatActivityItem[] = [];
       let assistantText: string;
       const streamMessageId = crypto.randomUUID();
+      const priorActionIdentities = new Set(
+        [...payload.approvedActions, ...payload.rejectedActions].map((action) => `${action.type ?? action.actionType}:${action.path}`),
+      );
       if (providerBackedCowork) {
         await refreshProviderCatalogFromConfig();
         try {
@@ -1537,7 +1589,9 @@ function createInternalEngineMainService() {
           lastProviderId = providerResult.providerId;
           lastProviderError = null;
           assistantText = stripEngineActionPayloadFromText(providerResult.text);
-          requestedActions = parseEngineRequestedActions(providerResult.text).filter(isReadOnlyInternalAction);
+          requestedActions = sanitizeCoworkReadOnlyActions(parseEngineRequestedActions(providerResult.text), {
+            exclude: priorActionIdentities,
+          });
           activityItems =
             requestedActions.length > 0
               ? buildCoworkFoundationActivityItems(requestedActions)
@@ -1577,7 +1631,9 @@ function createInternalEngineMainService() {
         updatedAt: now(),
         ...(existingRun?.promptPreview ? { promptPreview: existingRun.promptPreview } : {}),
         summary: requestedActions.length > 0
-          ? 'Awaiting operator approval for additional internal read-only actions.'
+          ? providerBackedCowork && lastProviderId
+            ? `Awaiting operator approval for additional provider-backed read-only cowork actions via ${lastProviderId}.`
+            : 'Awaiting operator approval for additional internal read-only actions.'
           : continuationBlocked
             ? 'Internal cowork continuation completed with blocking errors.'
             : providerBackedCowork && lastProviderId
@@ -1615,7 +1671,11 @@ function createInternalEngineMainService() {
         runRecord.resultSummary = resultSummary;
         appendRunTimelineEntry(payload.runId, {
           phase: completionPhase,
-          message: requestedActions.length > 0 ? 'Awaiting operator approval for additional internal read-only actions.' : resultSummary,
+          message: requestedActions.length > 0
+            ? providerBackedCowork && lastProviderId
+              ? `Awaiting operator approval for additional provider-backed read-only cowork actions via ${lastProviderId}.`
+              : 'Awaiting operator approval for additional internal read-only actions.'
+            : resultSummary,
           details: `Receipts: ${execution.receipts.length}. Errors: ${execution.errors.length}.`,
           at: now(),
         });
