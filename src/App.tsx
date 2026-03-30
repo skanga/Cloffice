@@ -205,6 +205,13 @@ import {
   prepareEngineCoworkTaskDispatch,
   resolveRecoveredEngineApprovalDecision,
 } from './lib/engine-cowork-controller';
+import {
+  buildCoworkOutboundMessage,
+  buildCoworkProjectKnowledgeContext,
+  extractProjectFileMentions,
+  loadCoworkReferencedProjectFilesContext,
+  validateProjectRelativePath,
+} from './lib/engine-cowork-prompt-controller';
 import { createFileService, LocalFileService } from './lib/file-service';
 import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
 import {
@@ -345,59 +352,6 @@ type CoworkTaskQueueEntry = {
   runId?: string;
   status: CoworkProjectTaskStatus;
 };
-
-function validateProjectRelativePath(inputPath: string, options?: { allowEmpty?: boolean }): { ok: true } | { ok: false; reason: string } {
-  const raw = (inputPath ?? '').trim();
-  if (!raw) {
-    return options?.allowEmpty ? { ok: true } : { ok: false, reason: 'Path is required.' };
-  }
-
-  const normalized = raw.replace(/\\/g, '/');
-  if (/[\u0000-\u001F]/.test(normalized)) {
-    return { ok: false, reason: 'Path contains invalid control characters.' };
-  }
-  if (normalized.startsWith('/') || normalized.startsWith('~/') || /^[a-zA-Z]:\//.test(normalized)) {
-    return { ok: false, reason: 'Absolute paths are not allowed for project-bound actions.' };
-  }
-
-  if (normalized === '.' || normalized === './') {
-    return { ok: false, reason: 'A concrete relative path is required.' };
-  }
-
-  const segments = normalized.split('/').filter((segment) => segment.length > 0);
-  if (segments.some((segment) => segment === '..' || segment === '.')) {
-    return { ok: false, reason: 'Parent directory traversal is not allowed.' };
-  }
-
-  return { ok: true };
-}
-
-function extractProjectFileMentions(inputText: string): string[] {
-  if (!inputText) {
-    return [];
-  }
-
-  const mentions = new Set<string>();
-  const quotedPattern = /@project:"([^"]+)"/g;
-  let quotedMatch: RegExpExecArray | null;
-  while ((quotedMatch = quotedPattern.exec(inputText)) !== null) {
-    const nextPath = quotedMatch[1]?.trim();
-    if (nextPath) {
-      mentions.add(nextPath);
-    }
-  }
-
-  const unquotedPattern = /@project\/([^\s,;]+)/g;
-  let unquotedMatch: RegExpExecArray | null;
-  while ((unquotedMatch = unquotedPattern.exec(inputText)) !== null) {
-    const nextPath = unquotedMatch[1]?.trim();
-    if (nextPath) {
-      mentions.add(nextPath);
-    }
-  }
-
-  return Array.from(mentions);
-}
 
 function loadCoworkProjects(): CoworkProject[] {
   try {
@@ -2829,66 +2783,12 @@ export default function App() {
       }
 
       const folderContext = workingFolderRef.current;
-      const selectedKindByPath = new Map(
-        coworkProjectPathReferences.map((entry) => [entry.path, entry.kind] as const),
-      );
-      const referencedProjectPaths = Array.from(new Set(extractProjectFileMentions(text))).slice(0, 8);
-      let referencedProjectFilesContext = '';
-      if (referencedProjectPaths.length > 0 && folderContext) {
-        const snippets: string[] = [];
-        const MAX_FILE_CHARS = 8_000;
-        const MAX_FOLDER_LIST_ITEMS = 40;
-
-        for (const rawPath of referencedProjectPaths) {
-          const mentionsDirectory = /\/+$/.test(rawPath) || selectedKindByPath.get(rawPath) === 'directory';
-          const relPath = rawPath.replace(/\/+$/, '').trim();
-          if (!relPath) {
-            continue;
-          }
-
-          const validated = validateProjectRelativePath(relPath);
-          if (!validated.ok) {
-            snippets.push(`- ${relPath}: skipped (${validated.reason})`);
-            continue;
-          }
-
-          if (mentionsDirectory && bridge?.listDirInFolder) {
-            try {
-              const listing = await bridge.listDirInFolder(folderContext, relPath);
-              const listed = listing.items
-                .slice(0, MAX_FOLDER_LIST_ITEMS)
-                .map((item) => `- ${item.kind === 'directory' ? '[dir]' : '[file]'} ${item.path}`)
-                .join('\n');
-              const truncated = listing.items.length > MAX_FOLDER_LIST_ITEMS ? '\n- ...truncated...' : '';
-              snippets.push(`### ${relPath}/\n${listed || '- (empty)'}${truncated}`);
-            } catch (error) {
-              const message = error instanceof Error ? error.message : 'Failed to list folder';
-              snippets.push(`- ${relPath}/: list failed (${message})`);
-            }
-            continue;
-          }
-
-          if (!bridge?.readFileInFolder) {
-            snippets.push(`- ${relPath}: read unavailable in this mode`);
-            continue;
-          }
-
-          try {
-            const fileResult = await bridge.readFileInFolder(folderContext, relPath);
-            const fullContent = fileResult.content ?? '';
-            const snippet = fullContent.slice(0, MAX_FILE_CHARS);
-            const truncated = fullContent.length > MAX_FILE_CHARS ? '\n[...truncated...]' : '';
-            snippets.push(`### ${relPath}\n\`\`\`\n${snippet}${truncated}\n\`\`\``);
-          } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to read file';
-            snippets.push(`- ${relPath}: read failed (${message})`);
-          }
-        }
-
-        if (snippets.length > 0) {
-          referencedProjectFilesContext = `Referenced project files:\n${snippets.join('\n\n')}`;
-        }
-      }
+      const referencedProjectFilesContext = await loadCoworkReferencedProjectFilesContext({
+        text,
+        folderContext,
+        bridge,
+        projectPathReferences: coworkProjectPathReferences,
+      });
 
       setCoworkTaskStatus(preparedTask.queuedTaskId, 'running', {
         summary: 'Sending task to cowork.',
@@ -2901,36 +2801,23 @@ export default function App() {
         startedAt: Date.now(),
       });
       const relayFileInstruction = buildEngineActionInstruction(client.providerId);
-      const projectKnowledgeContext = activeCoworkProject
-        ? projectKnowledgeItems
-            .filter((item) => item.projectId === activeCoworkProject.id)
-            .slice(0, 8)
-            .map((item) => `- ${item.title}: ${item.content}`)
-            .join('\n')
-        : '';
-      const webSearchInstruction = coworkWebSearchEnabled
-        ? [
-            'Web search mode is enabled.',
-            'For requests requiring up-to-date or external information, use web tools and provide citations.',
-            'Always include a Sources section with markdown links for any factual claims from external sources.',
-          ].join('\n')
-        : '';
+      const projectKnowledgeContext = buildCoworkProjectKnowledgeContext({
+        projectId: activeCoworkProject?.id,
+        projectKnowledgeItems,
+      });
       const coworkMemoryContext = preferences.injectMemory
         ? buildMemoryContext(loadMemoryEntries(), preferences.systemPrompt)
         : preferences.systemPrompt.trim();
-      const outboundMessage = [
+      const outboundMessage = buildCoworkOutboundMessage({
         coworkMemoryContext,
-        activeCoworkProject ? `Project context: ${activeCoworkProject.name}` : '',
-        projectKnowledgeContext ? `Project knowledge:\n${projectKnowledgeContext}` : '',
-        folderContext ? `Working folder context: ${folderContext}` : '',
+        projectName: activeCoworkProject?.name,
+        projectKnowledgeContext,
+        folderContext,
         referencedProjectFilesContext,
-        webSearchInstruction,
+        webSearchEnabled: coworkWebSearchEnabled,
         relayFileInstruction,
-        '',
         text,
-      ]
-        .filter((part) => part.length > 0)
-        .join('\n\n');
+      });
 
       const waitingState = resolveCoworkWaitingForStreamState();
       setCoworkRunPhase(waitingState.runPhase);
