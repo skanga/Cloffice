@@ -1175,12 +1175,12 @@ function createInternalEngineMainService() {
     schedule.lastRunSummary = 'Internal schedule completed with recorded artifact previews.';
     schedule.lastArtifactSummary = 'Internal cowork continuation recorded execution receipts.';
     schedule.lastArtifactReceiptCount = 2;
-    schedule.lastArtifactErrorCount = 0;
+    schedule.lastArtifactErrorCount = 1;
     schedule.lastArtifactPreviews = [
       'README.md',
       '.gitignore',
     ];
-    schedule.lastArtifactErrors = [];
+    schedule.lastArtifactErrors = ['One seeded artifact warning for operator triage.'];
     const seededArtifact: PersistedInternalArtifactRecord = {
       id: crypto.randomUUID(),
       runId,
@@ -1193,7 +1193,7 @@ function createInternalEngineMainService() {
         { id: crypto.randomUUID(), type: 'stat', path: '.', status: 'ok', message: 'Read root metadata.' },
       ],
       previews: [...schedule.lastArtifactPreviews],
-      errors: [],
+      errors: [...schedule.lastArtifactErrors],
       summary: schedule.lastArtifactSummary,
     };
     artifacts = [

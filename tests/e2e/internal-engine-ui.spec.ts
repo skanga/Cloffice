@@ -427,7 +427,14 @@ test.describe('Internal engine UI flow', () => {
     await expect(scheduledJobCard).toBeVisible({ timeout: 15000 });
     await expect(scheduledJobCard).toContainText('Last artifact');
     await expect(scheduledJobCard.getByTestId(`scheduled-job-open-artifact-${seededJob.id}`)).toBeVisible();
+    await expect(scheduledJobCard.getByTestId(`scheduled-job-copy-artifact-${seededJob.id}`)).toBeVisible();
+    await expect(scheduledJobCard.getByTestId(`scheduled-job-copy-errors-${seededJob.id}`)).toBeVisible();
+    await scheduledJobCard.getByTestId(`scheduled-job-copy-artifact-${seededJob.id}`).click();
+    await expect(scheduledJobCard.getByTestId(`scheduled-job-copy-artifact-${seededJob.id}`)).toContainText('Copied summary');
+    await scheduledJobCard.getByTestId(`scheduled-job-copy-errors-${seededJob.id}`).click();
+    await expect(scheduledJobCard.getByTestId(`scheduled-job-copy-errors-${seededJob.id}`)).toContainText('Copied errors');
     await scheduledJobCard.getByTestId(`scheduled-job-toggle-artifact-${seededJob.id}`).click();
     await expect(scheduledJobCard).toContainText('Preview');
+    await expect(scheduledJobCard).toContainText('Errors');
   });
 });

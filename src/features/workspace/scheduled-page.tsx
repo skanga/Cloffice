@@ -61,6 +61,27 @@ function titleCase(value: string): string {
   return `${lower.charAt(0).toUpperCase()}${lower.slice(1)}`;
 }
 
+function buildArtifactSummaryText(job: ScheduledJob): string {
+  const lines = [
+    `Schedule: ${job.name}`,
+    ...(job.lastRunId ? [`Run: ${job.lastRunId}`] : []),
+    ...(job.lastArtifactSummary ? [`Summary: ${job.lastArtifactSummary}`] : []),
+    ...(job.lastArtifactPreviews?.length ? ['Previews:', ...job.lastArtifactPreviews.map((preview) => `- ${preview}`)] : []),
+    ...(job.lastArtifactErrors?.length ? ['Errors:', ...job.lastArtifactErrors.map((error) => `- ${error}`)] : []),
+  ];
+  return lines.join('\n');
+}
+
+function buildArtifactErrorText(job: ScheduledJob): string {
+  const lines = [
+    `Schedule: ${job.name}`,
+    ...(job.lastRunId ? [`Run: ${job.lastRunId}`] : []),
+    'Errors:',
+    ...(job.lastArtifactErrors?.length ? job.lastArtifactErrors.map((error) => `- ${error}`) : ['- No recorded artifact errors.']),
+  ];
+  return lines.join('\n');
+}
+
 function getRelativeTimeLabel(dateStr: string | null): string {
   if (!dateStr) return '';
   const d = new Date(dateStr);
@@ -120,6 +141,8 @@ export function ScheduledPage({
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
+  const [copiedArtifactSummaryJobId, setCopiedArtifactSummaryJobId] = useState<string | null>(null);
+  const [copiedArtifactErrorsJobId, setCopiedArtifactErrorsJobId] = useState<string | null>(null);
   const [expandedArtifactJobId, setExpandedArtifactJobId] = useState<string | null>(null);
 
   const now = new Date();
@@ -174,6 +197,27 @@ export function ScheduledPage({
       window.clearTimeout(clearTimer);
     };
   }, [focusedJobId, viewMode, jobs]);
+
+  const copyArtifactText = async (text: string, type: 'summary' | 'errors', jobId: string) => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      }
+    } catch {
+      // Best-effort operator action.
+    }
+    if (type === 'summary') {
+      setCopiedArtifactSummaryJobId(jobId);
+      if (copiedArtifactErrorsJobId === jobId) {
+        setCopiedArtifactErrorsJobId(null);
+      }
+      return;
+    }
+    setCopiedArtifactErrorsJobId(jobId);
+    if (copiedArtifactSummaryJobId === jobId) {
+      setCopiedArtifactSummaryJobId(null);
+    }
+  };
 
   return (
     <section className="mx-auto grid h-full w-full max-w-[1060px] min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-3">
@@ -386,6 +430,30 @@ export function ScheduledPage({
                                         onClick={() => void onOpenRunHistory(job.id, job.lastRunId!)}
                                       >
                                         Open artifact
+                                      </Button>
+                                    ) : null}
+                                    {(job.lastArtifactSummary || job.lastArtifactPreviews?.length || job.lastArtifactErrors?.length) ? (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-6 px-2 text-[10px]"
+                                        data-testid={`scheduled-job-copy-artifact-${job.id}`}
+                                        onClick={() => void copyArtifactText(buildArtifactSummaryText(job), 'summary', job.id)}
+                                      >
+                                        {copiedArtifactSummaryJobId === job.id ? 'Copied summary' : 'Copy summary'}
+                                      </Button>
+                                    ) : null}
+                                    {job.lastArtifactErrors?.length ? (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-6 px-2 text-[10px]"
+                                        data-testid={`scheduled-job-copy-errors-${job.id}`}
+                                        onClick={() => void copyArtifactText(buildArtifactErrorText(job), 'errors', job.id)}
+                                      >
+                                        {copiedArtifactErrorsJobId === job.id ? 'Copied errors' : 'Copy errors'}
                                       </Button>
                                     ) : null}
                                     {(job.lastArtifactPreviews?.length || job.lastArtifactErrors?.length) ? (
