@@ -84,6 +84,23 @@ import {
   shouldRestoreInternalApprovalRecovery,
 } from './lib/engine-connection-status';
 import {
+  buildApprovalRejectReasonRequiredStatus,
+  buildCoworkEmptyPromptStatus,
+  buildCoworkSendFailureStatus,
+  buildLoadedPreviousCoworkPromptStatus,
+  buildMissingCoworkSessionKeyError,
+  buildMissingPreviousCoworkPromptStatus,
+  buildRecoveredApprovalAwaitingStatus,
+  buildRecoveredApprovalContinuationFailureStatus,
+  buildRecoveredApprovalContinuationUnavailableStatus,
+  buildRecoveredApprovalSubmittingProgressDetails,
+  buildRecoveredApprovalSubmittingRunStatus,
+  resolveCoworkDisconnectedState,
+  resolveCoworkResetState,
+  resolveCoworkSendingState,
+  resolveCoworkWaitingForStreamState,
+} from './lib/engine-cowork-status';
+import {
   buildDeletedRecentSessionStatus,
   buildInvalidSessionKeyStatus,
   buildLoadedSessionStatus,
@@ -1167,7 +1184,7 @@ export default function App() {
       ];
       writeInternalApprovalRecoveryFlows(flows);
       syncRecoveredApprovalCards(flows);
-      setStatus(`Awaiting approval for ${next.flow.currentApproval.summary}...`);
+      setStatus(buildRecoveredApprovalAwaitingStatus(next.flow.currentApproval.summary));
       return true;
     }
 
@@ -1177,20 +1194,20 @@ export default function App() {
     } | null;
 
     if (!client?.continueCoworkRun) {
-      setStatus('Recovered internal approval flow could not continue because the internal runtime continuation API is unavailable.');
+      setStatus(buildRecoveredApprovalContinuationUnavailableStatus());
       return true;
     }
 
-    setCoworkRunStatus('Submitting recovered approval results to internal cowork...');
+    setCoworkRunStatus(buildRecoveredApprovalSubmittingRunStatus());
     setCoworkProgressStage('executing_workstreams', {
-      details: 'Resuming recovered internal cowork approval flow.',
+      details: buildRecoveredApprovalSubmittingProgressDetails(),
     });
 
     try {
       await client.continueCoworkRun(next.payload);
     } catch (error) {
       const info = readEngineError(error);
-      setStatus(info.message || 'Failed to continue recovered internal approval flow.');
+      setStatus(buildRecoveredApprovalContinuationFailureStatus(info.message));
     }
     return true;
   };
@@ -1225,7 +1242,7 @@ export default function App() {
   const handleRejectPendingAction = (approvalId: string, reason: string) => {
     const trimmedReason = reason.trim();
     if (!trimmedReason) {
-      setStatus('Provide a reason before rejecting an action.');
+      setStatus(buildApprovalRejectReasonRequiredStatus());
       return;
     }
 
@@ -2741,24 +2758,26 @@ export default function App() {
   const handlePlanTask = async (event: FormEvent) => {
     event.preventDefault();
     if (!engineConnected) {
-      setStatus('Runtime disconnected. Connect in Settings > Engine to run cowork tasks.');
+      const disconnected = resolveCoworkDisconnectedState();
+      setStatus(disconnected.statusMessage);
       setCoworkAwaitingStream(false);
       setCoworkSending(false);
-      setCoworkRunPhase('error');
-      setCoworkRunStatus('Runtime disconnected.');
+      setCoworkRunPhase(disconnected.runPhase);
+      setCoworkRunStatus(disconnected.runStatus);
       return;
     }
     workingFolderRef.current = workingFolder.trim();
     setCoworkSending(true);
     setCoworkAwaitingStream(false);
     setCoworkStreamingText('');
-    setCoworkRunPhase('sending');
-    setCoworkRunStatus('Sending cowork task...');
-    resetCoworkProgress('Interpreting goal and building a task plan.');
+    const sendingState = resolveCoworkSendingState();
+    setCoworkRunPhase(sendingState.runPhase);
+    setCoworkRunStatus(sendingState.runStatus);
+    resetCoworkProgress(sendingState.progressDetails ?? 'Interpreting goal and building a task plan.');
 
     const text = coworkDraftPrompt.trim();
     if (!text) {
-      setStatus('Describe the outcome first so Cloffice can plan the work.');
+      setStatus(buildCoworkEmptyPromptStatus());
       setCoworkSending(false);
       return;
     }
@@ -2780,7 +2799,7 @@ export default function App() {
       if (!sessionKey) {
         sessionKey = normalizeSessionKey(await client.createCoworkSession());
         if (!sessionKey) {
-          throw new Error('No cowork session key returned from the current runtime.');
+          throw new Error(buildMissingCoworkSessionKeyError());
         }
         commitCoworkSessionKey(sessionKey);
       }
@@ -2930,18 +2949,19 @@ export default function App() {
         .filter((part) => part.length > 0)
         .join('\n\n');
 
-      setCoworkRunPhase('streaming');
-      setCoworkRunStatus('Waiting for cowork stream...');
+      const waitingState = resolveCoworkWaitingForStreamState();
+      setCoworkRunPhase(waitingState.runPhase);
+      setCoworkRunStatus(waitingState.runStatus);
       setCoworkProgressStage('decomposition', {
-        details: 'Splitting work into substeps and selecting tools.',
+        details: waitingState.progressDetails ?? 'Splitting work into substeps and selecting tools.',
       });
-      setStatus('Cowork message sent. Waiting for stream...');
+      setStatus(waitingState.statusMessage);
       await client.sendChat(sessionKey, outboundMessage);
       await new Promise((resolve) => setTimeout(resolve, COWORK_SEND_SPINNER_MS));
     } catch (error) {
       setCoworkAwaitingStream(false);
       setCoworkRunPhase('error');
-      const message = error instanceof Error ? error.message : 'Failed to send cowork task.';
+      const message = error instanceof Error ? error.message : buildCoworkSendFailureStatus();
       setCoworkRunStatus(message);
       setCoworkProgressStage('planning', {
         blocked: true,
@@ -3975,23 +3995,24 @@ export default function App() {
     setCoworkMessages([]);
     setCoworkAwaitingStream(false);
     setCoworkStreamingText('');
-    setCoworkRunPhase('idle');
-    setCoworkRunStatus('Ready for a new task.');
+    const resetState = resolveCoworkResetState();
+    setCoworkRunPhase(resetState.runPhase);
+    setCoworkRunStatus(resetState.runStatus);
     setLocalPlanActions([]);
     setLocalPlanRootPath('');
     setPendingApprovals([]);
-    setStatus('Ready for a new task.');
+    setStatus(resetState.statusMessage);
     setCoworkResetKey((current) => current + 1);
   };
 
   const handleRerunLastCoworkTask = () => {
     if (!latestVisibleCoworkTaskPrompt) {
-      setStatus('No previous task prompt available to rerun.');
+      setStatus(buildMissingPreviousCoworkPromptStatus());
       return;
     }
     setActivePage('cowork');
     handleCoworkPromptChange(latestVisibleCoworkTaskPrompt);
-    setStatus('Loaded last task prompt. Review and send to rerun.');
+    setStatus(buildLoadedPreviousCoworkPromptStatus());
   };
 
   const pageLoadingFallback = (
