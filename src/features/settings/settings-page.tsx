@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode } from 'react';
 import { Code2, Folder, Globe, KeyRound, Link2, Shield, Terminal, Trash2 } from 'lucide-react';
 
 import type { EngineConnectionProfile, EngineProviderId, HealthCheckResult, UserPreferences } from '@/app-types';
+import type { ScheduledJob } from '@/app-types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,6 +29,7 @@ type ThemeOption = UserPreferences['theme'];
 type SettingsPageProps = {
   activeSection: SettingsSection;
   focusedInternalRunId?: string | null;
+  scheduledJobs: ScheduledJob[];
   draftEngineProviderId: EngineProviderId;
   draftEngineUrl: string;
   draftEngineToken: string;
@@ -50,6 +52,7 @@ type SettingsPageProps = {
   onDeleteEngineConnection: (connectionId: string) => void;
   onResetPairing: () => void | Promise<void>;
   onUpdatePreferences: (patch: Partial<UserPreferences>) => void;
+  onOpenScheduleJob?: (jobId: string) => void | Promise<void>;
 };
 
 const sectionDescriptions: Record<SettingsSection, { en: string; de: string }> = {
@@ -243,6 +246,7 @@ function ThemePreview({ mode, style }: { mode: ThemeOption; style: StyleOption }
 export function SettingsPage({
   activeSection,
   focusedInternalRunId = null,
+  scheduledJobs,
   draftEngineProviderId,
   draftEngineUrl,
   draftEngineToken,
@@ -265,6 +269,7 @@ export function SettingsPage({
   onDeleteEngineConnection,
   onResetPairing,
   onUpdatePreferences,
+  onOpenScheduleJob,
 }: SettingsPageProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -293,6 +298,15 @@ export function SettingsPage({
     [engineProviders, internalRuntimeInfo],
   );
   const selectedEngineProvider = useMemo(() => getEngineProvider(draftEngineProviderId), [draftEngineProviderId]);
+  const scheduledJobsByRunId = useMemo(() => {
+    const map = new Map<string, ScheduledJob>();
+    for (const job of scheduledJobs) {
+      if (job.lastRunId) {
+        map.set(job.lastRunId, job);
+      }
+    }
+    return map;
+  }, [scheduledJobs]);
   const selectedEngineProviderCard = useMemo(
     () => effectiveEngineProviders.find((provider) => provider.id === draftEngineProviderId) ?? selectedEngineProvider,
     [draftEngineProviderId, effectiveEngineProviders, selectedEngineProvider],
@@ -1230,6 +1244,7 @@ export function SettingsPage({
                         {internalRunHistory.map((run) => {
                           const artifact = run.artifact;
                           const isHighlighted = highlightedRunId === run.runId;
+                          const relatedSchedule = scheduledJobsByRunId.get(run.runId);
                           return (
                             <div
                               key={run.runId}
@@ -1276,6 +1291,17 @@ export function SettingsPage({
                                     </Badge>
                                   ) : null}
                                 </div>
+                                {relatedSchedule && onOpenScheduleJob ? (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-[11px]"
+                                    onClick={() => void onOpenScheduleJob(relatedSchedule.id)}
+                                  >
+                                    {t('Open schedule', 'Zeitplan oeffnen')}
+                                  </Button>
+                                ) : null}
                               </div>
 
                               <div className="mt-3 grid gap-1 text-[11px] text-muted-foreground sm:grid-cols-2">

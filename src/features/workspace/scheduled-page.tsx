@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useEffect } from 'react';
 import {
   AlertTriangle,
   CalendarDays,
@@ -23,6 +24,7 @@ type ScheduledPageProps = {
   jobs: ScheduledJob[];
   loading: boolean;
   status: string;
+  focusedJobId?: string | null;
   onRefresh: () => void | Promise<void>;
   scheduleActionsEnabled?: boolean;
   onToggleJob?: (jobId: string, enabled: boolean) => void | Promise<void>;
@@ -105,6 +107,7 @@ export function ScheduledPage({
   jobs,
   loading,
   status,
+  focusedJobId = null,
   onRefresh,
   scheduleActionsEnabled = false,
   onToggleJob,
@@ -116,6 +119,7 @@ export function ScheduledPage({
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
 
   const now = new Date();
   const sortedJobs = useMemo(() => {
@@ -147,6 +151,28 @@ export function ScheduledPage({
     if (!selectedDate) return [];
     return jobsByDate.get(selectedDate.toDateString()) || [];
   }, [selectedDate, jobsByDate]);
+
+  useEffect(() => {
+    if (!focusedJobId || viewMode !== 'timeline') {
+      return;
+    }
+
+    setHighlightedJobId(focusedJobId);
+    const scrollTimer = window.setTimeout(() => {
+      document.querySelector(`[data-testid="scheduled-job-${focusedJobId}"]`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    }, 60);
+    const clearTimer = window.setTimeout(() => {
+      setHighlightedJobId((current) => (current === focusedJobId ? null : current));
+    }, 2500);
+
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [focusedJobId, viewMode, jobs]);
 
   return (
     <section className="mx-auto grid h-full w-full max-w-[1060px] min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-3">
@@ -229,6 +255,7 @@ export function ScheduledPage({
                   {sortedJobs.map((job) => {
                     const isEnabled = job.enabled;
                     const nextLabel = getRelativeTimeLabel(job.nextRunAt);
+                    const isHighlighted = highlightedJobId === job.id;
 
                     return (
                       <div key={job.id} className="relative flex gap-3 py-1.5" data-testid={`scheduled-job-${job.id}`}>
@@ -245,7 +272,13 @@ export function ScheduledPage({
                             <Pause className="size-2.5 text-muted-foreground/50" />
                           )}
                         </div>
-                        <div className="min-w-0 flex-1 rounded-lg border border-border/60 bg-background px-3 py-2.5">
+                        <div
+                          className={`min-w-0 flex-1 rounded-lg border px-3 py-2.5 transition-colors ${
+                            isHighlighted
+                              ? 'border-amber-400 bg-amber-50/70 dark:border-amber-700 dark:bg-amber-950/20'
+                              : 'border-border/60 bg-background'
+                          }`}
+                        >
                           <div className="flex items-center gap-2">
                             <span className="font-sans text-[13px] font-medium">{job.name}</span>
                             <Badge variant={isEnabled ? 'default' : 'outline'} className="font-sans text-[10px]">

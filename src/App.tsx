@@ -533,6 +533,7 @@ export default function App() {
   const [checking, setChecking] = useState(false);
   const [pairingRequestId, setPairingRequestId] = useState<string | null>(null);
   const [focusedInternalRunId, setFocusedInternalRunId] = useState<string | null>(null);
+  const [focusedScheduledJobId, setFocusedScheduledJobId] = useState<string | null>(null);
   const [activeMenuItem, setActiveMenuItem] = useState('');
   const [activePage, setActivePage] = useState<AppPage>('cowork');
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('Profile');
@@ -4416,6 +4417,7 @@ export default function App() {
                         onToggleJob={(jobId, enabled) => void handleUpdateInternalPromptSchedule(jobId, { enabled })}
                         onSetJobInterval={(jobId, intervalMinutes) => void handleUpdateInternalPromptSchedule(jobId, { intervalMinutes })}
                         onDeleteJob={(jobId) => void handleDeleteInternalPromptSchedule(jobId)}
+                        focusedJobId={focusedScheduledJobId}
                         onOpenRunHistory={(runId) => {
                           setFocusedInternalRunId(runId);
                           setActivePage('settings');
@@ -4436,6 +4438,7 @@ export default function App() {
                       <SettingsPage
                         activeSection={settingsSection}
                         focusedInternalRunId={focusedInternalRunId}
+                        scheduledJobs={scheduledJobs}
                         draftEngineProviderId={draftEngineProviderId}
                         draftEngineUrl={draftEngineUrl}
                         draftEngineToken={draftEngineToken}
@@ -4460,6 +4463,10 @@ export default function App() {
                         onDeleteEngineConnection={handleDeleteEngineConnection}
                         onResetPairing={handleResetPairing}
                         onUpdatePreferences={updatePreferences}
+                        onOpenScheduleJob={(jobId) => {
+                          setFocusedScheduledJobId(jobId);
+                          setActivePage('scheduled');
+                        }}
                       />
                     )}
                   </ScrollArea>
