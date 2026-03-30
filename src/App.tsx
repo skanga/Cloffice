@@ -63,6 +63,13 @@ import { Input } from './components/ui/input';
 import { SidebarProvider } from './components/ui/sidebar';
 import { ScrollArea } from './components/ui/scroll-area';
 import { createEngineClient, type EngineClientInstance } from './lib/engine-client';
+import {
+  canManageEngineSchedules,
+  createEngineCoworkSchedule,
+  deleteEngineSchedule,
+  loadEngineScheduledJobs,
+  updateEngineSchedule,
+} from './lib/engine-schedule-controller';
 import { createFileService, LocalFileService } from './lib/file-service';
 import { buildMemoryContext, loadMemoryEntries } from './lib/memory-context';
 import {
@@ -3093,52 +3100,41 @@ export default function App() {
       setStatus('No cowork prompt available to schedule.');
       return;
     }
-
-    if (draftEngineProviderId === 'internal' && bridge?.createInternalPromptSchedule) {
-      void bridge.createInternalPromptSchedule({
-        kind: 'cowork',
-        prompt: latestUserPrompt,
-        name: 'Scheduled cowork prompt',
-        projectId: activeCoworkProject?.id ?? undefined,
-        projectTitle: activeCoworkProject?.name ?? undefined,
-        rootPath: workingFolderRef.current.trim() || undefined,
-        intervalMinutes: 1,
-        model: coworkModel.trim() || null,
-      })
-        .then(() => {
+    void createEngineCoworkSchedule({
+      providerId: draftEngineProviderId,
+      bridge,
+      prompt: latestUserPrompt,
+      activeProject: activeCoworkProject,
+      rootPath: workingFolderRef.current,
+      model: coworkModel,
+    })
+      .then((result) => {
+        if (result.shouldOpenScheduledPage) {
           setActivePage('scheduled');
-          setStatus('Created an internal one-minute schedule from the current task prompt.');
+        }
+        setStatus(result.message);
+        if (result.shouldReloadScheduledJobs) {
           void loadScheduledJobs();
-        })
-        .catch((error) => {
-          const message = error instanceof Error ? error.message : 'Unable to create internal schedule.';
-          setStatus(message);
-        });
-      return;
-    }
-
-    setActivePage('scheduled');
-    setStatus('Opened Schedule. Create a cron job for this task prompt from your runtime scheduler.');
+        }
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : 'Unable to create internal schedule.';
+        setStatus(message);
+      });
   };
 
   const handleUpdateInternalPromptSchedule = async (scheduleId: string, payload: {
     enabled?: boolean;
     intervalMinutes?: number;
   }) => {
-    if (!bridge?.updateInternalPromptSchedule) {
-      setStatus('Internal schedule controls are available in the Electron desktop app only.');
-      return;
-    }
     try {
-      await bridge.updateInternalPromptSchedule(scheduleId, payload);
+      const message = await updateEngineSchedule({
+        bridge,
+        scheduleId,
+        payload,
+      });
       await loadScheduledJobs();
-      if (typeof payload.enabled === 'boolean') {
-        setStatus(payload.enabled ? 'Resumed internal schedule.' : 'Paused internal schedule.');
-      } else if (payload.intervalMinutes) {
-        setStatus(`Updated internal schedule cadence to every ${payload.intervalMinutes} minute${payload.intervalMinutes === 1 ? '' : 's'}.`);
-      } else {
-        setStatus('Updated internal schedule.');
-      }
+      setStatus(message);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to update internal schedule.';
       setStatus(message);
@@ -3146,14 +3142,13 @@ export default function App() {
   };
 
   const handleDeleteInternalPromptSchedule = async (scheduleId: string) => {
-    if (!bridge?.deleteInternalPromptSchedule) {
-      setStatus('Internal schedule controls are available in the Electron desktop app only.');
-      return;
-    }
     try {
-      await bridge.deleteInternalPromptSchedule(scheduleId);
+      const message = await deleteEngineSchedule({
+        bridge,
+        scheduleId,
+      });
       await loadScheduledJobs();
-      setStatus('Deleted internal schedule.');
+      setStatus(message);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to delete internal schedule.';
       setStatus(message);
@@ -3868,8 +3863,10 @@ export default function App() {
 
     setScheduledLoading(true);
     try {
-      await client.connect(engineConnectOptionsFromDraft(getCurrentEngineDraft()));
-      const rows = await client.listCronJobs();
+      const rows = await loadEngineScheduledJobs(
+        client,
+        engineConnectOptionsFromDraft(getCurrentEngineDraft()),
+      );
       setScheduledJobs(rows);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to load scheduled jobs.';
@@ -4407,16 +4404,16 @@ export default function App() {
                       />
                     )}
 
-                    {activePage === 'scheduled' && (
-                      <ScheduledPage
-                        jobs={scheduledJobs}
-                        loading={scheduledLoading}
-                        status={status}
-                        onRefresh={loadScheduledJobs}
-                        scheduleActionsEnabled={draftEngineProviderId === 'internal'}
-                        onToggleJob={(jobId, enabled) => void handleUpdateInternalPromptSchedule(jobId, { enabled })}
-                        onSetJobInterval={(jobId, intervalMinutes) => void handleUpdateInternalPromptSchedule(jobId, { intervalMinutes })}
-                        onDeleteJob={(jobId) => void handleDeleteInternalPromptSchedule(jobId)}
+                      {activePage === 'scheduled' && (
+                        <ScheduledPage
+                          jobs={scheduledJobs}
+                          loading={scheduledLoading}
+                          status={status}
+                          onRefresh={loadScheduledJobs}
+                          scheduleActionsEnabled={canManageEngineSchedules(draftEngineProviderId, bridge)}
+                          onToggleJob={(jobId, enabled) => void handleUpdateInternalPromptSchedule(jobId, { enabled })}
+                          onSetJobInterval={(jobId, intervalMinutes) => void handleUpdateInternalPromptSchedule(jobId, { intervalMinutes })}
+                          onDeleteJob={(jobId) => void handleDeleteInternalPromptSchedule(jobId)}
                         focusedJobId={focusedScheduledJobId}
                         onOpenRunHistory={(jobId, runId) => {
                           setFocusedScheduledJobId(jobId);
