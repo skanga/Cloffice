@@ -241,6 +241,11 @@ function createInternalEngineMainService() {
     lastRunId?: string;
     lastRunStatus?: string;
     lastRunSummary?: string;
+    lastArtifactSummary?: string;
+    lastArtifactReceiptCount?: number;
+    lastArtifactErrorCount?: number;
+    lastArtifactPreviews?: string[];
+    lastArtifactErrors?: string[];
     projectId?: string;
     projectTitle?: string;
     rootPath?: string;
@@ -1075,6 +1080,15 @@ function createInternalEngineMainService() {
       ...(typeof candidate.lastRunId === 'string' && candidate.lastRunId.trim() ? { lastRunId: candidate.lastRunId.trim() } : {}),
       ...(typeof candidate.lastRunStatus === 'string' && candidate.lastRunStatus.trim() ? { lastRunStatus: candidate.lastRunStatus.trim() } : {}),
       ...(typeof candidate.lastRunSummary === 'string' && candidate.lastRunSummary.trim() ? { lastRunSummary: candidate.lastRunSummary.trim() } : {}),
+      ...(typeof candidate.lastArtifactSummary === 'string' && candidate.lastArtifactSummary.trim() ? { lastArtifactSummary: candidate.lastArtifactSummary.trim() } : {}),
+      ...(Number.isFinite(candidate.lastArtifactReceiptCount) ? { lastArtifactReceiptCount: Number(candidate.lastArtifactReceiptCount) } : {}),
+      ...(Number.isFinite(candidate.lastArtifactErrorCount) ? { lastArtifactErrorCount: Number(candidate.lastArtifactErrorCount) } : {}),
+      ...(Array.isArray(candidate.lastArtifactPreviews)
+        ? { lastArtifactPreviews: candidate.lastArtifactPreviews.filter((entry): entry is string => typeof entry === 'string').slice(0, 3) }
+        : {}),
+      ...(Array.isArray(candidate.lastArtifactErrors)
+        ? { lastArtifactErrors: candidate.lastArtifactErrors.filter((entry): entry is string => typeof entry === 'string').slice(0, 3) }
+        : {}),
       ...(typeof candidate.projectId === 'string' && candidate.projectId.trim() ? { projectId: candidate.projectId.trim() } : {}),
       ...(typeof candidate.projectTitle === 'string' && candidate.projectTitle.trim() ? { projectTitle: candidate.projectTitle.trim() } : {}),
       ...(typeof candidate.rootPath === 'string' && candidate.rootPath.trim() ? { rootPath: candidate.rootPath.trim() } : {}),
@@ -1125,9 +1139,15 @@ function createInternalEngineMainService() {
             ...(latestPendingApproval?.currentApproval?.summary
               ? { pendingApprovalSummary: latestPendingApproval.currentApproval.summary }
               : {}),
-            ...(artifact?.summary ? { lastArtifactSummary: artifact.summary } : {}),
-            ...(artifact ? { lastArtifactReceiptCount: artifact.receiptCount } : {}),
-            ...(artifact && artifact.errors.length > 0 ? { lastArtifactErrorCount: artifact.errors.length } : {}),
+            ...(schedule.lastArtifactSummary ? { lastArtifactSummary: schedule.lastArtifactSummary } : artifact?.summary ? { lastArtifactSummary: artifact.summary } : {}),
+            ...(typeof schedule.lastArtifactReceiptCount === 'number' ? { lastArtifactReceiptCount: schedule.lastArtifactReceiptCount } : artifact ? { lastArtifactReceiptCount: artifact.receiptCount } : {}),
+            ...(typeof schedule.lastArtifactErrorCount === 'number' && schedule.lastArtifactErrorCount > 0
+              ? { lastArtifactErrorCount: schedule.lastArtifactErrorCount }
+              : artifact && artifact.errors.length > 0
+                ? { lastArtifactErrorCount: artifact.errors.length }
+                : {}),
+            ...(schedule.lastArtifactPreviews?.length ? { lastArtifactPreviews: schedule.lastArtifactPreviews.slice(0, 3) } : artifact && artifact.previews.length > 0 ? { lastArtifactPreviews: artifact.previews.slice(0, 3) } : {}),
+            ...(schedule.lastArtifactErrors?.length ? { lastArtifactErrors: schedule.lastArtifactErrors.slice(0, 3) } : artifact && artifact.errors.length > 0 ? { lastArtifactErrors: artifact.errors.slice(0, 3) } : {}),
           };
         })()
       : {}),
@@ -1142,6 +1162,47 @@ function createInternalEngineMainService() {
     ...(schedule.lastRunStatus ? { lastRunStatus: schedule.lastRunStatus } : {}),
     ...(schedule.lastRunSummary ? { lastRunSummary: schedule.lastRunSummary } : {}),
   });
+  const seedScheduleArtifactForE2E = async (id: string) => {
+    const schedule = schedules.find((entry) => entry.id === id);
+    if (!schedule) {
+      throw new Error(`Internal schedule not found: ${id}`);
+    }
+    const runId = schedule.lastRunId || crypto.randomUUID();
+    schedule.lastRunId = runId;
+    schedule.lastRunAt = new Date().toISOString();
+    schedule.state = 'completed';
+    schedule.lastRunStatus = 'completed';
+    schedule.lastRunSummary = 'Internal schedule completed with recorded artifact previews.';
+    schedule.lastArtifactSummary = 'Internal cowork continuation recorded execution receipts.';
+    schedule.lastArtifactReceiptCount = 2;
+    schedule.lastArtifactErrorCount = 0;
+    schedule.lastArtifactPreviews = [
+      'README.md',
+      '.gitignore',
+    ];
+    schedule.lastArtifactErrors = [];
+    const seededArtifact: PersistedInternalArtifactRecord = {
+      id: crypto.randomUUID(),
+      runId,
+      sessionKey: `internal:scheduled:${schedule.kind}:${schedule.id}`,
+      kind: 'cowork_execution',
+      createdAt: now(),
+      receiptCount: 2,
+      receipts: [
+        { id: crypto.randomUUID(), type: 'list_dir', path: '.', status: 'ok', message: 'Listed workspace root.' },
+        { id: crypto.randomUUID(), type: 'stat', path: '.', status: 'ok', message: 'Read root metadata.' },
+      ],
+      previews: [...schedule.lastArtifactPreviews],
+      errors: [],
+      summary: schedule.lastArtifactSummary,
+    };
+    artifacts = [
+      ...artifacts.filter((artifact) => artifact.runId !== runId),
+      seededArtifact,
+    ].sort((left, right) => left.createdAt - right.createdAt).slice(-200);
+    await persistState();
+    return toEngineCronJob(schedule);
+  };
   const latestArtifactSummary = () => {
     const lastArtifact = artifacts[artifacts.length - 1];
     return lastArtifact?.summary ?? null;
@@ -1459,6 +1520,9 @@ function createInternalEngineMainService() {
       if (!schedule.enabled || !schedule.nextRunAt) {
         continue;
       }
+      if (schedule.state === 'awaiting_approval' || schedule.state === 'running' || schedule.state === 'executing') {
+        continue;
+      }
       const dueAt = new Date(schedule.nextRunAt).getTime();
       if (!Number.isFinite(dueAt) || dueAt > currentTime) {
         continue;
@@ -1695,6 +1759,10 @@ function createInternalEngineMainService() {
       requireConnected();
       schedules = schedules.filter((entry) => entry.id !== id);
       await persistState();
+    },
+    async seedScheduleArtifactForE2E(id: string): Promise<EngineCronJob> {
+      requireConnected();
+      return seedScheduleArtifactForE2E(id);
     },
     async getSessionModel(sessionKey: string): Promise<string | null> {
       requireConnected();
@@ -2155,6 +2223,9 @@ function createInternalEngineMainService() {
       pendingApprovalFlows = pendingApprovalFlows.filter((flow) => flow.runId !== payload.runId);
       interruptedRunCount = Array.from(runs.values()).filter((run) => run.status === 'interrupted').length;
       const runRecord = runs.get(payload.runId);
+      const relatedSchedule = runRecord?.scheduleId
+        ? schedules.find((entry) => entry.id === runRecord.scheduleId)
+        : schedules.find((entry) => entry.lastRunId === payload.runId);
       if (runRecord) {
         runRecord.artifactId = artifactId;
         runRecord.approvedActionCount = payload.approvedActions.length;
@@ -2170,6 +2241,22 @@ function createInternalEngineMainService() {
           details: `Receipts: ${execution.receipts.length}. Errors: ${execution.errors.length}.`,
           at: now(),
         });
+      }
+      if (relatedSchedule) {
+        relatedSchedule.lastRunId = payload.runId;
+        relatedSchedule.lastRunAt = new Date().toISOString();
+        relatedSchedule.nextRunAt = computeNextRunAt(relatedSchedule.intervalMinutes);
+        relatedSchedule.state = requestedActions.length > 0 ? 'awaiting_approval' : continuationBlocked ? 'blocked' : 'completed';
+        relatedSchedule.lastRunStatus = requestedActions.length > 0 ? 'awaiting_approval' : continuationBlocked ? 'blocked' : 'completed';
+        relatedSchedule.lastRunSummary = requestedActions.length > 0
+          ? `Awaiting approval for ${requestedActions.length} additional read-only action${requestedActions.length === 1 ? '' : 's'}.`
+          : resultSummary;
+        relatedSchedule.lastArtifactSummary = resultSummary;
+        relatedSchedule.lastArtifactReceiptCount = execution.receipts.length;
+        relatedSchedule.lastArtifactErrorCount = execution.errors.length;
+        relatedSchedule.lastArtifactPreviews = execution.previews.slice(0, 3);
+        relatedSchedule.lastArtifactErrors = execution.errors.slice(0, 3);
+        relatedSchedule.lastError = continuationBlocked ? execution.errors[0] ?? resultSummary : undefined;
       }
       await persistState();
 
@@ -3240,6 +3327,7 @@ app.whenReady().then(async () => {
       internalEngineService.updatePromptSchedule(id, payload),
   );
   ipcMain.handle('internal-engine:delete-prompt-schedule', async (_event, id: string) => internalEngineService.deletePromptSchedule(id));
+  ipcMain.handle('internal-engine:seed-schedule-artifact-e2e', async (_event, id: string) => internalEngineService.seedScheduleArtifactForE2E(id));
   ipcMain.handle('internal-engine:send-chat', async (event, sessionKey: string, text: string) =>
     internalEngineService.sendChat(sessionKey, text, (frame) => {
       event.sender.send('internal-engine:event', frame);

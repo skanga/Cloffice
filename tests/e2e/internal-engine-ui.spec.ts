@@ -72,8 +72,14 @@ async function createProjectFromSidebar(page: Page, params: { title: string; des
 }
 
 async function openProjectCowork(page: Page, projectTitle: string) {
-  await page.getByRole('button', { name: `New task in ${projectTitle}` }).click();
-  await expect(page.getByRole('textbox', { name: 'Task prompt' }).first()).toBeVisible({ timeout: 15000 });
+  const openTaskButton = page.getByRole('button', { name: `New task in ${projectTitle}` });
+  await expect(openTaskButton).toBeVisible({ timeout: 15000 });
+  await openTaskButton.click();
+  const promptBox = page.getByRole('textbox', { name: 'Task prompt' }).first();
+  if (!(await promptBox.isVisible({ timeout: 3000 }).catch(() => false))) {
+    await openTaskButton.click();
+  }
+  await expect(promptBox).toBeVisible({ timeout: 15000 });
 }
 
 async function connectInternalProviderFromOnboarding(page: Page) {
@@ -320,6 +326,7 @@ test.describe('Internal engine UI flow', () => {
     });
 
     await openSchedulePage(page);
+    await page.getByRole('button', { name: 'Refresh' }).click();
 
     const jobCard = page.getByTestId(`scheduled-job-${createdJob.id}`);
     await expect(jobCard).toBeVisible({ timeout: 15000 });
@@ -329,6 +336,7 @@ test.describe('Internal engine UI flow', () => {
     await page.getByTestId(`scheduled-job-toggle-${createdJob.id}`).click();
     await expect(jobCard).toContainText('Paused');
 
+    await expect(page.getByTestId(`scheduled-job-toggle-${createdJob.id}`)).toContainText('Resume');
     await page.getByTestId(`scheduled-job-toggle-${createdJob.id}`).click();
     await expect(jobCard).toContainText('Active');
 
@@ -384,5 +392,42 @@ test.describe('Internal engine UI flow', () => {
     await expect(scheduledJobCard).toContainText('Pending approval');
     await expect(scheduledJobCard).toContainText('List directory .');
     await expect(scheduledJobCard.getByTestId(/^scheduled-job-open-pending-run-/)).toBeVisible();
+  });
+
+  test('schedule page shows artifact drill-down for a completed internal schedule', async () => {
+    await markOnboardingComplete(page);
+    await connectInternalProviderFromSettings(page);
+    await clearInternalSchedules(page);
+    const rootFolder = await prepareProjectRoot(page);
+    await createProjectFromSidebar(page, {
+      title: 'Internal Schedule Artifact Project',
+      description: 'Exercise seeded schedule artifact drill-down rendering through the live UI.',
+      rootFolder,
+    });
+
+    const seededJob = await page.evaluate(async () => {
+      const bridge = window.cloffice ?? window.relay;
+      const created = await bridge.createInternalPromptSchedule({
+        kind: 'cowork',
+        name: 'UI schedule artifact drilldown',
+        prompt: 'Seeded artifact drilldown prompt.',
+        intervalMinutes: 5,
+        model: 'internal/dev-planner',
+      });
+      if (!bridge.seedInternalScheduleArtifactForE2E) {
+        throw new Error('E2E schedule artifact seeding bridge unavailable.');
+      }
+      await bridge.seedInternalScheduleArtifactForE2E(created.id);
+      return created;
+    });
+
+    await openSchedulePage(page);
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    const scheduledJobCard = page.getByTestId(`scheduled-job-${seededJob.id}`);
+    await expect(scheduledJobCard).toBeVisible({ timeout: 15000 });
+    await expect(scheduledJobCard).toContainText('Last artifact');
+    await expect(scheduledJobCard.getByTestId(`scheduled-job-open-artifact-${seededJob.id}`)).toBeVisible();
+    await scheduledJobCard.getByTestId(`scheduled-job-toggle-artifact-${seededJob.id}`).click();
+    await expect(scheduledJobCard).toContainText('Preview');
   });
 });

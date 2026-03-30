@@ -66,6 +66,7 @@ type DesktopBridgeApi = {
     intervalMinutes?: number;
   }) => Promise<EngineCronJob>;
   deleteInternalPromptSchedule: (id: string) => Promise<void>;
+  seedInternalScheduleArtifactForE2E?: (id: string) => Promise<unknown>;
   sendInternalChat: (sessionKey: string, text: string) => Promise<InternalEngineSendChatResult>;
   setInternalEngineEventHandler: (handler: ((frame: EngineEventFrame) => void) | null) => void;
   testInternalProviderConnection: (

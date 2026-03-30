@@ -173,6 +173,8 @@ export type ScheduledJob = {
   lastArtifactSummary?: string;
   lastArtifactReceiptCount?: number;
   lastArtifactErrorCount?: number;
+  lastArtifactPreviews?: string[];
+  lastArtifactErrors?: string[];
 };
 
 export type LocalFilePlanAction = {

@@ -45,6 +45,8 @@ export type EngineCronJob = {
   lastArtifactSummary?: string;
   lastArtifactReceiptCount?: number;
   lastArtifactErrorCount?: number;
+  lastArtifactPreviews?: string[];
+  lastArtifactErrors?: string[];
 };
 
 export type EngineToolEntry = {

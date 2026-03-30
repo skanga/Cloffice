@@ -224,6 +224,8 @@ const desktopBridgeApi = {
     ipcRenderer.invoke('internal-engine:update-prompt-schedule', id, payload) as Promise<{ id: string; name: string; schedule: string; enabled: boolean; state: string; nextRunAt: string | null; lastRunAt: string | null }>,
   deleteInternalPromptSchedule: (id: string) =>
     ipcRenderer.invoke('internal-engine:delete-prompt-schedule', id) as Promise<void>,
+  seedInternalScheduleArtifactForE2E: (id: string) =>
+    ipcRenderer.invoke('internal-engine:seed-schedule-artifact-e2e', id),
   sendInternalChat: (sessionKey: string, text: string) =>
     ipcRenderer.invoke('internal-engine:send-chat', sessionKey, text) as Promise<InternalEngineSendChatResult>,
   setInternalEngineEventHandler: (() => {

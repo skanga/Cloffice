@@ -120,6 +120,7 @@ export function ScheduledPage({
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
+  const [expandedArtifactJobId, setExpandedArtifactJobId] = useState<string | null>(null);
 
   const now = new Date();
   const sortedJobs = useMemo(() => {
@@ -387,9 +388,59 @@ export function ScheduledPage({
                                         Open artifact
                                       </Button>
                                     ) : null}
+                                    {(job.lastArtifactPreviews?.length || job.lastArtifactErrors?.length) ? (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-6 px-2 text-[10px]"
+                                        data-testid={`scheduled-job-toggle-artifact-${job.id}`}
+                                        onClick={() => setExpandedArtifactJobId((current) => current === job.id ? null : job.id)}
+                                      >
+                                        {expandedArtifactJobId === job.id ? 'Hide details' : 'Show details'}
+                                      </Button>
+                                    ) : null}
                                   </div>
                                   {job.lastArtifactSummary ? (
                                     <p className="mt-1 font-sans text-[11px] text-muted-foreground">{job.lastArtifactSummary}</p>
+                                  ) : null}
+                                  {expandedArtifactJobId === job.id ? (
+                                    <div className="mt-2 grid gap-2">
+                                      {job.lastArtifactPreviews?.length ? (
+                                        <div>
+                                          <p className="mb-1 font-sans text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                            Preview
+                                          </p>
+                                          <div className="grid gap-2">
+                                            {job.lastArtifactPreviews.map((preview, index) => (
+                                              <pre
+                                                key={`${job.id}-artifact-preview-${index}`}
+                                                className="overflow-x-auto rounded-md border border-border/40 bg-card/80 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground whitespace-pre-wrap"
+                                              >
+                                                {preview}
+                                              </pre>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      ) : null}
+                                      {job.lastArtifactErrors?.length ? (
+                                        <div>
+                                          <p className="mb-1 font-sans text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                            Errors
+                                          </p>
+                                          <div className="grid gap-1">
+                                            {job.lastArtifactErrors.map((error, index) => (
+                                              <p
+                                                key={`${job.id}-artifact-error-${index}`}
+                                                className="rounded-md border border-border/40 bg-card/80 px-2 py-1.5 text-[10px] text-muted-foreground"
+                                              >
+                                                {error}
+                                              </p>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      ) : null}
+                                    </div>
                                   ) : null}
                                 </div>
                               ) : null}

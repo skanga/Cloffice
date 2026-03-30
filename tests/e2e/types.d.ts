@@ -38,7 +38,8 @@ interface Window {
       enabled?: boolean;
       intervalMinutes?: number;
     }) => Promise<any>;
-    deleteInternalPromptSchedule: (id: string) => Promise<void>;
+  deleteInternalPromptSchedule: (id: string) => Promise<void>;
+  seedInternalScheduleArtifactForE2E?: (id: string) => Promise<unknown>;
     sendInternalChat: (sessionKey: string, text: string) => Promise<any>;
     setInternalEngineEventHandler: (handler: ((frame: any) => void) | null) => void;
     testInternalProviderConnection: (providerId: 'openai' | 'anthropic' | 'gemini', config?: any) => Promise<any>;
