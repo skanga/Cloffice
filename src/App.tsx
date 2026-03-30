@@ -2799,6 +2799,23 @@ export default function App() {
       setStatus(`Exported ${jobs.length} schedule${jobs.length === 1 ? '' : 's'}.`);
     };
 
+    const handleExportCurrentInternalPromptSchedules = async () => {
+      const client = engineClientRef.current;
+      if (!client) {
+        setStatus(buildRuntimeClientUnavailableStatus());
+        return;
+      }
+      const result = await loadEngineScheduledJobsWithStatus(
+        client,
+        engineConnectOptionsFromDraft(getCurrentEngineDraft()),
+      );
+      if (result.errorMessage) {
+        setStatus(result.errorMessage);
+        return;
+      }
+      await handleExportInternalPromptSchedules(result.jobs);
+    };
+
     const handleImportInternalPromptSchedules = async (content: string) => {
       let schedules;
       try {
@@ -4181,6 +4198,8 @@ export default function App() {
                           setActivePage('scheduled');
                         }}
                         onClearScheduleRunFilter={() => setFocusedScheduledJobId(null)}
+                        onExportCurrentSchedules={() => void handleExportCurrentInternalPromptSchedules()}
+                        onImportSchedules={(content) => void handleImportInternalPromptSchedules(content)}
                       />
                     )}
                   </ScrollArea>

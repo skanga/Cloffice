@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { FormEvent, ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { Code2, Folder, Globe, KeyRound, Link2, Shield, Terminal, Trash2 } from 'lucide-react';
 
 import type { EngineConnectionProfile, EngineProviderId, HealthCheckResult, UserPreferences } from '@/app-types';
@@ -55,6 +55,8 @@ type SettingsPageProps = {
   onUpdatePreferences: (patch: Partial<UserPreferences>) => void;
   onOpenScheduleJob?: (jobId: string) => void | Promise<void>;
   onClearScheduleRunFilter?: () => void;
+  onExportCurrentSchedules?: () => void | Promise<void>;
+  onImportSchedules?: (content: string) => void | Promise<void>;
 };
 
 const sectionDescriptions: Record<SettingsSection, { en: string; de: string }> = {
@@ -274,6 +276,8 @@ export function SettingsPage({
   onUpdatePreferences,
   onOpenScheduleJob,
   onClearScheduleRunFilter,
+  onExportCurrentSchedules,
+  onImportSchedules,
 }: SettingsPageProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -284,6 +288,7 @@ export function SettingsPage({
   const [highlightedRunId, setHighlightedRunId] = useState<string | null>(null);
   const [testingProviderId, setTestingProviderId] = useState<'openai' | 'anthropic' | 'gemini' | null>(null);
   const [providerTestResult, setProviderTestResult] = useState<InternalProviderConnectionTestResult | null>(null);
+  const scheduleImportInputRef = useRef<HTMLInputElement | null>(null);
   const engineProviders = useMemo(() => listEngineProviders(), []);
   const effectiveEngineProviders = useMemo(
     () => engineProviders.map((provider) => (
@@ -324,6 +329,16 @@ export function SettingsPage({
   const t = useCallback((en: string, de: string) => (preferences.language === 'de' ? de : en), [preferences.language]);
   const runtimeEndpointPlaceholder = 'internal://dev-runtime';
   const runtimeTokenPlaceholder = t('Not used for the internal engine', 'Wird fuer die interne Engine nicht verwendet');
+
+  const handleImportScheduleFileSelection = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !onImportSchedules) {
+      return;
+    }
+    const content = await file.text();
+    await onImportSchedules(content);
+  }, [onImportSchedules]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -1000,6 +1015,38 @@ export function SettingsPage({
                       <Badge variant="outline" className="rounded-full font-sans text-[10px]">
                         {filteredInternalRunHistory.length} {t('runs loaded', 'Laeufe geladen')}
                       </Badge>
+                      <Badge variant="outline" className="rounded-full font-sans text-[10px]">
+                        {scheduledJobs.length} {t('schedules', 'Zeitplaene')}
+                      </Badge>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-[11px]"
+                        data-testid="settings-schedule-export"
+                        disabled={scheduledJobs.length === 0}
+                        onClick={() => void onExportCurrentSchedules?.()}
+                      >
+                        {t('Export schedules', 'Zeitplaene exportieren')}
+                      </Button>
+                      <input
+                        ref={scheduleImportInputRef}
+                        type="file"
+                        accept="application/json"
+                        className="hidden"
+                        data-testid="settings-schedule-import-input"
+                        onChange={(event) => void handleImportScheduleFileSelection(event)}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-[11px]"
+                        data-testid="settings-schedule-import-trigger"
+                        onClick={() => scheduleImportInputRef.current?.click()}
+                      >
+                        {t('Import schedules', 'Zeitplaene importieren')}
+                      </Button>
                       {focusedSchedule && onClearScheduleRunFilter ? (
                         <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-[11px]" onClick={onClearScheduleRunFilter}>
                           {t('Clear filter', 'Filter loeschen')}

@@ -276,8 +276,24 @@ async function waitForPromptStatus(page: Page, promptTag: string, status: 'runni
 }
 
 async function openSchedulePage(page: Page) {
-  await page.getByRole('button', { name: 'Schedule', exact: true }).click();
+  await expect(async () => {
+    const scheduleControl = page.getByRole('button', { name: 'Schedule', exact: true })
+      .or(page.getByRole('tab', { name: 'Schedule', exact: true }));
+    await expect(scheduleControl.first()).toBeVisible();
+    await scheduleControl.first().click();
+  }).toPass({ timeout: 15000 });
   await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible({ timeout: 15000 });
+}
+
+async function openDeveloperSettings(page: Page) {
+  await page.keyboard.press('Control+,');
+  await expect(async () => {
+    const developerControl = page.getByRole('button', { name: 'Developer', exact: true })
+      .or(page.getByRole('tab', { name: 'Developer', exact: true }));
+    await expect(developerControl.first()).toBeVisible();
+    await developerControl.first().click();
+  }).toPass({ timeout: 15000 });
+  await expect(page.getByText('Recent internal runs')).toBeVisible({ timeout: 15000 });
 }
 
 test.describe('Internal engine UI flow', () => {
@@ -696,6 +712,77 @@ test.describe('Internal engine UI flow', () => {
       enabled: false,
       schedule: 'every 5 minutes',
       kind: 'cowork',
+    });
+  });
+
+  test('operator can export and import schedules from Settings developer tools', async () => {
+    await markOnboardingComplete(page);
+    await connectInternalProviderFromSettings(page);
+    await clearInternalSchedules(page);
+
+    await page.evaluate(async () => {
+      const bridge = window.cloffice ?? window.relay;
+      await bridge.createInternalPromptSchedule({
+        kind: 'chat',
+        name: 'Settings backup schedule',
+        prompt: 'Summarize the latest scheduler changes.',
+        intervalMinutes: 15,
+        model: null,
+      });
+    });
+
+    await openDeveloperSettings(page);
+
+    await page.evaluate(() => {
+      const originalCreateObjectURL = URL.createObjectURL.bind(URL);
+      const originalAnchorClick = HTMLAnchorElement.prototype.click;
+      (window as any).__settingsScheduleExportText = null;
+      URL.createObjectURL = ((blob: Blob) => {
+        void blob.text().then((text) => {
+          (window as any).__settingsScheduleExportText = text;
+        });
+        return originalCreateObjectURL(blob);
+      }) as typeof URL.createObjectURL;
+      HTMLAnchorElement.prototype.click = function click() {
+        return;
+      };
+      (window as any).__restoreSettingsScheduleExportHooks = () => {
+        URL.createObjectURL = originalCreateObjectURL;
+        HTMLAnchorElement.prototype.click = originalAnchorClick;
+      };
+    });
+    await page.getByTestId('settings-schedule-export').click();
+    await expect.poll(async () => page.evaluate(() => (window as any).__settingsScheduleExportText), {
+      timeout: 15000,
+    }).not.toBeNull();
+    const exportText = await page.evaluate(() => (window as any).__settingsScheduleExportText as string);
+    await page.evaluate(() => {
+      (window as any).__restoreSettingsScheduleExportHooks?.();
+    });
+    const exported = JSON.parse(exportText) as { schedules: Array<{ name: string; kind: string }> };
+    expect(exported.schedules[0]?.name).toBe('Settings backup schedule');
+    expect(exported.schedules[0]?.kind).toBe('chat');
+
+    await clearInternalSchedules(page);
+    await page.getByTestId('settings-schedule-import-input').setInputFiles({
+      name: 'settings-schedules.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(exportText, 'utf8'),
+    });
+
+    await expect.poll(async () => page.evaluate(async () => {
+      const bridge = window.cloffice ?? window.relay;
+      const jobs = await bridge.listInternalCronJobs();
+      const match = jobs.find((job: any) => job?.name === 'Settings backup schedule');
+      return match
+        ? {
+            schedule: match.schedule,
+            kind: match.kind,
+          }
+        : null;
+    }), { timeout: 15000 }).toEqual({
+      schedule: 'every 15 minutes',
+      kind: 'chat',
     });
   });
 
