@@ -148,6 +148,18 @@ import {
   buildWorkingFolderSelectedStatus,
 } from './lib/engine-local-status';
 import {
+  buildKnowledgeDeletedStatus,
+  buildKnowledgeSavedStatus,
+  buildKnowledgeTitleAndContentRequiredStatus,
+  buildProjectCreatedStatus,
+  buildProjectDeletedStatus,
+  buildProjectNameAndWorkspaceRequiredStatus,
+  buildProjectNameRequiredStatus,
+  buildProjectSelectedStatus,
+  buildProjectUpdatedStatus,
+  buildRecentTitleEmptyStatus,
+} from './lib/engine-project-status';
+import {
   buildDeletedRecentSessionStatus,
   buildInvalidSessionKeyStatus,
   buildLoadedSessionStatus,
@@ -3288,7 +3300,7 @@ export default function App() {
       setWorkingFolder(selected.workspaceFolder);
       workingFolderRef.current = selected.workspaceFolder.trim();
     }
-    setStatus(`Project selected: ${selected.name}`);
+    setStatus(buildProjectSelectedStatus(selected.name));
   };
 
   const handleCreateCoworkProject = (name: string, workspaceFolder: string, description?: string, instructions?: string) => {
@@ -3297,7 +3309,7 @@ export default function App() {
     const normalizedDescription = description?.trim() ?? '';
     const normalizedInstructions = instructions?.trim() ?? '';
     if (!normalizedName || !normalizedFolder) {
-      setStatus('Project name and workspace folder are required.');
+      setStatus(buildProjectNameAndWorkspaceRequiredStatus());
       return;
     }
 
@@ -3320,7 +3332,7 @@ export default function App() {
     setActiveCoworkProjectId(projectId);
     setWorkingFolder(normalizedFolder);
     workingFolderRef.current = normalizedFolder;
-    setStatus(`Project created: ${normalizedName}`);
+    setStatus(buildProjectCreatedStatus(normalizedName));
   };
 
   const handleRenameCoworkProject = (projectId: string, name: string, description?: string, instructions?: string) => {
@@ -3329,7 +3341,7 @@ export default function App() {
     const normalizedDescription = description?.trim() ?? '';
     const normalizedInstructions = instructions?.trim() ?? '';
     if (!normalizedProjectId || !normalizedName) {
-      setStatus('Project name is required.');
+      setStatus(buildProjectNameRequiredStatus());
       return;
     }
 
@@ -3352,7 +3364,7 @@ export default function App() {
     );
 
     if (renamedProjectName) {
-      setStatus(`Project updated: ${renamedProjectName}`);
+      setStatus(buildProjectUpdatedStatus(renamedProjectName));
     }
   };
 
@@ -3363,7 +3375,7 @@ export default function App() {
     const normalizedDescription = description?.trim() ?? '';
     const normalizedInstructions = instructions?.trim() ?? '';
     if (!normalizedProjectId || !normalizedName || !normalizedFolder) {
-      setStatus('Project name and workspace folder are required.');
+      setStatus(buildProjectNameAndWorkspaceRequiredStatus());
       return;
     }
 
@@ -3394,7 +3406,7 @@ export default function App() {
     }
 
     if (updatedProjectName) {
-      setStatus(`Project updated: ${updatedProjectName}`);
+      setStatus(buildProjectUpdatedStatus(updatedProjectName));
     }
   };
 
@@ -3403,7 +3415,7 @@ export default function App() {
     const normalizedTitle = title.trim();
     const normalizedContent = content.trim();
     if (!normalizedProjectId || !normalizedTitle || !normalizedContent) {
-      setStatus('Knowledge title and content are required.');
+      setStatus(buildKnowledgeTitleAndContentRequiredStatus());
       return;
     }
 
@@ -3424,7 +3436,7 @@ export default function App() {
       },
       ...current,
     ].slice(0, 500));
-    setStatus(`Knowledge saved: ${normalizedTitle}`);
+    setStatus(buildKnowledgeSavedStatus(normalizedTitle));
   };
 
   const handleDeleteProjectKnowledge = (knowledgeId: string) => {
@@ -3433,7 +3445,7 @@ export default function App() {
       return;
     }
     setProjectKnowledgeItems((current) => current.filter((item) => item.id !== normalizedId));
-    setStatus('Knowledge entry deleted.');
+    setStatus(buildKnowledgeDeletedStatus());
   };
 
   const handleDeleteCoworkProject = (projectId: string) => {
@@ -3456,11 +3468,7 @@ export default function App() {
       setActiveCoworkProjectId('');
     }
 
-    setStatus(
-      deletedProjectName
-        ? `Project deleted: ${deletedProjectName}`
-        : 'Project deleted.',
-    );
+    setStatus(buildProjectDeletedStatus(deletedProjectName || undefined));
   };
 
   const handleCreateFileInWorkingFolder = async () => {
@@ -3846,7 +3854,7 @@ export default function App() {
     const currentLabel = recentRenameTarget.label.trim();
     const nextTitle = toRecentSidebarLabel(recentRenameValue);
     if (!nextTitle) {
-      setStatus('Title cannot be empty.');
+      setStatus(buildRecentTitleEmptyStatus());
       return;
     }
 
