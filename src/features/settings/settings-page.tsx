@@ -17,6 +17,11 @@ import { loadAllowedDomains, saveAllowedDomains } from '@/lib/connectors/web-fet
 import { getEngineProvider, listEngineProviders } from '@/lib/engine-provider-registry';
 import type { InternalEngineRunRecord, InternalEngineRuntimeInfo } from '@/lib/internal-engine-bridge';
 import type { InternalProviderConnectionTestResult } from '@/lib/internal-provider-adapter';
+import {
+  buildOpenClawCompatibilityDefaultEndpoint,
+  buildOpenClawCompatibilitySettingsPairingCopy,
+  buildOpenClawCompatibilityTokenPlaceholder,
+} from '@/lib/openclaw-compat-engine';
 import type { ConnectorDefinition } from '@/lib/connectors/connector-types';
 
 type AppLanguage = 'en' | 'de';
@@ -402,7 +407,7 @@ export function SettingsPage({
 
   const copyCommand = useCallback(() => {
     if (!effectivePairingId) return;
-    const cmd = `openclaw devices approve ${effectivePairingId}`;
+    const cmd = buildOpenClawCompatibilitySettingsPairingCopy(effectivePairingId).command;
     void navigator.clipboard.writeText(cmd).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -795,7 +800,7 @@ export function SettingsPage({
                 <Input
                   value={draftEngineUrl}
                   onChange={(event) => onDraftEngineUrlChange(event.target.value)}
-                  placeholder="ws://127.0.0.1:18789"
+                  placeholder={buildOpenClawCompatibilityDefaultEndpoint()}
                   className="font-sans"
                 />
               </label>
@@ -806,7 +811,7 @@ export function SettingsPage({
                   type="password"
                   value={draftEngineToken}
                   onChange={(event) => onDraftEngineTokenChange(event.target.value)}
-                  placeholder={t('Paste token from runtime setup', 'Token aus dem OpenClaw-Setup einfuegen')}
+                  placeholder={t(buildOpenClawCompatibilityTokenPlaceholder(), 'Token aus dem OpenClaw-Setup einfuegen')}
                   className="font-sans"
                 />
               </label>
@@ -971,13 +976,13 @@ export function SettingsPage({
 
             {effectivePairingId ? (
               <div className="mt-3 rounded-lg border border-amber-500/35 bg-amber-500/10 p-3">
-                <p className="font-sans text-xs font-medium text-amber-800 dark:text-amber-200">{t('Device pairing required', 'Geraete-Pairing erforderlich')}</p>
+                <p className="font-sans text-xs font-medium text-amber-800 dark:text-amber-200">{t(buildOpenClawCompatibilitySettingsPairingCopy(effectivePairingId).title, 'Geraete-Pairing erforderlich')}</p>
                 <p className="mt-1 font-sans text-xs text-amber-800 dark:text-amber-200">
-                  {t('Run this command on the runtime host:', 'Fuehre diesen Befehl auf dem Runtime-Host aus:')}
+                  {t(buildOpenClawCompatibilitySettingsPairingCopy(effectivePairingId).body, 'Fuehre diesen Befehl auf dem Runtime-Host aus:')}
                 </p>
                 <div className="mt-1 flex items-center gap-1">
                   <code className="flex-1 rounded bg-background/70 px-2 py-1 font-mono text-xs text-amber-900 dark:text-amber-100 select-all">
-                    openclaw devices approve {effectivePairingId}
+                    {buildOpenClawCompatibilitySettingsPairingCopy(effectivePairingId).command}
                   </code>
                   <button
                     type="button"

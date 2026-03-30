@@ -1,6 +1,15 @@
 import { getDesktopBridge } from '@/lib/desktop-bridge';
 import { getEngineDiscoveryEndpoint } from '@/lib/engine-discovery';
 import { getEngineProvider, listEngineProviders } from '@/lib/engine-provider-registry';
+import {
+  buildOpenClawCompatibilityDiscoveryInstalledButNotRunning,
+  buildOpenClawCompatibilityDiscoveryScanningLabel,
+  buildOpenClawCompatibilityEndpointHelpText,
+  buildOpenClawCompatibilityOnboardingIntro,
+  buildOpenClawCompatibilityPairingPanelCopy,
+  buildOpenClawCompatibilityTokenHelpText,
+  buildOpenClawCompatibilityUnavailableProviderMessage,
+} from '@/lib/openclaw-compat-engine';
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import type { FormEvent } from 'react';
 
@@ -273,7 +282,7 @@ export function OnboardingPage({
             <p className="mb-2 max-w-[340px] font-sans text-[15px] leading-relaxed text-muted-foreground">
               Local-first AI coworking with governed approvals.
               <br />
-              Connect a runtime endpoint to get started. OpenClaw compatibility remains the default path, while the internal engine development runtime is available in developer builds.
+              {buildOpenClawCompatibilityOnboardingIntro()}
             </p>
 
             {/* Discovery states */}
@@ -285,7 +294,7 @@ export function OnboardingPage({
                     <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
                   </svg>
                   <span className="font-sans text-[13px] text-muted-foreground">
-                    Looking for a local compatibility runtimeÃ¢â‚¬Â¦
+                    {buildOpenClawCompatibilityDiscoveryScanningLabel()}
                   </span>
                 </div>
               )}
@@ -320,12 +329,12 @@ export function OnboardingPage({
                     </div>
                     <div className="text-left">
                       <p className="font-sans text-[13px] font-semibold text-foreground">
-                        OpenClaw compatibility runtime installed but not running
+                        {buildOpenClawCompatibilityDiscoveryInstalledButNotRunning().title}
                       </p>
                       <p className="mt-0.5 font-sans text-[12px] leading-relaxed text-muted-foreground">
                         Start it with{' '}
                         <code className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px]">openclaw</code>
-                        {' '}or connect to another runtime endpoint.
+                        {' '}{buildOpenClawCompatibilityDiscoveryInstalledButNotRunning().detail.replace('Start it with openclaw ', '')}
                       </p>
                     </div>
                   </div>
@@ -476,7 +485,7 @@ export function OnboardingPage({
                       ?
                     </span>
                     <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-64 -translate-x-1/2 rounded-lg border border-border bg-popover px-3 py-2.5 font-normal text-[12px] leading-relaxed text-popover-foreground shadow-md opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-                      The URL of your runtime endpoint. Use <code className="rounded bg-muted px-1 font-mono text-[11px]">ws://127.0.0.1:18789</code> for the current local OpenClaw compatibility path, or enter another runtime address.
+                      {buildOpenClawCompatibilityEndpointHelpText().split('ws://127.0.0.1:18789')[0]}<code className="rounded bg-muted px-1 font-mono text-[11px]">ws://127.0.0.1:18789</code>{buildOpenClawCompatibilityEndpointHelpText().split('ws://127.0.0.1:18789')[1]}
                     </span>
                   </span>
                 </label>
@@ -497,7 +506,7 @@ export function OnboardingPage({
                       ?
                     </span>
                     <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-64 -translate-x-1/2 rounded-lg border border-border bg-popover px-3 py-2.5 font-normal text-[12px] leading-relaxed text-popover-foreground shadow-md opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-                      For the current OpenClaw compatibility path, this is in <code className="rounded bg-muted px-1 font-mono text-[11px]">openclaw.json</code> under <code className="rounded bg-muted px-1 font-mono text-[11px]">gateway -&gt; auth -&gt; token</code>. Leave blank if token auth is disabled.
+                      {buildOpenClawCompatibilityTokenHelpText().split('openclaw.json')[0]}<code className="rounded bg-muted px-1 font-mono text-[11px]">openclaw.json</code>{buildOpenClawCompatibilityTokenHelpText().split('openclaw.json')[1].split('gateway -> auth -> token')[0]}<code className="rounded bg-muted px-1 font-mono text-[11px]">gateway -&gt; auth -&gt; token</code>{buildOpenClawCompatibilityTokenHelpText().split('gateway -> auth -> token')[1]}
                     </span>
                   </span>
                 </label>
@@ -584,17 +593,17 @@ export function OnboardingPage({
                 </svg>
               </div>
               <h2 className="font-sans text-lg font-bold tracking-tight text-foreground">
-                Approve this device
+                {effectivePairingId ? buildOpenClawCompatibilityPairingPanelCopy(effectivePairingId).title : 'Approve this device'}
               </h2>
               <p className="mt-1 font-sans text-[13px] leading-relaxed text-muted-foreground">
-                This runtime requires device approval. Run this command on the runtime host:
+                {effectivePairingId ? buildOpenClawCompatibilityPairingPanelCopy(effectivePairingId).body : 'This runtime requires device approval. Run this command on the runtime host:'}
               </p>
             </div>
 
             <div className="rounded-xl border border-border bg-muted/30 p-1">
               <div className="flex items-center justify-between rounded-lg bg-background px-4 py-3">
                 <code className="font-mono text-[12px] leading-none text-foreground select-all">
-                  openclaw devices approve {effectivePairingId}
+                  {effectivePairingId ? buildOpenClawCompatibilityPairingPanelCopy(effectivePairingId).command : ''}
                 </code>
                 <button
                   type="button"
@@ -677,7 +686,7 @@ export function OnboardingPage({
                 ? `Cloffice is connected to the internal development runtime. Readiness: ${internalRuntimeInfo.readiness}.`
                 : selectedEngineProviderCard.availableInBuild
                   ? `Cloffice is connected to the current runtime endpoint through ${selectedEngineProviderCard.displayName}.`
-                : `${selectedEngineProviderCard.displayName} is registered in Cloffice, but this build is currently connected through the OpenClaw compatibility runtime. ${selectedEngineProviderCard.availabilityReason ?? ''}`.trim()}
+                  : buildOpenClawCompatibilityUnavailableProviderMessage(selectedEngineProviderCard.displayName, selectedEngineProviderCard.availabilityReason)}
             </p>
 
             {health?.message && (
@@ -775,6 +784,7 @@ export function OnboardingPage({
     </main>
   );
 }
+
 
 
 

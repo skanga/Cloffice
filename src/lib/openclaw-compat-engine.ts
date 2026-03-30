@@ -335,6 +335,68 @@ export function buildOpenClawCompatibilityChatDispatchStatus(sessionKey: string)
   return `Message sent to the current OpenClaw compatibility runtime (session: ${sessionKey}). Waiting for streaming events...`;
 }
 
+export function buildOpenClawCompatibilityOnboardingIntro(): string {
+  return 'Connect a runtime endpoint to get started. OpenClaw compatibility remains the default path, while the internal engine development runtime is available in developer builds.';
+}
+
+export function buildOpenClawCompatibilityDiscoveryScanningLabel(): string {
+  return 'Looking for a local compatibility runtime...';
+}
+
+export function buildOpenClawCompatibilityDiscoveryInstalledButNotRunning(): {
+  title: string;
+  detail: string;
+} {
+  return {
+    title: 'OpenClaw compatibility runtime installed but not running',
+    detail: 'Start it with openclaw or connect to another runtime endpoint.',
+  };
+}
+
+export function buildOpenClawCompatibilityEndpointHelpText(): string {
+  return 'The URL of your runtime endpoint. Use ws://127.0.0.1:18789 for the current local OpenClaw compatibility path, or enter another runtime address.';
+}
+
+export function buildOpenClawCompatibilityDefaultEndpoint(): string {
+  return 'ws://127.0.0.1:18789';
+}
+
+export function buildOpenClawCompatibilityTokenHelpText(): string {
+  return 'For the current OpenClaw compatibility path, this is in openclaw.json under gateway -> auth -> token. Leave blank if token auth is disabled.';
+}
+
+export function buildOpenClawCompatibilityTokenPlaceholder(): string {
+  return 'Paste token from runtime setup';
+}
+
+export function buildOpenClawCompatibilityPairingPanelCopy(requestId: string): {
+  title: string;
+  body: string;
+  command: string;
+} {
+  return {
+    title: 'Approve this device',
+    body: 'This runtime requires device approval. Run this command on the runtime host:',
+    command: `openclaw devices approve ${requestId}`,
+  };
+}
+
+export function buildOpenClawCompatibilitySettingsPairingCopy(requestId: string): {
+  title: string;
+  body: string;
+  command: string;
+} {
+  return {
+    title: 'Device pairing required',
+    body: 'Run this command on the runtime host:',
+    command: `openclaw devices approve ${requestId}`,
+  };
+}
+
+export function buildOpenClawCompatibilityUnavailableProviderMessage(displayName: string, availabilityReason?: string | null): string {
+  return `${displayName} is registered in Cloffice, but this build is currently connected through the OpenClaw compatibility runtime. ${availabilityReason ?? ''}`.trim();
+}
+
 export { GatewayRequestError as OpenClawCompatibilityRequestError };
 
 function normalizeOpenClawCompatibilityEventPayload(eventName: string, payload: unknown): unknown {
