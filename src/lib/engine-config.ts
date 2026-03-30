@@ -11,6 +11,9 @@ import {
 
 export type InternalProviderConfig = StoredInternalProviderConfig;
 
+export const DEFAULT_ENGINE_PROVIDER_ID: EngineProviderId = 'openclaw-compat';
+export const DEFAULT_OPENCLAW_COMPAT_ENDPOINT_URL = 'ws://127.0.0.1:18789';
+
 export const EMPTY_INTERNAL_PROVIDER_CONFIG: InternalProviderConfig = {
   openaiApiKey: '',
   openaiBaseUrl: '',
@@ -46,6 +49,32 @@ export type PreparedEngineConfigWrite = {
   providerAwareWriteMode: ProviderAwareEngineConfigWriteMode;
 };
 
+export function normalizeEngineEndpointUrl(
+  endpointUrl: string | null | undefined,
+  fallbackEndpointUrl: string = DEFAULT_OPENCLAW_COMPAT_ENDPOINT_URL,
+): string {
+  return typeof endpointUrl === 'string' && endpointUrl.trim() ? endpointUrl.trim() : fallbackEndpointUrl;
+}
+
+export function createDefaultAppConfig(
+  fallbackEndpointUrl: string = DEFAULT_OPENCLAW_COMPAT_ENDPOINT_URL,
+): AppConfig {
+  return {
+    gatewayUrl: fallbackEndpointUrl,
+    gatewayToken: '',
+  };
+}
+
+export function createDefaultEngineDraft(
+  fallbackEndpointUrl: string = DEFAULT_OPENCLAW_COMPAT_ENDPOINT_URL,
+): EngineDraftConfig {
+  return buildEngineDraftConfig({
+    providerId: DEFAULT_ENGINE_PROVIDER_ID,
+    endpointUrl: fallbackEndpointUrl,
+    accessToken: '',
+  });
+}
+
 export function buildEngineDraftConfig(params: {
   providerId: EngineProviderId;
   endpointUrl: string;
@@ -72,7 +101,10 @@ export function parseStoredAppConfig(entry: unknown, fallbackEndpointUrl: string
 
   const record = entry as Record<string, unknown>;
   return {
-    gatewayUrl: typeof record.gatewayUrl === 'string' && record.gatewayUrl.trim() ? record.gatewayUrl.trim() : fallbackEndpointUrl,
+    gatewayUrl: normalizeEngineEndpointUrl(
+      typeof record.gatewayUrl === 'string' ? record.gatewayUrl : null,
+      fallbackEndpointUrl,
+    ),
     gatewayToken: typeof record.gatewayToken === 'string' ? record.gatewayToken : '',
   };
 }
@@ -109,15 +141,8 @@ export function parseStoredEngineConfig(entry: unknown, fallbackEndpointUrl: str
 export function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpointUrl: string): DesktopBridgeEngineConfig {
   return (
     parseStoredEngineConfig(entry, fallbackEndpointUrl) ?? {
-      appConfig: {
-        gatewayUrl: fallbackEndpointUrl,
-        gatewayToken: '',
-      },
-      engineDraft: buildEngineDraftConfig({
-        providerId: 'openclaw-compat',
-        endpointUrl: fallbackEndpointUrl,
-        accessToken: '',
-      }),
+      appConfig: createDefaultAppConfig(fallbackEndpointUrl),
+      engineDraft: createDefaultEngineDraft(fallbackEndpointUrl),
       storageVersion: 1,
     }
   );
@@ -125,8 +150,8 @@ export function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpointU
 
 export function engineDraftFromAppConfig(config: AppConfig): EngineDraftConfig {
   return buildEngineDraftConfig({
-    providerId: 'openclaw-compat',
-    endpointUrl: config.gatewayUrl,
+    providerId: DEFAULT_ENGINE_PROVIDER_ID,
+    endpointUrl: normalizeEngineEndpointUrl(config.gatewayUrl),
     accessToken: config.gatewayToken,
   });
 }
@@ -199,10 +224,10 @@ function parseStoredProviderAwareEngineConfigV2(
   const providerId = record.providerId === 'internal' ? 'internal' : 'openclaw-compat';
   const runtimeKind = record.runtimeKind === 'internal' ? 'internal' : 'openclaw-compat';
   const transport = record.transport === 'internal-ipc' ? 'internal-ipc' : 'websocket-gateway';
-  const endpointUrl =
-    typeof record.endpointUrl === 'string' && record.endpointUrl.trim()
-      ? record.endpointUrl.trim()
-      : fallbackEndpointUrl;
+  const endpointUrl = normalizeEngineEndpointUrl(
+    typeof record.endpointUrl === 'string' ? record.endpointUrl : null,
+    fallbackEndpointUrl,
+  );
 
   return {
     version: NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION,

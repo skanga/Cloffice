@@ -1,13 +1,17 @@
 import {
+  createDefaultAppConfig,
+  DEFAULT_ENGINE_PROVIDER_ID,
+  DEFAULT_OPENCLAW_COMPAT_ENDPOINT_URL,
   EMPTY_INTERNAL_PROVIDER_CONFIG,
   appConfigFromEngineDraft,
   buildEngineDraftConfig,
   engineConnectOptionsFromDraft,
   engineDraftFromAppConfig,
+  normalizeEngineEndpointUrl,
   parseStoredEngineConfig,
   type InternalProviderConfig,
 } from './lib/engine-config';
-import { engineConnectionMatchesAppConfig, parseStoredEngineConnectionProfile, serializeEngineConnectionProfile } from './lib/engine-connection-profiles';
+import { engineConnectionMatchesAppConfig, engineConnectionMatchesDraft, parseStoredEngineConnectionProfile, serializeEngineConnectionProfile } from './lib/engine-connection-profiles';
 import { getDesktopBridge } from './lib/desktop-bridge';
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -153,8 +157,6 @@ const MemoryPage = lazy(() => import('./features/workspace/memory-page').then((m
 const SafetyPage = lazy(() => import('./features/workspace/safety-page').then((module) => ({ default: module.SafetyPage })));
 const ScheduledPage = lazy(() => import('./features/workspace/scheduled-page').then((module) => ({ default: module.ScheduledPage })));
 
-const DEFAULT_GATEWAY_URL = 'ws://127.0.0.1:18789';
-
 const LOCAL_CONFIG_KEY = 'relay.config';
 const GATEWAY_CONNECTIONS_STORAGE_KEY = 'relay.gateway.connections.v1';
 const COWORK_PROJECTS_STORAGE_KEY = 'relay.cowork.projects.v1';
@@ -164,11 +166,6 @@ const COWORK_PROJECT_KNOWLEDGE_STORAGE_KEY = 'relay.cowork.project.knowledge.v1'
 const COWORK_WEB_SEARCH_MODE_STORAGE_KEY = 'relay.cowork.websearch.v1';
 const CHAT_DRAFT_STORAGE_KEY = 'relay.chat.draft.v1';
 const COWORK_DRAFT_STORAGE_KEY = 'relay.cowork.draft.v1';
-
-const defaultConfig: AppConfig = {
-  gatewayUrl: DEFAULT_GATEWAY_URL,
-  gatewayToken: '',
-};
 
 type AppPage = 'chat' | 'cowork' | 'project' | 'files' | 'local-files' | 'activity' | 'memory' | 'scheduled' | 'safety' | 'settings';
 type SettingsSection = 'Profile' | 'Appearance' | 'System Prompt' | 'Gateway' | 'Connectors' | 'Account' | 'Privacy' | 'Developer';
@@ -506,11 +503,11 @@ export default function App() {
   const resolvedCoworkRunContextsRef = useRef<Map<string, CoworkRunProjectContext>>(new Map());
   const pendingCoworkTaskQueueRef = useRef<Map<string, CoworkTaskQueueEntry[]>>(new Map());
 
-  const [config, setConfig] = useState<AppConfig>(defaultConfig);
+  const [config, setConfig] = useState<AppConfig>(() => createDefaultAppConfig());
   const [configReady, setConfigReady] = useState(false);
-  const [draftEngineUrl, setDraftEngineUrl] = useState(DEFAULT_GATEWAY_URL);
+  const [draftEngineUrl, setDraftEngineUrl] = useState(DEFAULT_OPENCLAW_COMPAT_ENDPOINT_URL);
   const [draftEngineToken, setDraftEngineToken] = useState('');
-  const [draftEngineProviderId, setDraftEngineProviderId] = useState<EngineProviderId>('openclaw-compat');
+  const [draftEngineProviderId, setDraftEngineProviderId] = useState<EngineProviderId>(DEFAULT_ENGINE_PROVIDER_ID);
   const [draftInternalProviderConfig, setDraftInternalProviderConfig] = useState<InternalProviderConfig>(EMPTY_INTERNAL_PROVIDER_CONFIG);
   const [engineConnections, setEngineConnections] = useState<EngineConnectionProfile[]>(() => loadEngineConnectionProfiles());
   const [health, setHealth] = useState<HealthCheckResult | null>(null);
@@ -668,9 +665,12 @@ export default function App() {
     return coworkArtifacts.filter((artifact) => !artifact.runId || runIds.has(artifact.runId)).slice(0, 40);
   }, [coworkArtifacts, visibleCoworkTasks]);
   const selectedEngineConnectionId = useMemo(() => {
-    const normalizedUrl = draftEngineUrl.trim() || DEFAULT_GATEWAY_URL;
-    const normalizedToken = draftEngineToken ?? '';
-    return engineConnections.find((profile) => profile.endpointUrl === normalizedUrl && profile.accessToken === normalizedToken && profile.providerId === draftEngineProviderId)?.id ?? null;
+    const currentDraft = buildEngineDraftConfig({
+      providerId: draftEngineProviderId,
+      endpointUrl: normalizeEngineEndpointUrl(draftEngineUrl),
+      accessToken: draftEngineToken,
+    });
+    return engineConnections.find((profile) => engineConnectionMatchesDraft(profile, currentDraft))?.id ?? null;
   }, [draftEngineProviderId, draftEngineToken, draftEngineUrl, engineConnections]);
 
   const contextFolders = useMemo(() => {
@@ -1813,7 +1813,7 @@ export default function App() {
         return null;
       }
 
-      return parseStoredEngineConfig(JSON.parse(raw), DEFAULT_GATEWAY_URL);
+        return parseStoredEngineConfig(JSON.parse(raw), DEFAULT_OPENCLAW_COMPAT_ENDPOINT_URL);
     } catch {
       return null;
     }
@@ -1833,12 +1833,12 @@ export default function App() {
 
   const getCurrentEngineDraft = useCallback(
     () =>
-      buildEngineDraftConfig({
-        providerId: draftEngineProviderId,
-        endpointUrl: draftEngineUrl.trim() || DEFAULT_GATEWAY_URL,
-        accessToken: draftEngineToken,
-        internalProviderConfig: draftInternalProviderConfig,
-      }),
+        buildEngineDraftConfig({
+          providerId: draftEngineProviderId,
+          endpointUrl: normalizeEngineEndpointUrl(draftEngineUrl),
+          accessToken: draftEngineToken,
+          internalProviderConfig: draftInternalProviderConfig,
+        }),
     [draftEngineProviderId, draftEngineToken, draftEngineUrl, draftInternalProviderConfig],
   );
 
@@ -1879,8 +1879,8 @@ export default function App() {
       return;
     }
 
-    const normalizedUrl = draftEngineUrl.trim() || DEFAULT_GATEWAY_URL;
-    const now = Date.now();
+      const normalizedUrl = normalizeEngineEndpointUrl(draftEngineUrl);
+      const now = Date.now();
 
     updateEngineConnections((prev) => {
       const duplicateByName = prev.find((entry) => entry.name.toLowerCase() === trimmedName.toLowerCase());
@@ -1924,8 +1924,8 @@ export default function App() {
   }, [draftEngineProviderId, draftEngineToken, draftEngineUrl, updateEngineConnections]);
 
   const handleOverwriteEngineConnection = useCallback((connectionId: string) => {
-    const normalizedUrl = draftEngineUrl.trim() || DEFAULT_GATEWAY_URL;
-    const now = Date.now();
+      const normalizedUrl = normalizeEngineEndpointUrl(draftEngineUrl);
+      const now = Date.now();
 
     updateEngineConnections((prev) =>
       prev
@@ -2542,8 +2542,8 @@ export default function App() {
     }
 
     let cancelled = false;
-    const runtimeEndpointUrl = (config.gatewayUrl || DEFAULT_GATEWAY_URL).trim() || DEFAULT_GATEWAY_URL;
-    const runtimeAccessToken = config.gatewayToken ?? '';
+      const runtimeEndpointUrl = normalizeEngineEndpointUrl(config.gatewayUrl);
+      const runtimeAccessToken = config.gatewayToken ?? '';
 
     void client
       .connect({
@@ -2614,12 +2614,12 @@ export default function App() {
   const handleSave = async (event: FormEvent) => {
     event.preventDefault();
 
-    const nextEngineDraft = buildEngineDraftConfig({
-      providerId: draftEngineProviderId,
-      endpointUrl: draftEngineUrl.trim() || DEFAULT_GATEWAY_URL,
-      accessToken: draftEngineToken,
-      internalProviderConfig: draftInternalProviderConfig,
-    });
+      const nextEngineDraft = buildEngineDraftConfig({
+        providerId: draftEngineProviderId,
+        endpointUrl: normalizeEngineEndpointUrl(draftEngineUrl),
+        accessToken: draftEngineToken,
+        internalProviderConfig: draftInternalProviderConfig,
+      });
     const nextConfig = appConfigFromEngineDraft(nextEngineDraft);
 
     setSaving(true);
