@@ -384,17 +384,135 @@ function createInternalEngineMainService() {
       return true;
     });
   };
+  const parseCoworkStructuredSections = (
+    text: string,
+    allowed: readonly string[],
+  ): Partial<Record<string, string>> => {
+    const sectionMap = new Map(allowed.map((name) => [name.toLowerCase(), name]));
+    const normalized = stripEngineActionPayloadFromText(text).replace(/\r/g, '').trim();
+    if (!normalized) {
+      return {};
+    }
+    const lines = normalized.split('\n');
+    const sections = new Map<string, string[]>();
+    let currentKey: string | null = null;
+    for (const rawLine of lines) {
+      const line = rawLine.trimEnd();
+      const headingMatch = line.match(/^(?:\d+\.\s*)?([A-Za-z][A-Za-z ]*[A-Za-z])\s*:?\s*(.*)$/);
+      const sectionKey = headingMatch ? sectionMap.get(headingMatch[1].trim().toLowerCase()) : null;
+      if (sectionKey) {
+        currentKey = sectionKey;
+        const existing = sections.get(sectionKey) ?? [];
+        const inlineValue = headingMatch?.[2]?.trim();
+        if (inlineValue) {
+          existing.push(inlineValue);
+        }
+        sections.set(sectionKey, existing);
+        continue;
+      }
+      if (!currentKey) {
+        continue;
+      }
+      const existing = sections.get(currentKey) ?? [];
+      existing.push(line);
+      sections.set(currentKey, existing);
+    }
+    return Object.fromEntries(
+      Array.from(sections.entries())
+        .map(([key, value]) => [key, value.join('\n').trim()])
+        .filter(([, value]) => value.length > 0),
+    );
+  };
+  const formatCoworkActionList = (actions: EngineRequestedAction[]) =>
+    actions.length > 0
+      ? actions.map((action) => `- ${action.type} ${action.path}`).join('\n')
+      : 'None.';
+  const formatCoworkReceiptSummary = (receipts: LocalActionReceipt[]) =>
+    receipts.length > 0
+      ? receipts.map((receipt) => [
+          `- ${receipt.type} ${receipt.path}`,
+          `  status: ${receipt.status}`,
+          ...(receipt.message ? [`  message: ${receipt.message}`] : []),
+          ...(receipt.errorCode ? [`  error_code: ${receipt.errorCode}`] : []),
+        ].join('\n')).join('\n')
+      : 'None.';
+  const normalizeProviderBackedCoworkPlanningText = (params: {
+    task: string;
+    rawText: string;
+    requestedActions: EngineRequestedAction[];
+  }) => {
+    const sections = parseCoworkStructuredSections(params.rawText, ['Goal', 'Plan', 'Needed context', 'Next step']);
+    const normalizedTask = params.task.replace(/\s+/g, ' ').trim() || 'the current cowork task';
+    const neededContextFallback =
+      params.requestedActions.length > 0
+        ? `Additional context requested via read-only actions:\n${formatCoworkActionList(params.requestedActions)}`
+        : 'No additional context needed before the next implementation step.';
+    const nextStepFallback =
+      params.requestedActions.length > 0
+        ? 'Review the approved read-only results, then refine the implementation recommendation.'
+        : 'Proceed with the smallest implementation or refactor step supported by the current context.';
+    return [
+      'Goal:',
+      sections['Goal'] || normalizedTask,
+      '',
+      'Plan:',
+      sections['Plan'] || 'Break the task into the smallest defensible implementation step, then validate the expected impact.',
+      '',
+      'Needed context:',
+      sections['Needed context'] || neededContextFallback,
+      '',
+      'Next step:',
+      sections['Next step'] || nextStepFallback,
+    ].join('\n');
+  };
+  const normalizeProviderBackedCoworkContinuationText = (params: {
+    rawText: string;
+    execution: {
+      receipts: LocalActionReceipt[];
+      previews: string[];
+      errors: string[];
+    };
+    requestedActions: EngineRequestedAction[];
+  }) => {
+    const sections = parseCoworkStructuredSections(params.rawText, ['Findings', 'Recommendation', 'Next step']);
+    const findingsFallback =
+      params.execution.previews.length > 0
+        ? params.execution.previews.join('\n\n')
+        : params.execution.errors.length > 0
+          ? params.execution.errors.map((error) => `- ${error}`).join('\n')
+          : 'No new execution results were recorded.';
+    const recommendationFallback =
+      params.execution.errors.length > 0
+        ? 'Address the blocking read-only result or narrow the request before proceeding.'
+        : 'Use the inspected workspace context to choose the next smallest implementation step.';
+    const nextStepFallback =
+      params.requestedActions.length > 0
+        ? `Approve any newly requested read-only actions if more context is still required:\n${formatCoworkActionList(params.requestedActions)}`
+        : 'Proceed with the next implementation or review step based on the findings above.';
+    return [
+      'Findings:',
+      sections['Findings'] || findingsFallback,
+      '',
+      'Recommendation:',
+      sections['Recommendation'] || recommendationFallback,
+      '',
+      'Next step:',
+      sections['Next step'] || nextStepFallback,
+    ].join('\n');
+  };
   const buildProviderBackedCoworkPlanningPrompt = (taskAndContext: string) => [
     'You are Cloffice Cowork operating in a guarded read-only planning phase.',
     'Respond with concise prose, not filler.',
     'Use this structure in order:',
     '1. Goal',
     '2. Plan',
-    '3. Next step',
+    '3. Needed context',
+    '4. Next step',
     'Only request engine_actions when you need more context to plan accurately.',
     'Supported action types are exactly: list_dir, read_file, exists, stat.',
     'Do not request shell_exec, web_fetch, create_file, append_file, rename, or delete.',
     'Do not repeat the same action unless new information justifies it.',
+    'If you do not need more context, say so explicitly in Needed context.',
     buildInternalEngineActionInstruction(),
     'Task and project context follows.',
     taskAndContext,
@@ -567,14 +685,26 @@ function createInternalEngineMainService() {
     'You may request additional safe read-only actions only if they are necessary.',
     'Supported action types are exactly: list_dir, read_file, exists, stat.',
     'Do not re-request an action if the current execution results already answered it.',
+    'If the current execution results are sufficient, do not request any engine_actions.',
     buildInternalEngineActionInstruction(),
     '',
     `Session key: ${params.sessionKey}`,
     `Approved actions executed: ${params.approvedActions.length}`,
     `Rejected actions: ${params.rejectedActions.length}`,
     '',
+    'Approved actions:',
+    formatCoworkActionList(params.approvedActions),
+    '',
+    'Rejected actions:',
+    params.rejectedActions.length > 0
+      ? params.rejectedActions.map((action) => `- ${action.actionType} ${action.path}: ${action.reason || 'Rejected by operator.'}`).join('\n')
+      : 'None.',
+    '',
     'Execution previews:',
     ...(params.execution.previews.length > 0 ? params.execution.previews : ['(none)']),
+    '',
+    'Execution receipts:',
+    formatCoworkReceiptSummary(params.execution.receipts),
     '',
     'Execution errors:',
     ...(params.execution.errors.length > 0 ? params.execution.errors : ['(none)']),
@@ -1377,13 +1507,19 @@ function createInternalEngineMainService() {
           );
           lastProviderId = providerResult.providerId;
           lastProviderError = null;
-          assistantText = stripEngineActionPayloadFromText(providerResult.text);
           if (session.kind === 'cowork') {
             requestedActions = sanitizeCoworkReadOnlyActions(parseEngineRequestedActions(providerResult.text));
+            assistantText = normalizeProviderBackedCoworkPlanningText({
+              task: text,
+              rawText: providerResult.text,
+              requestedActions,
+            });
             activityItems =
               requestedActions.length > 0
                 ? buildCoworkFoundationActivityItems(requestedActions)
                 : parseEngineActivityItems(providerResult.text);
+          } else {
+            assistantText = stripEngineActionPayloadFromText(providerResult.text);
           }
         } catch (error) {
           lastProviderError = error instanceof Error ? error.message : 'Provider-backed internal chat failed.';
@@ -1601,9 +1737,13 @@ function createInternalEngineMainService() {
           );
           lastProviderId = providerResult.providerId;
           lastProviderError = null;
-          assistantText = stripEngineActionPayloadFromText(providerResult.text);
           requestedActions = sanitizeCoworkReadOnlyActions(parseEngineRequestedActions(providerResult.text), {
             exclude: priorActionIdentities,
+          });
+          assistantText = normalizeProviderBackedCoworkContinuationText({
+            rawText: providerResult.text,
+            execution,
+            requestedActions,
           });
           activityItems =
             requestedActions.length > 0
