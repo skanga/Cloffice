@@ -56,6 +56,8 @@ type DesktopBridgeApi = {
     prompt: string;
     name?: string;
     intervalMinutes?: number;
+    projectId?: string;
+    projectTitle?: string;
     rootPath?: string;
     model?: string | null;
   }) => Promise<EngineCronJob>;

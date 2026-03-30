@@ -146,6 +146,22 @@ async function connectInternalProviderFromSettings(page: Page) {
   await page.getByRole('tab', { name: /cowork/i }).click();
 }
 
+async function clearInternalSchedules(page: Page) {
+  await page.evaluate(async () => {
+    const bridge = window.cloffice ?? window.relay;
+    if (!bridge?.connectInternalEngine || !bridge?.listInternalCronJobs || !bridge?.deleteInternalPromptSchedule) {
+      throw new Error('Internal schedule bridge unavailable.');
+    }
+    await bridge.connectInternalEngine({ endpointUrl: 'internal://dev-runtime' });
+    const jobs = await bridge.listInternalCronJobs();
+    for (const job of jobs) {
+      if (typeof job?.id === 'string') {
+        await bridge.deleteInternalPromptSchedule(job.id);
+      }
+    }
+  });
+}
+
 async function sendCoworkPrompt(page: Page, prompt: string) {
   const promptBox = page.getByRole('textbox', { name: 'Task prompt' }).first();
   await expect(promptBox).toBeVisible();
@@ -194,6 +210,11 @@ async function waitForPromptStatus(page: Page, promptTag: string, status: 'runni
       { timeout: 45000 },
     )
     .toBe(status);
+}
+
+async function openSchedulePage(page: Page) {
+  await page.getByRole('button', { name: 'Schedule', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible({ timeout: 15000 });
 }
 
 test.describe('Internal engine UI flow', () => {
@@ -276,5 +297,88 @@ test.describe('Internal engine UI flow', () => {
     await waitForPromptStatus(page, 'UI-READ-ONLY-1', 'running');
     await expect(page.getByRole('button', { name: 'Listed: .' })).toBeVisible({ timeout: 30000 });
     await waitForPromptStatus(page, 'UI-READ-ONLY-1', 'completed');
+  });
+
+  test('operator can pause resume retime and delete an internal schedule through the UI', async () => {
+    await markOnboardingComplete(page);
+    await connectInternalProviderFromSettings(page);
+    await clearInternalSchedules(page);
+    const rootFolder = await prepareProjectRoot(page);
+    await createProjectFromSidebar(page, {
+      title: 'Internal Schedule UI Project',
+      description: 'Exercise internal schedule controls through the live UI.',
+      rootFolder,
+    });
+    await openProjectCowork(page, 'Internal Schedule UI Project');
+
+    const createdJob = await page.evaluate(async () => {
+      const bridge = window.cloffice ?? window.relay;
+      return bridge.createInternalPromptSchedule({
+        kind: 'chat',
+        name: 'UI schedule controls',
+        prompt: 'UI schedule controls prompt.',
+        intervalMinutes: 1,
+        model: 'internal/dev-brief',
+      });
+    });
+
+    await openSchedulePage(page);
+
+    const jobCard = page.getByTestId(`scheduled-job-${createdJob.id}`);
+    await expect(jobCard).toBeVisible({ timeout: 15000 });
+    await expect(jobCard).toContainText('UI schedule controls');
+    await expect(jobCard).toContainText('every 1 minute');
+
+    await page.getByTestId(`scheduled-job-toggle-${createdJob.id}`).click();
+    await expect(jobCard).toContainText('Paused');
+
+    await page.getByTestId(`scheduled-job-toggle-${createdJob.id}`).click();
+    await expect(jobCard).toContainText('Active');
+
+    await page.getByTestId(`scheduled-job-interval-5-${createdJob.id}`).click();
+    await expect(jobCard).toContainText('every 5 minutes');
+
+    await page.getByTestId(`scheduled-job-delete-${createdJob.id}`).click();
+    await expect(jobCard).toBeHidden({ timeout: 15000 });
+  });
+
+  test('scheduled internal cowork run surfaces approval recovery in the live UI', async () => {
+    await markOnboardingComplete(page);
+    await connectInternalProviderFromSettings(page);
+    await clearInternalSchedules(page);
+    await expect(page.getByTitle('Add project')).toBeVisible({ timeout: 15000 });
+
+    const rootFolder = await prepareProjectRoot(page);
+    await createProjectFromSidebar(page, {
+      title: 'Internal Scheduled Project',
+      description: 'Exercise scheduled cowork approval recovery through the live UI.',
+      rootFolder,
+    });
+    await openProjectCowork(page, 'Internal Scheduled Project');
+
+    const scheduleName = `UI scheduled cowork ${Date.now()}`;
+    await page.evaluate(async ({ name, rootPath }) => {
+      const bridge = window.cloffice ?? window.relay;
+      const rawProjects = localStorage.getItem('relay.cowork.projects.v1');
+      const parsedProjects = rawProjects ? JSON.parse(rawProjects) : [];
+      const project = Array.isArray(parsedProjects)
+        ? parsedProjects.find((entry) => entry?.name === 'Internal Scheduled Project')
+        : null;
+      await bridge.createInternalPromptSchedule({
+        kind: 'cowork',
+        name,
+        prompt: 'SCHEDULED-COWORK-1: Inspect the current project root and capture root metadata before planning the next migration step.',
+        projectId: project?.id,
+        projectTitle: project?.name,
+        rootPath,
+        intervalMinutes: 1,
+        model: 'internal/dev-planner',
+      });
+    }, { name: scheduleName, rootPath: rootFolder });
+
+    const approvalCard = pendingApprovalCards(page).filter({ hasText: 'List directory .' }).first();
+    await expect(approvalCard).toBeVisible({ timeout: 90000 });
+    await expect(approvalCard).toContainText('Internal Scheduled Project');
+    await expect(page.getByRole('button', { name: 'Approve' }).first()).toBeVisible({ timeout: 30000 });
   });
 });

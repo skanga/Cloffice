@@ -236,6 +236,8 @@ function createInternalEngineMainService() {
     state: string;
     nextRunAt: string | null;
     lastRunAt: string | null;
+    projectId?: string;
+    projectTitle?: string;
     rootPath?: string;
     model?: string;
     lastError?: string;
@@ -1059,6 +1061,8 @@ function createInternalEngineMainService() {
       state: typeof candidate.state === 'string' && candidate.state.trim() ? candidate.state.trim() : 'idle',
       nextRunAt: normalizeDateString(candidate.nextRunAt),
       lastRunAt: normalizeDateString(candidate.lastRunAt),
+      ...(typeof candidate.projectId === 'string' && candidate.projectId.trim() ? { projectId: candidate.projectId.trim() } : {}),
+      ...(typeof candidate.projectTitle === 'string' && candidate.projectTitle.trim() ? { projectTitle: candidate.projectTitle.trim() } : {}),
       ...(typeof candidate.rootPath === 'string' && candidate.rootPath.trim() ? { rootPath: candidate.rootPath.trim() } : {}),
       ...(typeof candidate.model === 'string' && candidate.model.trim() ? { model: candidate.model.trim() } : {}),
       ...(typeof candidate.lastError === 'string' && candidate.lastError.trim() ? { lastError: candidate.lastError.trim() } : {}),
@@ -1348,7 +1352,8 @@ function createInternalEngineMainService() {
       if (schedule.kind === 'cowork' && result.requestedActions && result.requestedActions.length > 0) {
         const approvalContext: EngineApprovalLoopContext = {
           runId: result.runId,
-          projectTitle: schedule.name,
+          ...(schedule.projectId?.trim() ? { projectId: schedule.projectId.trim() } : {}),
+          ...(schedule.projectTitle?.trim() ? { projectTitle: schedule.projectTitle.trim() } : { projectTitle: schedule.name }),
           ...(schedule.rootPath?.trim() ? { projectRootFolder: schedule.rootPath.trim() } : {}),
           scopeId: 'internal-scheduled-read-only',
           scopeName: 'Internal scheduled read-only actions',
@@ -1575,6 +1580,8 @@ function createInternalEngineMainService() {
       prompt: string;
       name?: string;
       intervalMinutes?: number;
+      projectId?: string;
+      projectTitle?: string;
       rootPath?: string;
       model?: string | null;
     }): Promise<EngineCronJob> {
@@ -1599,6 +1606,8 @@ function createInternalEngineMainService() {
         state: 'idle',
         nextRunAt: computeNextRunAt(intervalMinutes),
         lastRunAt: null,
+        ...(payload.projectId?.trim() ? { projectId: payload.projectId.trim() } : {}),
+        ...(payload.projectTitle?.trim() ? { projectTitle: payload.projectTitle.trim() } : {}),
         ...(payload.rootPath?.trim() ? { rootPath: payload.rootPath.trim() } : {}),
         ...(payload.model?.trim() ? { model: payload.model.trim() } : {}),
       };

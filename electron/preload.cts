@@ -218,7 +218,7 @@ const desktopBridgeApi = {
     ipcRenderer.invoke('internal-engine:get-history', sessionKey, limit) as Promise<Array<{ id: string; role: 'user' | 'assistant' | 'system'; text: string }>>,
   listInternalCronJobs: () =>
     ipcRenderer.invoke('internal-engine:list-cron-jobs') as Promise<Array<{ id: string; name: string; schedule: string; enabled: boolean; state: string; nextRunAt: string | null; lastRunAt: string | null }>>,
-  createInternalPromptSchedule: (payload: { kind?: 'chat' | 'cowork'; prompt: string; name?: string; intervalMinutes?: number; rootPath?: string; model?: string | null }) =>
+  createInternalPromptSchedule: (payload: { kind?: 'chat' | 'cowork'; prompt: string; name?: string; intervalMinutes?: number; projectId?: string; projectTitle?: string; rootPath?: string; model?: string | null }) =>
     ipcRenderer.invoke('internal-engine:create-prompt-schedule', payload) as Promise<{ id: string; name: string; schedule: string; enabled: boolean; state: string; nextRunAt: string | null; lastRunAt: string | null }>,
   updateInternalPromptSchedule: (id: string, payload: { enabled?: boolean; intervalMinutes?: number }) =>
     ipcRenderer.invoke('internal-engine:update-prompt-schedule', id, payload) as Promise<{ id: string; name: string; schedule: string; enabled: boolean; state: string; nextRunAt: string | null; lastRunAt: string | null }>,

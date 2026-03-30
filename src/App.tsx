@@ -3097,6 +3097,8 @@ export default function App() {
         kind: 'cowork',
         prompt: latestUserPrompt,
         name: 'Scheduled cowork prompt',
+        projectId: activeCoworkProject?.id ?? undefined,
+        projectTitle: activeCoworkProject?.name ?? undefined,
         rootPath: workingFolderRef.current.trim() || undefined,
         intervalMinutes: 1,
         model: coworkModel.trim() || null,
@@ -3896,6 +3898,19 @@ export default function App() {
       }
     }
   }, [activePage, configReady, engineConnected, loadScheduledJobs]);
+
+  useEffect(() => {
+    if (draftEngineProviderId !== 'internal' || !engineConnected) {
+      return;
+    }
+    void restoreInternalApprovalRecoveryFlows();
+    const intervalId = window.setInterval(() => {
+      void restoreInternalApprovalRecoveryFlows();
+    }, 5000);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [draftEngineProviderId, engineConnected]);
 
   useEffect(() => {
     setActiveMenuItem('');

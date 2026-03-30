@@ -229,7 +229,7 @@ export function ScheduledPage({
                     const nextLabel = getRelativeTimeLabel(job.nextRunAt);
 
                     return (
-                      <div key={job.id} className="relative flex gap-3 py-1.5">
+                      <div key={job.id} className="relative flex gap-3 py-1.5" data-testid={`scheduled-job-${job.id}`}>
                         <div
                           className={`relative z-10 flex size-5 shrink-0 items-center justify-center rounded-full border ${
                             isEnabled
@@ -270,6 +270,7 @@ export function ScheduledPage({
                                 variant="outline"
                                 size="sm"
                                 className="h-7 px-2 text-[11px]"
+                                data-testid={`scheduled-job-toggle-${job.id}`}
                                 onClick={() => void onToggleJob?.(job.id, !job.enabled)}
                               >
                                 {job.enabled ? 'Pause' : 'Resume'}
@@ -279,6 +280,7 @@ export function ScheduledPage({
                                 variant="outline"
                                 size="sm"
                                 className="h-7 px-2 text-[11px]"
+                                data-testid={`scheduled-job-interval-1-${job.id}`}
                                 onClick={() => void onSetJobInterval?.(job.id, 1)}
                               >
                                 1m
@@ -288,6 +290,7 @@ export function ScheduledPage({
                                 variant="outline"
                                 size="sm"
                                 className="h-7 px-2 text-[11px]"
+                                data-testid={`scheduled-job-interval-5-${job.id}`}
                                 onClick={() => void onSetJobInterval?.(job.id, 5)}
                               >
                                 5m
@@ -297,6 +300,7 @@ export function ScheduledPage({
                                 variant="outline"
                                 size="sm"
                                 className="h-7 px-2 text-[11px]"
+                                data-testid={`scheduled-job-interval-15-${job.id}`}
                                 onClick={() => void onSetJobInterval?.(job.id, 15)}
                               >
                                 15m
@@ -306,6 +310,7 @@ export function ScheduledPage({
                                 variant="outline"
                                 size="sm"
                                 className="h-7 px-2 text-[11px] text-destructive"
+                                data-testid={`scheduled-job-delete-${job.id}`}
                                 onClick={() => void onDeleteJob?.(job.id)}
                               >
                                 Delete
