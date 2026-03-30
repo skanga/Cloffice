@@ -263,6 +263,7 @@ function createInternalEngineMainService() {
   };
   const listAvailableModels = () => [...devModelChoices, ...providerModelChoices];
   const resolveDefaultModel = () => providerModelChoices[0]?.value ?? defaultModel;
+  const resolveCoworkDefaultModel = () => providerModelChoices[0]?.value ?? 'internal/dev-planner';
   const isKnownModel = (value: string | null | undefined) => (
     typeof value === 'string' && listAvailableModels().some((model) => model.value === value)
   );
@@ -1055,7 +1056,7 @@ function createInternalEngineMainService() {
       key: normalizedKey,
       kind,
       title: normalizedKey === mainSessionKey ? 'Main chat' : undefined,
-      model: kind === 'cowork' ? 'internal/dev-planner' : resolveDefaultModel(),
+      model: kind === 'cowork' ? resolveCoworkDefaultModel() : resolveDefaultModel(),
       messages: [] as EngineChatMessage[],
       updatedAt: now(),
     };

@@ -1782,6 +1782,8 @@ export default function App() {
       setCoworkModels(choices.map((model) => ({ value: model.value, label: model.label })));
       if (sessionKey) {
         setCoworkModel(currentModel ?? '');
+      } else {
+        setCoworkModel((current) => current || choices[0]?.value || '');
       }
     } catch {
       setCoworkModels([]);
@@ -2733,7 +2735,7 @@ export default function App() {
     setCoworkRunStatus('Sending cowork task...');
     resetCoworkProgress('Interpreting goal and building a task plan.');
 
-    const text = chatDraftPrompt.trim();
+    const text = coworkDraftPrompt.trim();
     if (!text) {
       setStatus('Describe the outcome first so Cloffice can plan the work.');
       setCoworkSending(false);
@@ -2741,7 +2743,7 @@ export default function App() {
     }
 
     // Clear the composer immediately so submit feedback matches user expectation.
-    handleChatPromptChange('');
+    handleCoworkPromptChange('');
 
     const client = engineClientRef.current;
     if (!client) {
@@ -3826,11 +3828,19 @@ export default function App() {
 
     void loadScheduledJobs();
     const client = engineClientRef.current;
-    if (client && activePage === 'cowork') {
+    if (client && activePage === 'cowork' && configReady) {
       const sessionKey = normalizeSessionKey(coworkSessionKeyRef.current);
-      void loadCoworkModels(client, sessionKey || undefined);
+      if (client.isConnected()) {
+        void loadCoworkModels(client, sessionKey || undefined);
+      } else {
+        void ensureConnectedClient(client)
+          .then(() => loadCoworkModels(client, sessionKey || undefined))
+          .catch(() => {
+            setCoworkModels([]);
+          });
+      }
     }
-  }, [activePage, loadScheduledJobs]);
+  }, [activePage, configReady, engineConnected, loadScheduledJobs]);
 
   useEffect(() => {
     setActiveMenuItem('');

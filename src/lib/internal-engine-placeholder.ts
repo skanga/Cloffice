@@ -145,6 +145,11 @@ export class InternalEnginePlaceholderClient implements EngineRuntimeClient {
       return this.bridge.lifecycle.connect(options);
     }
 
+    if (this.bridge.lifecycle.isConnected()) {
+      this.connectionHandler?.(true, 'Connected to internal engine development path.');
+      return Promise.resolve();
+    }
+
     this.connectionHandler?.(false, 'Connecting to internal engine development path...');
     return this.bridge.lifecycle.connect(options).then(() => {
       this.connectionHandler?.(true, 'Connected to internal engine development path.');
