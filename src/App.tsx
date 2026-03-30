@@ -101,6 +101,21 @@ import {
   resolveCoworkWaitingForStreamState,
 } from './lib/engine-cowork-status';
 import {
+  buildBridgeUnavailableConfigurationStatus,
+  buildConfigurationLoadedStatus,
+  buildConfigurationSavedConnectingStatus,
+  buildDeletedEngineConnectionStatus,
+  buildEngineConnectionNameRequiredStatus,
+  buildFailedToSaveConfigurationStatus,
+  buildLoadedEngineConnectionStatus,
+  buildLoadedLocalConfigurationStatus,
+  buildLoadedLocalFallbackConfigurationStatus,
+  buildSavedEngineConnectionStatus,
+  buildSavingAndConnectingStatus,
+  buildUnableToLoadConfigurationStatus,
+  buildUpdatedEngineConnectionStatus,
+} from './lib/engine-config-status';
+import {
   buildDeletedRecentSessionStatus,
   buildInvalidSessionKeyStatus,
   buildLoadedSessionStatus,
@@ -1912,13 +1927,13 @@ export default function App() {
     setDraftEngineUrl(selectedEngineDraft.endpointUrl);
     setDraftEngineToken(selectedEngineDraft.accessToken);
     setDraftEngineProviderId(selectedEngineDraft.providerId);
-    setStatus(`Loaded connection "${profile.name}". Click Save and connect to apply it.`);
+    setStatus(buildLoadedEngineConnectionStatus(profile.name));
   }, [draftInternalProviderConfig, engineConnections]);
 
   const handleSaveEngineConnection = useCallback((name: string) => {
     const trimmedName = name.trim();
     if (!trimmedName) {
-      setStatus('Connection name is required.');
+      setStatus(buildEngineConnectionNameRequiredStatus());
       return;
     }
 
@@ -1963,7 +1978,7 @@ export default function App() {
       ];
     });
 
-    setStatus(`Saved connection "${trimmedName}".`);
+    setStatus(buildSavedEngineConnectionStatus(trimmedName));
   }, [draftEngineProviderId, draftEngineToken, draftEngineUrl, updateEngineConnections]);
 
   const handleOverwriteEngineConnection = useCallback((connectionId: string) => {
@@ -1986,12 +2001,12 @@ export default function App() {
         .sort((a, b) => b.updatedAt - a.updatedAt),
     );
 
-    setStatus('Updated saved connection with current runtime settings.');
+    setStatus(buildUpdatedEngineConnectionStatus());
   }, [draftEngineProviderId, draftEngineToken, draftEngineUrl, updateEngineConnections]);
 
   const handleDeleteEngineConnection = useCallback((connectionId: string) => {
     updateEngineConnections((prev) => prev.filter((entry) => entry.id !== connectionId));
-    setStatus('Deleted saved connection.');
+    setStatus(buildDeletedEngineConnectionStatus());
   }, [updateEngineConnections]);
 
   // Global keyboard shortcuts
@@ -2059,9 +2074,9 @@ export default function App() {
         setDraftEngineToken(localConfig.engineDraft.accessToken);
         setDraftEngineProviderId(localConfig.engineDraft.providerId);
         setDraftInternalProviderConfig(localConfig.engineDraft.internalProviderConfig);
-        setStatus('Loaded local configuration (bridge unavailable).');
+        setStatus(buildLoadedLocalConfigurationStatus());
       } else {
-        setStatus('Electron bridge unavailable. Configuration will be saved locally for this browser profile.');
+        setStatus(buildBridgeUnavailableConfigurationStatus());
       }
       setConfigReady(true);
       return;
@@ -2088,7 +2103,7 @@ export default function App() {
         setDraftEngineToken(storedEngineConfig.engineDraft.accessToken);
         setDraftEngineProviderId(storedEngineConfig.engineDraft.providerId);
         setDraftInternalProviderConfig(storedEngineConfig.engineDraft.internalProviderConfig);
-        setStatus('Configuration loaded.');
+        setStatus(buildConfigurationLoadedStatus());
         setConfigReady(true);
       })
       .catch(() => {
@@ -2103,9 +2118,9 @@ export default function App() {
           setDraftEngineToken(localConfig.engineDraft.accessToken);
           setDraftEngineProviderId(localConfig.engineDraft.providerId);
           setDraftInternalProviderConfig(localConfig.engineDraft.internalProviderConfig);
-          setStatus('Loaded local fallback configuration.');
+          setStatus(buildLoadedLocalFallbackConfigurationStatus());
         } else {
-          setStatus('Unable to load config. Using defaults.');
+          setStatus(buildUnableToLoadConfigurationStatus());
         }
         setConfigReady(true);
       });
@@ -2666,7 +2681,7 @@ export default function App() {
     const nextConfig = appConfigFromEngineDraft(nextEngineDraft);
 
     setSaving(true);
-    setStatus('Saving and connecting...');
+    setStatus(buildSavingAndConnectingStatus());
     setPairingRequestId(null);
 
     // Persist config
@@ -2688,7 +2703,7 @@ export default function App() {
         });
         persistLocalConfig(savedEngineConfig.appConfig);
       } catch {
-        setStatus('Failed to save configuration.');
+        setStatus(buildFailedToSaveConfigurationStatus());
         setSaving(false);
         return;
       }
@@ -2704,7 +2719,7 @@ export default function App() {
     }
 
     try {
-      setStatus('Configuration saved. Connecting to runtime...');
+      setStatus(buildConfigurationSavedConnectingStatus());
     } finally {
       setSaving(false);
     }
