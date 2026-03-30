@@ -36,6 +36,8 @@ type ScheduledPageProps = {
   createScheduleBusy?: boolean;
   defaultCreateModel?: string | null;
   scheduleModels?: Array<{ value: string; label: string }>;
+  onRunJobNow?: (jobId: string) => void | Promise<void>;
+  onDuplicateJob?: (job: ScheduledJob) => void | Promise<void>;
   onToggleJob?: (jobId: string, enabled: boolean) => void | Promise<void>;
   onSetJobInterval?: (jobId: string, intervalMinutes: number) => void | Promise<void>;
   onDeleteJob?: (jobId: string) => void | Promise<void>;
@@ -151,6 +153,8 @@ export function ScheduledPage({
   createScheduleBusy = false,
   defaultCreateModel = null,
   scheduleModels = [],
+  onRunJobNow,
+  onDuplicateJob,
   onToggleJob,
   onSetJobInterval,
   onDeleteJob,
@@ -175,6 +179,8 @@ export function ScheduledPage({
   const [editName, setEditName] = useState('');
   const [editPrompt, setEditPrompt] = useState('');
   const [editModel, setEditModel] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [stateFilter, setStateFilter] = useState<'all' | 'active' | 'paused' | 'pending'>('all');
 
   useEffect(() => {
     setCreateModel(defaultCreateModel ?? '');
@@ -189,6 +195,17 @@ export function ScheduledPage({
       return aNext - bNext;
     });
   }, [jobs]);
+  const visibleJobs = useMemo(() => {
+    const normalizedSearch = searchQuery.trim().toLowerCase();
+    return sortedJobs.filter((job) => {
+      if (stateFilter === 'active' && !job.enabled) return false;
+      if (stateFilter === 'paused' && job.enabled) return false;
+      if (stateFilter === 'pending' && job.state !== 'awaiting_approval') return false;
+      if (!normalizedSearch) return true;
+      return [job.name, job.schedule, job.prompt ?? '', job.model ?? '', job.kind ?? '']
+        .some((entry) => entry.toLowerCase().includes(normalizedSearch));
+    });
+  }, [searchQuery, sortedJobs, stateFilter]);
 
   const upcomingJobs = useMemo(() => sortedJobs.filter((j) => j.enabled && j.nextRunAt), [sortedJobs]);
   const enabledCount = jobs.filter((j) => j.enabled).length;
@@ -210,6 +227,25 @@ export function ScheduledPage({
     if (!selectedDate) return [];
     return jobsByDate.get(selectedDate.toDateString()) || [];
   }, [selectedDate, jobsByDate]);
+  const groupedScheduleModels = useMemo(() => {
+    const groups = new Map<string, Array<{ value: string; label: string }>>();
+    for (const model of scheduleModels) {
+      const normalizedValue = model.value.toLowerCase();
+      const group = normalizedValue.startsWith('internal/')
+        ? 'Internal'
+        : normalizedValue.startsWith('openai/')
+          ? 'OpenAI-compatible'
+          : normalizedValue.startsWith('anthropic/')
+            ? 'Anthropic'
+            : normalizedValue.startsWith('gemini/')
+              ? 'Gemini'
+              : 'Other';
+      const current = groups.get(group) ?? [];
+      current.push(model);
+      groups.set(group, current);
+    }
+    return Array.from(groups.entries());
+  }, [scheduleModels]);
 
   useEffect(() => {
     if (!focusedJobId || viewMode !== 'timeline') {
@@ -287,6 +323,16 @@ export function ScheduledPage({
     });
     setEditingJobId(null);
   };
+  const createValidationMessage = !createName.trim()
+    ? 'Schedule name is required.'
+    : !createPrompt.trim()
+      ? 'Schedule prompt is required.'
+      : '';
+  const editValidationMessage = !editName.trim()
+    ? 'Schedule name is required.'
+    : !editPrompt.trim()
+      ? 'Schedule prompt is required.'
+      : '';
 
   return (
     <section className="mx-auto grid h-full w-full max-w-[1060px] min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-3">
@@ -402,10 +448,14 @@ export function ScheduledPage({
               data-testid="schedule-create-model-select"
             >
               <option value="">Default model</option>
-              {scheduleModels.map((model) => (
-                <option key={model.value} value={model.value}>
-                  {model.label}
-                </option>
+              {groupedScheduleModels.map(([group, models]) => (
+                <optgroup key={group} label={group}>
+                  {models.map((model) => (
+                    <option key={model.value} value={model.value}>
+                      {model.label}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
             <div className="flex rounded-lg border border-border">
@@ -438,15 +488,18 @@ export function ScheduledPage({
                 size="sm"
                 className="gap-1.5"
                 data-testid="schedule-create-submit"
-                disabled={createScheduleBusy || !createPrompt.trim()}
+                disabled={createScheduleBusy || Boolean(createValidationMessage)}
                 onClick={() => void handleCreateSchedule()}
               >
                 <Zap className="size-3.5" />
-                {createScheduleBusy ? 'Creating…' : 'Create schedule'}
+                {createScheduleBusy ? 'Creating...' : 'Create schedule'}
               </Button>
               <span className="font-sans text-[11px] text-muted-foreground/80">
                 Cowork schedules use the active project context when available.
               </span>
+              {createValidationMessage ? (
+                <span className="font-sans text-[11px] text-destructive">{createValidationMessage}</span>
+              ) : null}
               {createScheduleStatus.trim() ? (
                 <span className="ml-auto font-sans text-[11px] text-muted-foreground/70">{createScheduleStatus}</span>
               ) : null}
@@ -459,19 +512,55 @@ export function ScheduledPage({
       <div className="min-h-0 rounded-xl border border-border/60 bg-card">
         {viewMode === 'timeline' ? (
           /* ── Timeline view ── */
-          <ScrollArea className="h-full">
-            {sortedJobs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <CalendarDays className="mb-3 size-8 text-muted-foreground/30" />
-                <p className="font-sans text-sm text-muted-foreground">
-                  No scheduled jobs. Make sure the current runtime connection is configured.
-                </p>
+            <ScrollArea className="h-full">
+            <div className="border-b border-border/50 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Search schedules, prompts, models"
+                  className="max-w-sm"
+                  data-testid="schedule-search"
+                />
+                <div className="flex rounded-lg border border-border">
+                  {([
+                    ['all', 'All'],
+                    ['active', 'Active'],
+                    ['paused', 'Paused'],
+                    ['pending', 'Pending'],
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={`px-3 py-1.5 font-sans text-[11px] transition-colors first:rounded-l-lg last:rounded-r-lg ${
+                        stateFilter === value ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50'
+                      }`}
+                      data-testid={`schedule-filter-${value}`}
+                      onClick={() => setStateFilter(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <span className="ml-auto font-sans text-[11px] text-muted-foreground/70">
+                  Showing {visibleJobs.length} of {sortedJobs.length}
+                </span>
               </div>
+            </div>
+            {visibleJobs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <CalendarDays className="mb-3 size-8 text-muted-foreground/30" />
+                  <p className="font-sans text-sm text-muted-foreground">
+                    {sortedJobs.length === 0
+                      ? 'No scheduled jobs. Make sure the current runtime connection is configured.'
+                      : 'No schedules match the current search or filter.'}
+                  </p>
+                </div>
             ) : (
               <div className="relative px-4 py-3">
                 <div className="absolute left-[27px] top-3 bottom-3 w-px bg-border/50" />
                 <div className="grid gap-2">
-                  {sortedJobs.map((job) => {
+                  {visibleJobs.map((job) => {
                     const isEnabled = job.enabled;
                     const nextLabel = getRelativeTimeLabel(job.nextRunAt);
                     const isHighlighted = highlightedJobId === job.id;
@@ -535,19 +624,23 @@ export function ScheduledPage({
                                 placeholder="Schedule name"
                                 data-testid={`scheduled-job-edit-name-${job.id}`}
                               />
-                              <select
-                                value={editModel}
-                                onChange={(event) => setEditModel(event.target.value)}
-                                className="h-10 rounded-xl border border-border bg-background px-3 font-sans text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
-                                data-testid={`scheduled-job-edit-model-${job.id}`}
-                              >
-                                <option value="">Default model</option>
-                                {scheduleModels.map((model) => (
-                                  <option key={`${job.id}-${model.value}`} value={model.value}>
-                                    {model.label}
-                                  </option>
-                                ))}
-                              </select>
+                                <select
+                                  value={editModel}
+                                  onChange={(event) => setEditModel(event.target.value)}
+                                  className="h-10 rounded-xl border border-border bg-background px-3 font-sans text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                                  data-testid={`scheduled-job-edit-model-${job.id}`}
+                                >
+                                  <option value="">Default model</option>
+                                  {groupedScheduleModels.map(([group, models]) => (
+                                    <optgroup key={`${job.id}-${group}`} label={group}>
+                                      {models.map((model) => (
+                                        <option key={`${job.id}-${model.value}`} value={model.value}>
+                                          {model.label}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  ))}
+                                </select>
                               <textarea
                                 value={editPrompt}
                                 onChange={(event) => setEditPrompt(event.target.value)}
@@ -555,16 +648,20 @@ export function ScheduledPage({
                                 className="min-h-24 rounded-lg border border-border bg-background px-3 py-2 font-sans text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
                                 data-testid={`scheduled-job-edit-prompt-${job.id}`}
                               />
-                              <div className="flex flex-wrap gap-1.5">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 px-2 text-[11px]"
-                                  data-testid={`scheduled-job-edit-save-${job.id}`}
-                                  onClick={() => void handleSaveEditedJob()}
-                                >
-                                  Save details
+                                <div className="flex flex-wrap gap-1.5">
+                                  {editValidationMessage ? (
+                                    <span className="self-center font-sans text-[11px] text-destructive">{editValidationMessage}</span>
+                                  ) : null}
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-[11px]"
+                                    data-testid={`scheduled-job-edit-save-${job.id}`}
+                                    disabled={Boolean(editValidationMessage)}
+                                    onClick={() => void handleSaveEditedJob()}
+                                  >
+                                    Save details
                                 </Button>
                                 <Button
                                   type="button"
@@ -761,6 +858,26 @@ export function ScheduledPage({
                                 onClick={() => startEditingJob(job)}
                               >
                                 Edit
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-[11px]"
+                                data-testid={`scheduled-job-duplicate-${job.id}`}
+                                onClick={() => void onDuplicateJob?.(job)}
+                              >
+                                Duplicate
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-[11px]"
+                                data-testid={`scheduled-job-run-now-${job.id}`}
+                                onClick={() => void onRunJobNow?.(job.id)}
+                              >
+                                Run now
                               </Button>
                               <Button
                                 type="button"

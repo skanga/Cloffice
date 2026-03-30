@@ -424,6 +424,7 @@ test.describe('Internal engine UI flow', () => {
 
     await openSchedulePage(page);
     await page.getByTestId('schedule-create-kind-cowork').click();
+    await page.getByTestId('schedule-filter-all').click();
     await page.getByTestId('schedule-create-name').fill('UI direct schedule');
     await page.getByTestId('schedule-create-prompt').fill('Inspect the current project root and summarize the next migration step.');
     await page.getByTestId('schedule-create-interval-5').click();
@@ -473,6 +474,27 @@ test.describe('Internal engine UI flow', () => {
     });
 
     await expect(createdJobCard).toContainText('UI direct schedule edited');
+
+    await page.getByTestId(`scheduled-job-duplicate-${createdJobId}`).click();
+    await expect.poll(async () => page.evaluate(async () => {
+      const bridge = window.cloffice ?? window.relay;
+      const jobs = await bridge.listInternalCronJobs();
+      return jobs.some((job: any) => job?.name === 'UI direct schedule edited copy');
+    }), { timeout: 15000 }).toBe(true);
+
+    await page.getByTestId('schedule-search').fill('edited copy');
+    await expect(page.getByText('Showing 1 of')).toBeVisible();
+    const duplicatedCard = page.getByTestId(/^scheduled-job-/).filter({ hasText: 'UI direct schedule edited copy' }).first();
+    await expect(duplicatedCard).toBeVisible({ timeout: 15000 });
+
+    await page.getByTestId('schedule-search').fill('UI direct schedule edited');
+    await page.getByTestId(`scheduled-job-run-now-${createdJobId}`).click();
+    await expect.poll(async () => page.evaluate(async (targetJobId) => {
+      const bridge = window.cloffice ?? window.relay;
+      const jobs = await bridge.listInternalCronJobs();
+      const match = jobs.find((job: any) => job?.id === targetJobId);
+      return Boolean(match?.lastRunAt);
+    }, createdJobId), { timeout: 15000 }).toBe(true);
   });
 
   test('scheduled internal cowork run surfaces approval recovery in the live UI', async () => {

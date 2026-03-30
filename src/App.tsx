@@ -75,13 +75,15 @@ import { Input } from './components/ui/input';
 import { SidebarProvider } from './components/ui/sidebar';
 import { ScrollArea } from './components/ui/scroll-area';
 import { createEngineClient, type EngineClientInstance } from './lib/engine-client';
-  import {
-    canManageEngineSchedules,
-    createEngineScheduleWithStatus,
-    createEngineCoworkScheduleWithStatus,
-    deleteEngineScheduleWithStatus,
-    describeEngineScheduleAccess,
+import {
+  canManageEngineSchedules,
+  createEngineScheduleWithStatus,
+  createEngineCoworkScheduleWithStatus,
+  deleteEngineScheduleWithStatus,
+  describeEngineScheduleAccess,
   loadEngineScheduledJobsWithStatus,
+  duplicateEngineScheduleWithStatus,
+  runEngineScheduleNowWithStatus,
   updateEngineScheduleWithStatus,
 } from './lib/engine-schedule-controller';
 import {
@@ -2722,6 +2724,41 @@ export default function App() {
       setStatus(result.message);
     };
 
+    const handleDuplicateInternalPromptSchedule = async (job: ScheduledJob) => {
+      const result = await duplicateEngineScheduleWithStatus({
+        providerId: draftEngineProviderId,
+        bridge,
+        schedule: {
+          kind: job.kind,
+          name: job.name,
+          prompt: job.prompt,
+          model: job.model ?? null,
+          intervalMinutes: job.schedule.includes('every 15 minute')
+            ? 15
+            : job.schedule.includes('every 5 minute')
+              ? 5
+              : 1,
+        },
+        activeProject: activeCoworkProject,
+        rootPath: workingFolderRef.current,
+      });
+      if (result.shouldReloadScheduledJobs) {
+        await loadScheduledJobs();
+      }
+      setStatus(result.message);
+    };
+
+    const handleRunInternalPromptScheduleNow = async (scheduleId: string) => {
+      const result = await runEngineScheduleNowWithStatus({
+        bridge,
+        scheduleId,
+      });
+      if (result.shouldReloadScheduledJobs) {
+        await loadScheduledJobs();
+      }
+      setStatus(result.message);
+    };
+
     const handleCreateInternalPromptSchedule = async (payload: {
       kind: 'chat' | 'cowork';
       prompt: string;
@@ -4020,6 +4057,8 @@ export default function App() {
                           scheduleModels={coworkModels}
                           onCreateSchedule={(input) => void handleCreateInternalPromptSchedule(input)}
                           onUpdateScheduleDetails={(jobId, input) => void handleUpdateInternalPromptSchedule(jobId, input)}
+                          onDuplicateJob={(job) => void handleDuplicateInternalPromptSchedule(job)}
+                          onRunJobNow={(jobId) => void handleRunInternalPromptScheduleNow(jobId)}
                           onToggleJob={(jobId, enabled) => void handleUpdateInternalPromptSchedule(jobId, { enabled })}
                           onSetJobInterval={(jobId, intervalMinutes) => void handleUpdateInternalPromptSchedule(jobId, { intervalMinutes })}
                           onDeleteJob={(jobId) => void handleDeleteInternalPromptSchedule(jobId)}

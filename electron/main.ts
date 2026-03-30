@@ -1784,6 +1784,21 @@ function createInternalEngineMainService() {
       schedules = schedules.filter((entry) => entry.id !== id);
       await persistState();
     },
+    async runPromptScheduleNow(id: string): Promise<EngineCronJob> {
+      requireConnected();
+      const schedule = schedules.find((entry) => entry.id === id);
+      if (!schedule) {
+        throw new Error('Internal schedule not found.');
+      }
+      if (schedule.state === 'awaiting_approval') {
+        throw new Error('Resolve the pending approval before running this schedule again.');
+      }
+      if (schedule.state === 'running' || schedule.state === 'executing') {
+        throw new Error('This internal schedule is already running.');
+      }
+      await runScheduledPrompt(schedule);
+      return toEngineCronJob(schedule);
+    },
     async seedScheduleArtifactForE2E(id: string): Promise<EngineCronJob> {
       requireConnected();
       return seedScheduleArtifactForE2E(id);
@@ -3345,12 +3360,13 @@ app.whenReady().then(async () => {
     async (_event, payload: { kind?: 'chat' | 'cowork'; prompt: string; name?: string; intervalMinutes?: number; rootPath?: string; model?: string | null }) =>
       internalEngineService.createPromptSchedule(payload),
   );
-    ipcMain.handle(
-      'internal-engine:update-prompt-schedule',
-      async (_event, id: string, payload: { enabled?: boolean; intervalMinutes?: number; name?: string; prompt?: string; model?: string | null }) =>
-        internalEngineService.updatePromptSchedule(id, payload),
-    );
+  ipcMain.handle(
+    'internal-engine:update-prompt-schedule',
+    async (_event, id: string, payload: { enabled?: boolean; intervalMinutes?: number; name?: string; prompt?: string; model?: string | null }) =>
+      internalEngineService.updatePromptSchedule(id, payload),
+  );
   ipcMain.handle('internal-engine:delete-prompt-schedule', async (_event, id: string) => internalEngineService.deletePromptSchedule(id));
+  ipcMain.handle('internal-engine:run-prompt-schedule-now', async (_event, id: string) => internalEngineService.runPromptScheduleNow(id));
   ipcMain.handle('internal-engine:seed-schedule-artifact-e2e', async (_event, id: string) => internalEngineService.seedScheduleArtifactForE2E(id));
   ipcMain.handle('internal-engine:send-chat', async (event, sessionKey: string, text: string) =>
     internalEngineService.sendChat(sessionKey, text, (frame) => {

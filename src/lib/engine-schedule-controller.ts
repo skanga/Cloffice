@@ -20,6 +20,7 @@ type InternalScheduleBridge = {
     model?: string | null;
   }) => Promise<unknown>;
   deleteInternalPromptSchedule?: (id: string) => Promise<void>;
+  runInternalPromptScheduleNow?: (id: string) => Promise<unknown>;
 };
 
 export type EngineScheduleCreateInput = {
@@ -270,6 +271,59 @@ export async function deleteEngineScheduleWithStatus(params: {
   } catch (error) {
     return {
       message: error instanceof Error ? error.message : 'Unable to delete internal schedule.',
+      shouldReloadScheduledJobs: false,
+    };
+  }
+}
+
+export async function duplicateEngineScheduleWithStatus(params: {
+  providerId: EngineProviderId;
+  bridge: InternalScheduleBridge | null | undefined;
+  schedule: {
+    kind?: 'chat' | 'cowork';
+    name: string;
+    prompt?: string;
+    model?: string | null;
+    intervalMinutes?: number;
+  };
+  activeProject: CoworkProject | null;
+  rootPath?: string;
+}): Promise<{ message: string; shouldReloadScheduledJobs: boolean }> {
+  const result = await createEngineScheduleWithStatus({
+    providerId: params.providerId,
+    bridge: params.bridge,
+    schedule: {
+      kind: params.schedule.kind === 'cowork' ? 'cowork' : 'chat',
+      name: `${params.schedule.name} copy`,
+      prompt: params.schedule.prompt ?? '',
+      intervalMinutes: params.schedule.intervalMinutes ?? 1,
+      rootPath: params.schedule.kind === 'cowork' ? params.rootPath : undefined,
+      model: params.schedule.model ?? null,
+    },
+    activeProject: params.activeProject,
+  });
+  return {
+    ...result,
+    message: result.shouldReloadScheduledJobs ? 'Duplicated internal schedule.' : result.message,
+  };
+}
+
+export async function runEngineScheduleNowWithStatus(params: {
+  bridge: InternalScheduleBridge | null | undefined;
+  scheduleId: string;
+}): Promise<{ message: string; shouldReloadScheduledJobs: boolean }> {
+  try {
+    if (!params.bridge?.runInternalPromptScheduleNow) {
+      throw new Error('Run-now is available in the internal desktop runtime only.');
+    }
+    await params.bridge.runInternalPromptScheduleNow(params.scheduleId);
+    return {
+      message: 'Started internal schedule run.',
+      shouldReloadScheduledJobs: true,
+    };
+  } catch (error) {
+    return {
+      message: error instanceof Error ? error.message : 'Unable to start internal schedule run.',
       shouldReloadScheduledJobs: false,
     };
   }
