@@ -41,6 +41,48 @@ export type OpenClawCompatibilityDiscoveryResult = {
   message: string;
 };
 
+function normalizeOpenClawCompatibilityScheduleState(rawState: string | null | undefined, enabled: boolean): string {
+  const normalized = rawState?.trim().toLowerCase();
+  if (!normalized) {
+    return enabled ? 'idle' : 'paused';
+  }
+
+  if (['disabled', 'paused', 'inactive'].includes(normalized)) {
+    return 'paused';
+  }
+  if (['enabled', 'scheduled', 'ready', 'waiting', 'pending', 'queued'].includes(normalized)) {
+    return 'idle';
+  }
+  if (['running', 'executing', 'in_progress'].includes(normalized)) {
+    return 'running';
+  }
+  if (['awaiting_approval', 'approval_required'].includes(normalized)) {
+    return 'awaiting_approval';
+  }
+  if (['completed', 'complete', 'succeeded', 'success'].includes(normalized)) {
+    return 'completed';
+  }
+  if (['failed', 'error', 'errored'].includes(normalized)) {
+    return 'failed';
+  }
+  return normalized;
+}
+
+function normalizeOpenClawCompatibilityCronJob(job: EngineCronJob, index: number): EngineCronJob {
+  const enabled = typeof job.enabled === 'boolean'
+    ? job.enabled
+    : !['disabled', 'paused', 'inactive'].includes(job.state?.trim().toLowerCase?.() ?? '');
+
+  return {
+    ...job,
+    id: job.id?.trim() || `compat-schedule-${index + 1}`,
+    name: job.name?.trim() || `Scheduled job ${index + 1}`,
+    schedule: job.schedule?.trim() || 'Unavailable',
+    enabled,
+    state: normalizeOpenClawCompatibilityScheduleState(job.state, enabled),
+  };
+}
+
 export class OpenClawCompatibilityEngineClient implements EngineRuntimeClient {
   private readonly gatewayClient = new OpenClawGatewayClient();
 
@@ -139,7 +181,9 @@ export class OpenClawCompatibilityEngineClient implements EngineRuntimeClient {
   }
 
   listCronJobs(): Promise<EngineCronJob[]> {
-    return this.gatewayClient.listCronJobs() as Promise<EngineCronJob[]>;
+    return this.gatewayClient
+      .listCronJobs()
+      .then((jobs) => (jobs as EngineCronJob[]).map(normalizeOpenClawCompatibilityCronJob));
   }
 
   fetchToolsCatalog(): Promise<EngineToolsCatalog> {
