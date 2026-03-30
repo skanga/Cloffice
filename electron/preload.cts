@@ -58,6 +58,7 @@ function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpoint: string
         internalProviderConfig: {
           openaiApiKey: '',
           openaiBaseUrl: '',
+          openaiModels: '',
           anthropicApiKey: '',
           geminiApiKey: '',
         },
@@ -86,6 +87,7 @@ function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpoint: string
         internalProviderConfig: {
           openaiApiKey: typeof internalProviderConfig.openaiApiKey === 'string' ? internalProviderConfig.openaiApiKey : '',
           openaiBaseUrl: typeof internalProviderConfig.openaiBaseUrl === 'string' ? internalProviderConfig.openaiBaseUrl : '',
+          openaiModels: typeof internalProviderConfig.openaiModels === 'string' ? internalProviderConfig.openaiModels : '',
           anthropicApiKey: typeof internalProviderConfig.anthropicApiKey === 'string' ? internalProviderConfig.anthropicApiKey : '',
           geminiApiKey: typeof internalProviderConfig.geminiApiKey === 'string' ? internalProviderConfig.geminiApiKey : '',
         },
@@ -108,6 +110,7 @@ function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpoint: string
       internalProviderConfig: {
         openaiApiKey: '',
         openaiBaseUrl: '',
+        openaiModels: '',
         anthropicApiKey: '',
         geminiApiKey: '',
       },
@@ -129,6 +132,7 @@ function prepareDesktopBridgeEngineConfigWrite(draft: EngineDraftConfig): { acti
         internalProviderConfig: {
           openaiApiKey: draft.internalProviderConfig.openaiApiKey ?? '',
           openaiBaseUrl: draft.internalProviderConfig.openaiBaseUrl ?? '',
+          openaiModels: draft.internalProviderConfig.openaiModels ?? '',
           anthropicApiKey: draft.internalProviderConfig.anthropicApiKey ?? '',
           geminiApiKey: draft.internalProviderConfig.geminiApiKey ?? '',
         },
@@ -206,6 +210,8 @@ const desktopBridgeApi = {
     ipcRenderer.invoke('internal-engine:get-history', sessionKey, limit) as Promise<Array<{ id: string; role: 'user' | 'assistant' | 'system'; text: string }>>,
   sendInternalChat: (sessionKey: string, text: string) =>
     ipcRenderer.invoke('internal-engine:send-chat', sessionKey, text) as Promise<InternalEngineSendChatResult>,
+  testInternalProviderConnection: (providerId: 'openai' | 'anthropic' | 'gemini') =>
+    ipcRenderer.invoke('internal-engine:test-provider-connection', providerId) as Promise<import('../src/lib/internal-provider-adapter.js').InternalProviderConnectionTestResult>,
   continueInternalCoworkRun: (payload: InternalEngineCoworkContinuationRequest) =>
     ipcRenderer.invoke('internal-engine:continue-cowork-run', payload) as Promise<InternalEngineCoworkContinuationResult>,
   listInternalPendingApprovals: () =>

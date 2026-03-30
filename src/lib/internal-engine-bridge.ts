@@ -12,7 +12,7 @@ import type {
 } from './engine-runtime-types.js';
 import type { ChatActivityItem, EngineRequestedAction, LocalActionReceipt } from '../app-types.js';
 import type { InternalApprovalRecoveryFlow } from './internal-approval-recovery.js';
-import type { InternalChatProviderId, InternalProviderStatus } from './internal-provider-adapter.js';
+import type { InternalChatProviderId, InternalProviderConnectionTestResult, InternalProviderStatus } from './internal-provider-adapter.js';
 
 export type InternalEngineShellCapabilities = {
   connection: boolean;
@@ -238,6 +238,7 @@ export type InternalEngineDesktopBridge = {
   deleteInternalSession(sessionKey: string): Promise<void>;
   getInternalHistory(sessionKey: string, limit?: number): Promise<EngineChatMessage[]>;
   sendInternalChat(sessionKey: string, text: string): Promise<InternalEngineSendChatResult>;
+  testInternalProviderConnection(providerId: InternalChatProviderId): Promise<InternalProviderConnectionTestResult>;
   continueInternalCoworkRun(payload: InternalEngineCoworkContinuationRequest): Promise<InternalEngineCoworkContinuationResult>;
   listInternalPendingApprovals(): Promise<InternalApprovalRecoveryFlow[]>;
   saveInternalPendingApproval(flow: InternalApprovalRecoveryFlow): Promise<void>;

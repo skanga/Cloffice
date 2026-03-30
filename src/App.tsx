@@ -1739,12 +1739,18 @@ export default function App() {
     throw new Error('No active chat session. Start a new chat first.');
   };
 
-  const loadModelsForSession = async (client: EngineClientInstance, sessionKey: string) => {
+  const loadModelsForSession = async (client: EngineClientInstance, sessionKey?: string | null) => {
+    if (!client.isConnected()) {
+      setChatModels([]);
+      setSelectedModel('');
+      return;
+    }
+
     setModelsLoading(true);
     try {
       const [choices, currentModel] = await Promise.all([
         client.listModels(),
-        client.getSessionModel(sessionKey).catch(() => null),
+        sessionKey ? client.getSessionModel(sessionKey).catch(() => null) : Promise.resolve(null),
       ]);
 
       setChatModels(choices.map((model) => ({ value: model.value, label: model.label })));
@@ -1758,6 +1764,14 @@ export default function App() {
   };
 
   const loadCoworkModels = async (client: EngineClientInstance, sessionKey?: string) => {
+    if (!client.isConnected()) {
+      setCoworkModels([]);
+      if (sessionKey) {
+        setCoworkModel('');
+      }
+      return;
+    }
+
     setModelsLoading(true);
     try {
       const [choices, currentModel] = await Promise.all([
@@ -2540,6 +2554,7 @@ export default function App() {
         }
         try {
           await loadRecentChatsFromBackend(client);
+          await loadModelsForSession(client, normalizeSessionKey(activeSessionKeyRef.current));
         } catch (error) {
           if (cancelled) {
             return;
@@ -2641,50 +2656,8 @@ export default function App() {
       persistLocalConfig(nextConfig);
     }
 
-    // Connect
     try {
-      const client = engineClientRef.current;
-      if (!client) {
-        throw new Error('Runtime client not initialized.');
-      }
-
-      await client.connect(engineConnectOptionsFromDraft(nextEngineDraft));
-      setEngineConnected(true);
-      setHealth({ ok: true, message: `Connected to runtime at ${nextEngineDraft.endpointUrl}` });
-      markEngineConnectionLastUsed(nextConfig);
-
-      try {
-        await loadRecentChatsFromBackend(client);
-
-        const sessionKey = normalizeSessionKey(activeSessionKeyRef.current);
-        if (sessionKey) {
-          void loadModelsForSession(client, sessionKey);
-        } else {
-          setChatModels([]);
-          setSelectedModel('');
-        }
-        setStatus('Configuration saved. Connected to runtime.');
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Connected to runtime, but failed to refresh workspace state.';
-        console.warn('[Cloffice] post-connect refresh error:', error);
-        setStatus(`Configuration saved. Connected to runtime. ${message}`);
-      }
-    } catch (error) {
-      console.error('[Cloffice] connect error:', error);
-      setEngineConnected(false);
-      const info = readEngineError(error);
-      const isPairing =
-        info.code === 'PAIRING_REQUIRED' ||
-        /pairing.required/i.test(info.message);
-      if (isPairing) {
-        setPairingRequestId(info.requestId ?? null);
-        const approvalHint = ` ${buildOpenClawCompatibilityPairingHint(info.requestId)}`;
-        setHealth({ ok: false, message: `Pairing required.${approvalHint}` });
-        setStatus(`Configuration saved. Pairing required.${approvalHint}`);
-      } else {
-        setHealth({ ok: false, message: info.message || 'Runtime connection failed.' });
-        setStatus(`Configuration saved. ${info.message || 'Runtime connection failed.'}`);
-      }
+      setStatus('Configuration saved. Connecting to runtime...');
     } finally {
       setSaving(false);
     }
@@ -2760,7 +2733,7 @@ export default function App() {
     setCoworkRunStatus('Sending cowork task...');
     resetCoworkProgress('Interpreting goal and building a task plan.');
 
-    const text = coworkDraftPrompt.trim();
+    const text = chatDraftPrompt.trim();
     if (!text) {
       setStatus('Describe the outcome first so Cloffice can plan the work.');
       setCoworkSending(false);
@@ -2768,7 +2741,7 @@ export default function App() {
     }
 
     // Clear the composer immediately so submit feedback matches user expectation.
-    handleCoworkPromptChange('');
+    handleChatPromptChange('');
 
     const client = engineClientRef.current;
     if (!client) {
@@ -3491,7 +3464,7 @@ export default function App() {
       return;
     }
 
-    const text = coworkDraftPrompt.trim();
+    const text = chatDraftPrompt.trim();
     if (!text) {
       setStatus('Type a message before sending.');
       return;
@@ -3505,7 +3478,7 @@ export default function App() {
 
     setSendingChat(true);
     setAwaitingChatStream(false);
-    handleCoworkPromptChange('');
+    handleChatPromptChange('');
 
     try {
       const shouldCreateFreshSession = chatMessages.length === 0;
@@ -3817,6 +3790,15 @@ export default function App() {
   };
 
   const loadScheduledJobs = useCallback(async () => {
+    if (!configReady) {
+      return;
+    }
+
+    if (draftEngineProviderId === 'internal') {
+      setScheduledJobs([]);
+      return;
+    }
+
     const client = engineClientRef.current;
     if (!client) {
       setStatus('Runtime client not initialized.');
@@ -3835,7 +3817,7 @@ export default function App() {
     } finally {
       setScheduledLoading(false);
     }
-  }, [getCurrentEngineDraft]);
+  }, [configReady, draftEngineProviderId, getCurrentEngineDraft]);
 
   useEffect(() => {
     if (activePage !== 'cowork' && activePage !== 'scheduled') {

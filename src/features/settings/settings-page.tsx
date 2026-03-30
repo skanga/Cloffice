@@ -15,6 +15,7 @@ import { listConnectors, persistConnectorConfig } from '@/lib/connectors';
 import { loadAllowedDomains, saveAllowedDomains } from '@/lib/connectors/web-fetch';
 import { getEngineProvider, listEngineProviders } from '@/lib/engine-provider-registry';
 import type { InternalEngineRunRecord, InternalEngineRuntimeInfo } from '@/lib/internal-engine-bridge';
+import type { InternalProviderConnectionTestResult } from '@/lib/internal-provider-adapter';
 import type { ConnectorDefinition } from '@/lib/connectors/connector-types';
 
 type AppLanguage = 'en' | 'de';
@@ -269,6 +270,8 @@ export function SettingsPage({
   const [connectionNameDraft, setConnectionNameDraft] = useState('');
   const [internalRuntimeInfo, setInternalRuntimeInfo] = useState<InternalEngineRuntimeInfo | null>(null);
   const [internalRunHistory, setInternalRunHistory] = useState<InternalEngineRunRecord[]>([]);
+  const [testingProviderId, setTestingProviderId] = useState<'openai' | 'anthropic' | 'gemini' | null>(null);
+  const [providerTestResult, setProviderTestResult] = useState<InternalProviderConnectionTestResult | null>(null);
   const engineProviders = useMemo(() => listEngineProviders(), []);
   const effectiveEngineProviders = useMemo(
     () => engineProviders.map((provider) => (
@@ -794,6 +797,19 @@ export function SettingsPage({
                   </label>
 
                   <label className="grid gap-1">
+                    <span className="font-sans text-xs text-muted-foreground">OpenAI-compatible model list</span>
+                    <Input
+                      value={draftInternalProviderConfig.openaiModels}
+                      onChange={(event) => onDraftInternalProviderConfigChange({ openaiModels: event.target.value })}
+                      placeholder="gpt-4.1-mini,gpt-4.1 or llama-3.3-70b-versatile,llama-3.1-8b-instant"
+                      className="font-sans"
+                    />
+                    <p className="font-sans text-[11px] text-muted-foreground">
+                      Comma-separated model ids. Use this for Groq, OpenRouter, and other OpenAI-compatible endpoints.
+                    </p>
+                  </label>
+
+                  <label className="grid gap-1">
                     <span className="font-sans text-xs text-muted-foreground">Anthropic API key</span>
                     <Input
                       type="password"
@@ -814,6 +830,65 @@ export function SettingsPage({
                       className="font-sans"
                     />
                   </label>
+
+                  <div className="grid gap-2 rounded-md border border-border/60 bg-background/70 p-3">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{t('Provider connection test', 'Provider-Verbindungstest')}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t(
+                          'Runs a small live request through the internal runtime using the saved credentials in this form.',
+                          'Fuehrt eine kleine Live-Anfrage ueber die interne Laufzeit mit den in diesem Formular gespeicherten Zugangsdaten aus.',
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {(['openai', 'anthropic', 'gemini'] as const).map((providerId) => (
+                        <Button
+                          key={providerId}
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          disabled={testingProviderId !== null}
+                          onClick={async () => {
+                            const bridge = getDesktopBridge();
+                            if (!bridge?.testInternalProviderConnection) {
+                              setProviderTestResult({
+                                providerId,
+                                ok: false,
+                                message: 'Provider test bridge is unavailable.',
+                              });
+                              return;
+                            }
+                            setTestingProviderId(providerId);
+                            try {
+                              const result = await bridge.testInternalProviderConnection(providerId);
+                              setProviderTestResult(result);
+                            } catch (error) {
+                              setProviderTestResult({
+                                providerId,
+                                ok: false,
+                                message: error instanceof Error ? error.message : 'Provider test failed.',
+                              });
+                            } finally {
+                              setTestingProviderId(null);
+                            }
+                          }}
+                        >
+                          {testingProviderId === providerId ? 'Testing...' : `Test ${providerId}`}
+                        </Button>
+                      ))}
+                    </div>
+                    {providerTestResult ? (
+                      <div className={`rounded-md border px-3 py-2 text-xs ${providerTestResult.ok ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-950 dark:text-emerald-100' : 'border-destructive/40 bg-destructive/10 text-destructive'}`}>
+                        <p className="font-medium">
+                          {providerTestResult.ok ? 'Connection succeeded.' : 'Connection failed.'}
+                          {providerTestResult.model ? ` Model: ${providerTestResult.model}` : ''}
+                        </p>
+                        <p className="mt-1">{providerTestResult.message}</p>
+                        {providerTestResult.preview ? <p className="mt-1 font-mono">{providerTestResult.preview}</p> : null}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
 

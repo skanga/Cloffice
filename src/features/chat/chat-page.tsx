@@ -220,25 +220,6 @@ export function ChatPage({
     onSubmit(event);
   };
 
-  if (!engineConnected) {
-    return (
-      <section className="grid h-full w-full place-items-center p-6">
-        <div className="w-full max-w-xl rounded-2xl border border-border bg-card p-6 text-center">
-          <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full border border-border bg-muted">
-            <WifiOff className="h-5 w-5 text-muted-foreground" />
-          </div>
-          <h2 className="text-lg font-semibold">Chat is offline</h2>
-          <p className="mt-2 font-sans text-sm text-muted-foreground">
-            Connect the current runtime to continue chatting.
-          </p>
-          <Button type="button" className="mt-4" onClick={() => (onOpenEngineSettings ?? onOpenSettings)?.()}>
-            Open Engine Settings
-          </Button>
-        </div>
-      </section>
-    );
-  }
-
   useEffect(() => {
     if (!headerMenuOpen) {
       return;
@@ -374,6 +355,25 @@ export function ChatPage({
       </div>
     );
   };
+
+  if (!engineConnected) {
+    return (
+      <section className="grid h-full w-full place-items-center p-6">
+        <div className="w-full max-w-xl rounded-2xl border border-border bg-card p-6 text-center">
+          <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full border border-border bg-muted">
+            <WifiOff className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <h2 className="text-lg font-semibold">Chat is offline</h2>
+          <p className="mt-2 font-sans text-sm text-muted-foreground">
+            Connect the current runtime to continue chatting.
+          </p>
+          <Button type="button" className="mt-4" onClick={() => (onOpenEngineSettings ?? onOpenSettings)?.()}>
+            Open Engine Settings
+          </Button>
+        </div>
+      </section>
+    );
+  }
 
   if (isInitial) {
     return (

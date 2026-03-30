@@ -8,6 +8,7 @@ export const PROVIDER_AWARE_ENGINE_CONFIG_WRITE_MODE: ProviderAwareEngineConfigW
 export type StoredInternalProviderConfig = {
   openaiApiKey: string;
   openaiBaseUrl: string;
+  openaiModels: string;
   anthropicApiKey: string;
   geminiApiKey: string;
 };

@@ -30,6 +30,14 @@ export type InternalProviderChatResult = {
   text: string;
 };
 
+export type InternalProviderConnectionTestResult = {
+  providerId: InternalChatProviderId;
+  ok: boolean;
+  model?: string;
+  message: string;
+  preview?: string;
+};
+
 type OpenAIMessage = {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -43,7 +51,18 @@ const env =
   ?? {};
 
 function resolveConfigValue(savedValue: string | undefined, envValue: string | undefined): string {
-  return savedValue?.trim() || envValue?.trim() || '';
+  return stripWrappingQuotes(savedValue?.trim() || envValue?.trim() || '');
+}
+
+function stripWrappingQuotes(value: string): string {
+  const normalized = value.trim();
+  if (
+    normalized.length >= 2
+    && ((normalized.startsWith('"') && normalized.endsWith('"')) || (normalized.startsWith("'") && normalized.endsWith("'")))
+  ) {
+    return normalized.slice(1, -1).trim();
+  }
+  return normalized;
 }
 
 function parseModelList(value: string | undefined, fallback: string[]): string[] {
@@ -52,7 +71,7 @@ function parseModelList(value: string | undefined, fallback: string[]): string[]
   }
   const parsed = value
     .split(',')
-    .map((entry) => entry.trim())
+    .map((entry) => stripWrappingQuotes(entry.trim()))
     .filter(Boolean);
   return parsed.length > 0 ? parsed : fallback;
 }
@@ -88,7 +107,7 @@ function readOpenAIConfig(savedConfig?: InternalProviderConfig) {
     resolveConfigValue(savedConfig?.openaiBaseUrl, env.CLOFFICE_INTERNAL_OPENAI_BASE_URL || env.OPENAI_BASE_URL),
     'https://api.openai.com/v1',
   );
-  const modelIds = parseModelList(env.CLOFFICE_INTERNAL_OPENAI_MODELS, OPENAI_DEFAULT_MODELS);
+  const modelIds = parseModelList(savedConfig?.openaiModels || env.CLOFFICE_INTERNAL_OPENAI_MODELS, OPENAI_DEFAULT_MODELS);
   return {
     providerId: 'openai' as const,
     label: 'OpenAI-compatible',
@@ -404,4 +423,47 @@ export async function sendInternalProviderChat(
     model: modelValue,
     text,
   };
+}
+
+export async function testInternalProviderConnection(
+  providerId: InternalChatProviderId,
+  savedConfig?: InternalProviderConfig,
+): Promise<InternalProviderConnectionTestResult> {
+  const catalog = buildInternalProviderCatalog(savedConfig);
+  const model = catalog.models.find((entry) => entry.providerId === providerId);
+  if (!model) {
+    return {
+      providerId,
+      ok: false,
+      message:
+        providerId === 'openai'
+          ? 'OpenAI-compatible provider is not configured. Add an API key and at least one model.'
+          : providerId === 'anthropic'
+            ? 'Anthropic provider is not configured.'
+            : 'Gemini provider is not configured.',
+    };
+  }
+
+  try {
+    const result = await sendInternalProviderChat(
+      model.value,
+      [{ id: 'provider-test-user', role: 'user', text: 'Reply with exactly: connection ok' }],
+      savedConfig,
+    );
+    return {
+      providerId,
+      ok: true,
+      model: model.value,
+      message: 'Provider connection succeeded.',
+      preview: result.text.trim().slice(0, 160),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Provider connection failed.';
+    return {
+      providerId,
+      ok: false,
+      model: model.value,
+      message,
+    };
+  }
 }

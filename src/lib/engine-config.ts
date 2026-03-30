@@ -14,6 +14,7 @@ export type InternalProviderConfig = StoredInternalProviderConfig;
 export const EMPTY_INTERNAL_PROVIDER_CONFIG: InternalProviderConfig = {
   openaiApiKey: '',
   openaiBaseUrl: '',
+  openaiModels: '',
   anthropicApiKey: '',
   geminiApiKey: '',
 };
@@ -218,6 +219,10 @@ function parseStoredProviderAwareEngineConfigV2(
             openaiBaseUrl:
               typeof (record.internalProviderConfig as Record<string, unknown>).openaiBaseUrl === 'string'
                 ? (record.internalProviderConfig as Record<string, string>).openaiBaseUrl
+                : '',
+            openaiModels:
+              typeof (record.internalProviderConfig as Record<string, unknown>).openaiModels === 'string'
+                ? (record.internalProviderConfig as Record<string, string>).openaiModels
                 : '',
             anthropicApiKey:
               typeof (record.internalProviderConfig as Record<string, unknown>).anthropicApiKey === 'string'

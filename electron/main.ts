@@ -42,7 +42,9 @@ import {
   buildInternalProviderCatalog,
   isProviderBackedInternalModel,
   sendInternalProviderChat,
+  testInternalProviderConnection,
   type InternalChatProviderId,
+  type InternalProviderConnectionTestResult,
   type InternalProviderStatus,
 } from '../src/lib/internal-provider-adapter.js';
 
@@ -248,6 +250,7 @@ function createInternalEngineMainService() {
     refreshProviderCatalog();
   };
   const listAvailableModels = () => [...devModelChoices, ...providerModelChoices];
+  const resolveDefaultModel = () => providerModelChoices[0]?.value ?? defaultModel;
   const isKnownModel = (value: string | null | undefined) => (
     typeof value === 'string' && listAvailableModels().some((model) => model.value === value)
   );
@@ -255,7 +258,7 @@ function createInternalEngineMainService() {
     if (typeof value === 'string' && isKnownModel(value)) {
       return value;
     }
-    return defaultModel;
+    return resolveDefaultModel();
   };
   const getModelBehavior = (value: string | null | undefined) => {
     const resolvedValue = resolveModelValue(value);
@@ -704,7 +707,7 @@ function createInternalEngineMainService() {
       sessionKind: typeof candidate.sessionKind === 'string' && candidate.sessionKind.trim()
         ? candidate.sessionKind.trim()
         : (sessionKey.startsWith('internal:cowork:') ? 'cowork' : 'chat'),
-      model: resolveModelValue(typeof candidate.model === 'string' ? candidate.model : defaultModel),
+      model: resolveModelValue(typeof candidate.model === 'string' ? candidate.model : resolveDefaultModel()),
       actionMode: candidate.actionMode === 'read-only' ? 'read-only' : 'none',
       status,
       startedAt: Number.isFinite(candidate.startedAt) ? Number(candidate.startedAt) : now(),
@@ -1016,7 +1019,7 @@ function createInternalEngineMainService() {
       key: normalizedKey,
       kind,
       title: normalizedKey === mainSessionKey ? 'Main chat' : undefined,
-      model: kind === 'cowork' ? 'internal/dev-planner' : defaultModel,
+      model: kind === 'cowork' ? 'internal/dev-planner' : resolveDefaultModel(),
       messages: [] as EngineChatMessage[],
       updatedAt: now(),
     };
@@ -1066,7 +1069,7 @@ function createInternalEngineMainService() {
         pendingApprovalCount: pendingApprovalFlows.length,
         interruptedRunCount,
         activeSessionKey,
-        defaultModel,
+        defaultModel: resolveDefaultModel(),
         stateRestoreStatus,
         lastRecoveryNote,
         latestArtifactSummary: latestArtifactSummary(),
@@ -1094,6 +1097,10 @@ function createInternalEngineMainService() {
             : {}),
           ...(run.timeline ? { timeline: [...run.timeline].sort((left, right) => left.at - right.at) } : {}),
         }));
+    },
+    async testProviderConnection(providerId: InternalChatProviderId): Promise<InternalProviderConnectionTestResult> {
+      await refreshProviderCatalogFromConfig();
+      return testInternalProviderConnection(providerId, storedInternalProviderConfig);
     },
     async createChatSession(): Promise<string> {
       requireConnected();
@@ -1148,7 +1155,7 @@ function createInternalEngineMainService() {
         sessionKey,
         sessionKey.startsWith('internal:cowork:') ? 'cowork' : 'chat',
       );
-      const nextModel = resolveModelValue(modelValue && modelValue.trim() ? modelValue.trim() : defaultModel);
+      const nextModel = resolveModelValue(modelValue && modelValue.trim() ? modelValue.trim() : resolveDefaultModel());
       const previousModel = resolveModelValue(session.model);
       session.model = nextModel;
       if (previousModel !== nextModel) {
@@ -2504,6 +2511,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('internal-engine:delete-session', async (_event, sessionKey: string) => internalEngineService.deleteSession(sessionKey));
   ipcMain.handle('internal-engine:get-history', async (_event, sessionKey: string, limit?: number) => internalEngineService.getHistory(sessionKey, limit));
   ipcMain.handle('internal-engine:send-chat', async (_event, sessionKey: string, text: string) => internalEngineService.sendChat(sessionKey, text));
+  ipcMain.handle('internal-engine:test-provider-connection', async (_event, providerId: InternalChatProviderId) => internalEngineService.testProviderConnection(providerId));
   ipcMain.handle('internal-engine:continue-cowork-run', async (_event, payload: InternalEngineCoworkContinuationRequest) => internalEngineService.continueCoworkRun(payload));
   ipcMain.handle('internal-engine:list-pending-approvals', async () => internalEngineService.listPendingApprovals());
   ipcMain.handle('internal-engine:save-pending-approval', async (_event, flow: InternalApprovalRecoveryFlow) => internalEngineService.savePendingApproval(flow));

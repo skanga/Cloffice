@@ -26,6 +26,7 @@ import type {
   InternalEngineSendChatResult,
   InternalEngineShellStatus,
 } from './lib/internal-engine-bridge';
+import type { InternalProviderConnectionTestResult } from './lib/internal-provider-adapter';
 import type { InternalApprovalRecoveryFlow } from './lib/internal-approval-recovery';
 import type { OpenClawCompatibilityDiscoveryResult } from './lib/openclaw-compat-engine';
 
@@ -49,6 +50,7 @@ type DesktopBridgeApi = {
   deleteInternalSession: (sessionKey: string) => Promise<void>;
   getInternalHistory: (sessionKey: string, limit?: number) => Promise<EngineChatMessage[]>;
   sendInternalChat: (sessionKey: string, text: string) => Promise<InternalEngineSendChatResult>;
+  testInternalProviderConnection: (providerId: 'openai' | 'anthropic' | 'gemini') => Promise<InternalProviderConnectionTestResult>;
   continueInternalCoworkRun: (payload: InternalEngineCoworkContinuationRequest) => Promise<InternalEngineCoworkContinuationResult>;
   listInternalPendingApprovals: () => Promise<InternalApprovalRecoveryFlow[]>;
   saveInternalPendingApproval: (flow: InternalApprovalRecoveryFlow) => Promise<void>;
