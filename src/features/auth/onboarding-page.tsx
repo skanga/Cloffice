@@ -296,127 +296,22 @@ export function OnboardingPage({
               Local-first AI coworking with governed approvals.
               <br />
               {buildOpenClawCompatibilityOnboardingIntro()}
-            </p>
-
-            {/* Discovery states */}
-            <div className="mb-8 mt-4 w-full max-w-[360px]">
-              {discovery.status === 'scanning' && (
-                <div className="flex items-center justify-center gap-2.5 rounded-xl border border-border bg-muted/30 px-5 py-3">
-                  <svg className="h-4 w-4 animate-spin text-primary" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" opacity="0.2" />
-                    <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                  </svg>
-                  <span className="font-sans text-[13px] text-muted-foreground">
-                    {buildOpenClawCompatibilityDiscoveryScanningLabel()}
-                  </span>
-                </div>
-              )}
-
-              {discovery.status === 'done' && discovery.result.found && (
-                <div className="rounded-xl border border-primary/30 bg-primary/10 px-5 py-3.5">
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/20 text-primary">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                        <path d="M5 12l5 5L19 7" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </div>
-                    <div className="text-left">
-                      <p className="font-sans text-[13px] font-semibold text-foreground">
-                        Runtime detected
-                      </p>
-                      <p className="font-mono text-[11px] text-muted-foreground">
-                        {getEngineDiscoveryEndpoint(discovery.result)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {discovery.status === 'done' && !discovery.result.found && discovery.result.binaryFound && (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-5 py-3.5">
-                  <div className="flex items-start gap-2.5">
-                    <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300">
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
-                        <path d="M12 9v4m0 4h.01" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-                      </svg>
-                    </div>
-                    <div className="text-left">
-                      <p className="font-sans text-[13px] font-semibold text-foreground">
-                        {buildOpenClawCompatibilityDiscoveryInstalledButNotRunning().title}
-                      </p>
-                      <p className="mt-0.5 font-sans text-[12px] leading-relaxed text-muted-foreground">
-                        Start it with{' '}
-                        <code className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px]">openclaw</code>
-                        {' '}{buildOpenClawCompatibilityDiscoveryInstalledButNotRunning().detail.replace('Start it with openclaw ', '')}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {(discovery.status === 'idle' ||
-                (discovery.status === 'done' && !discovery.result.found && !discovery.result.binaryFound)) && (
-                <div className="flex items-center justify-center gap-2 rounded-xl border border-border bg-muted/20 px-5 py-3">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-muted-foreground/60">
-                    <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" stroke="currentColor" strokeWidth="2" />
-                    <path d="M12 16v-4m0-4h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                  <span className="font-sans text-[13px] text-muted-foreground">
-                    Enter your runtime details to connect.
-                  </span>
-                </div>
-              )}
+            </p>            <div className="mb-8 mt-4 w-full max-w-[360px]">
+              <div className="flex items-center justify-center gap-2 rounded-xl border border-border bg-muted/20 px-5 py-3">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-muted-foreground/60">
+                  <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" stroke="currentColor" strokeWidth="2" />
+                  <path d="M12 16v-4m0-4h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+                <span className="font-sans text-[13px] text-muted-foreground">
+                  Internal engine is the default. Legacy OpenClaw compatibility is available from the next step if needed.
+                </span>
+              </div>
             </div>
 
-            {/* Actions */}
             <div className="w-full max-w-[320px]">
-              {discovery.status === 'done' && discovery.result.found ? (
-                <>
-                  <PrimaryButton
-                    onClick={(e) => {
-                      setConnectAttempted(true);
-                      onSave(e as unknown as FormEvent);
-                    }}
-                    disabled={saving}
-                  >
-                    {saving ? (
-                      <span className="flex items-center gap-2">
-                        <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" opacity="0.2" />
-                          <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                        </svg>
-                        ConnectingÃ¢â‚¬Â¦
-                      </span>
-                    ) : (
-                      'Connect now'
-                    )}
-                  </PrimaryButton>
-                  <button
-                    type="button"
-                    className="mt-3 inline-flex items-center gap-1.5 font-sans text-[13px] font-medium text-foreground/70 underline underline-offset-4 decoration-foreground/30 transition-colors hover:text-foreground hover:decoration-foreground"
-                    onClick={() => setStep('connect')}
-                  >
-                    Use a different runtime
-                  </button>
-                </>
-              ) : (
-                <PrimaryButton
-                  disabled={discovery.status === 'scanning'}
-                  onClick={() => setStep('connect')}
-                >
-                  {discovery.status === 'scanning' ? (
-                    <span className="flex items-center gap-2">
-                      <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" opacity="0.2" />
-                        <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                      </svg>
-                      ScanningÃ¢â‚¬Â¦
-                    </span>
-                  ) : (
-                    'Get started'
-                  )}
-                </PrimaryButton>
-              )}
+              <PrimaryButton onClick={() => setStep('connect')}>
+                Get started
+              </PrimaryButton>
             </div>
 
             {connectAttempted && !saving && health && !health.ok && !effectivePairingId && (
@@ -799,6 +694,7 @@ export function OnboardingPage({
     </main>
   );
 }
+
 
 
 

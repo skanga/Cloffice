@@ -65,7 +65,7 @@ import {
   const execFileAsync = promisify(execFile);
 
 const defaultConfig: AppConfig = {
-  gatewayUrl: 'ws://127.0.0.1:18789',
+  gatewayUrl: 'internal://dev-runtime',
   gatewayToken: '',
 };
 

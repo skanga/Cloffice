@@ -30,6 +30,7 @@ import type {
 import type { InternalApprovalRecoveryFlow } from '../src/lib/internal-approval-recovery.js';
 import type { OpenClawCompatibilityDiscoveryResult } from '../src/lib/openclaw-compat-engine.js';
 
+const DEFAULT_INTERNAL_ENGINE_ENDPOINT = 'internal://dev-runtime';
 const DEFAULT_COMPAT_ENGINE_ENDPOINT = 'ws://127.0.0.1:18789';
 const OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR = {
   providerId: 'openclaw-compat',
@@ -46,14 +47,14 @@ function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpoint: string
   if (!entry || typeof entry !== 'object') {
     return {
       appConfig: {
-        gatewayUrl: fallbackEndpoint,
+        gatewayUrl: DEFAULT_INTERNAL_ENGINE_ENDPOINT,
         gatewayToken: '',
       },
       engineDraft: {
-        providerId: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.providerId,
-        runtimeKind: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind,
-        transport: OPENCLAW_COMPAT_ENGINE_RUNTIME_DESCRIPTOR.transport,
-        endpointUrl: fallbackEndpoint,
+        providerId: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.providerId,
+        runtimeKind: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind,
+        transport: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.transport,
+        endpointUrl: DEFAULT_INTERNAL_ENGINE_ENDPOINT,
         accessToken: '',
         internalProviderConfig: {
           openaiApiKey: '',
@@ -65,7 +66,7 @@ function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpoint: string
           geminiModels: '',
         },
       },
-      storageVersion: 1,
+      storageVersion: 2,
     };
   }
 
@@ -133,7 +134,7 @@ function prepareDesktopBridgeEngineConfigWrite(draft: EngineDraftConfig): { acti
         providerId: draft.providerId,
         runtimeKind: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind,
         transport: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.transport,
-        endpointUrl: draft.endpointUrl?.trim() || DEFAULT_COMPAT_ENGINE_ENDPOINT,
+        endpointUrl: draft.endpointUrl?.trim() || DEFAULT_INTERNAL_ENGINE_ENDPOINT,
         accessToken: draft.accessToken ?? '',
         internalProviderConfig: {
           openaiApiKey: draft.internalProviderConfig.openaiApiKey ?? '',
@@ -250,7 +251,7 @@ const desktopBridgeApi = {
   applyInternalPendingApprovalDecision: (runId: string, decision: InternalEnginePendingApprovalDecision) =>
     ipcRenderer.invoke('internal-engine:apply-pending-approval-decision', runId, decision) as Promise<InternalEnginePendingApprovalDecisionResult>,
   getEngineConfig: async () =>
-    parseDesktopBridgeEngineConfig(await ipcRenderer.invoke('engine-config:get'), DEFAULT_COMPAT_ENGINE_ENDPOINT) as DesktopBridgeEngineConfig,
+    parseDesktopBridgeEngineConfig(await ipcRenderer.invoke('engine-config:get'), DEFAULT_INTERNAL_ENGINE_ENDPOINT) as DesktopBridgeEngineConfig,
   saveEngineConfig: async (draft: EngineDraftConfig) => {
     const preparedWrite = prepareDesktopBridgeEngineConfigWrite(draft);
     return parseDesktopBridgeEngineConfig(
