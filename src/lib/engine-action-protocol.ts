@@ -1,4 +1,4 @@
-import type { ChatActivityItem, CoworkProjectTaskStatus, EngineRequestedAction } from '../app-types.js';
+import type { ChatActivityItem, CoworkProjectTaskStatus, EngineProviderId, EngineRequestedAction } from '../app-types.js';
 import {
   parseOpenClawCompatibilityActivityItems,
   parseOpenClawCompatibilityFileActions,
@@ -126,6 +126,12 @@ export function buildInternalEngineActionInstruction(): string {
     'Prefer read-only actions first while the internal cowork action runner is still being developed.',
     'Start with list_dir, read_file, exists, or stat when you need more context before planning further work.',
   ].join('\n');
+}
+
+export function buildEngineActionInstruction(providerId: EngineProviderId): string {
+  return providerId === 'internal'
+    ? buildInternalEngineActionInstruction()
+    : buildOpenClawCompatEngineActionInstruction();
 }
 
 export function summarizeEngineRequestedAction(action: EngineRequestedAction): string {

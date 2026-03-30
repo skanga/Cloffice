@@ -49,3 +49,11 @@ export function listEngineProviders(): EngineProviderDefinition[] {
 export function getEngineProvider(providerId: EngineProviderId): EngineProviderDefinition {
   return ENGINE_PROVIDER_REGISTRY[providerId] ?? ENGINE_PROVIDER_REGISTRY['openclaw-compat'];
 }
+
+export function isInternalEngineProvider(providerId: string | null | undefined): boolean {
+  return providerId === 'internal';
+}
+
+export function isOpenClawCompatibilityProvider(providerId: string | null | undefined): boolean {
+  return providerId === 'openclaw-compat';
+}

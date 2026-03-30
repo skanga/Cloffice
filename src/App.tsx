@@ -142,10 +142,11 @@ import {
   type InternalApprovalRecoveryFlow,
 } from './lib/internal-approval-recovery';
 import type { InternalEngineCoworkContinuationRequest } from './lib/internal-engine-bridge';
-  import {
-    buildInternalEngineActionInstruction,
-    buildOpenClawCompatEngineActionInstruction,
-  } from './lib/engine-action-protocol';
+import { buildEngineActionInstruction } from './lib/engine-action-protocol';
+import {
+  isInternalEngineProvider,
+  isOpenClawCompatibilityProvider,
+} from './lib/engine-provider-registry';
 
 const ChatPage = lazy(() => import('./features/chat/chat-page').then((module) => ({ default: module.ChatPage })));
 const CoworkPage = lazy(() => import('./features/cowork/cowork-page').then((module) => ({ default: module.CoworkPage })));
@@ -2215,7 +2216,7 @@ export default function App() {
               providerId,
               executionResult,
             } = deriveEngineSessionArtifacts(chatEvent);
-            const internalExecution = providerId === 'internal' ? executionResult : null;
+            const internalExecution = isInternalEngineProvider(providerId) ? executionResult : null;
             if (coworkUsage) {
               accumulateTodayUsage(coworkUsage);
               setSessionUsage((prev) => addUsage(prev, coworkUsage));
@@ -2557,7 +2558,7 @@ export default function App() {
         setEngineConnected(true);
         setHealth({ ok: true, message: `Connected to runtime at ${runtimeEndpointUrl}` });
         markEngineConnectionLastUsed({ gatewayUrl: runtimeEndpointUrl, gatewayToken: runtimeAccessToken });
-        if (draftEngineProviderId === 'internal') {
+        if (isInternalEngineProvider(draftEngineProviderId)) {
           await restoreInternalApprovalRecoveryFlows();
         } else {
           clearRecoveredApprovalCards();
@@ -2871,9 +2872,7 @@ export default function App() {
         rootFolder: folderContext,
         startedAt: Date.now(),
       });
-      const relayFileInstruction = client.providerId === 'internal'
-        ? buildInternalEngineActionInstruction()
-        : buildOpenClawCompatEngineActionInstruction();
+      const relayFileInstruction = buildEngineActionInstruction(client.providerId);
       const projectKnowledgeContext = activeCoworkProject
         ? projectKnowledgeItems
             .filter((item) => item.projectId === activeCoworkProject.id)
@@ -3571,7 +3570,7 @@ export default function App() {
 
       commitActiveSessionKey(sessionKey);
       setStatus(
-        draftEngineProviderId === 'openclaw-compat'
+        isOpenClawCompatibilityProvider(draftEngineProviderId)
           ? buildOpenClawCompatibilityChatDispatchStatus(sessionKey)
           : `Message sent to the current runtime connection (session: ${sessionKey}). Waiting for streaming events...`,
       );
@@ -3877,7 +3876,7 @@ export default function App() {
   }, [activePage, configReady, engineConnected, loadScheduledJobs]);
 
   useEffect(() => {
-    if (draftEngineProviderId !== 'internal' || !engineConnected) {
+    if (!isInternalEngineProvider(draftEngineProviderId) || !engineConnected) {
       return;
     }
     void restoreInternalApprovalRecoveryFlows();

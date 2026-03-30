@@ -421,6 +421,16 @@ test.describe('Internal engine UI flow', () => {
       return created;
     });
 
+    await expect.poll(
+      async () => page.evaluate(async (jobId) => {
+        const bridge = window.cloffice ?? window.relay;
+        const jobs = await bridge.listInternalCronJobs();
+        const job = jobs.find((entry: any) => entry?.id === jobId);
+        return Boolean(job?.lastArtifactSummary);
+      }, seededJob.id),
+      { timeout: 15000, message: 'expected seeded schedule artifact summary to be visible in the bridge state' },
+    ).toBe(true);
+
     await openSchedulePage(page);
     await page.getByRole('button', { name: 'Refresh' }).click();
     const scheduledJobCard = page.getByTestId(`scheduled-job-${seededJob.id}`);
