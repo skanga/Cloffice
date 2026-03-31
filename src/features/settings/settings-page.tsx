@@ -755,6 +755,12 @@ export function SettingsPage({
                     <p><span className="font-medium text-foreground">Pending approvals:</span> {internalRuntimeInfo.pendingApprovalCount}</p>
                     <p><span className="font-medium text-foreground">Interrupted runs:</span> {internalRuntimeInfo.interruptedRunCount}</p>
                     <p><span className="font-medium text-foreground">Provider-backed models:</span> {internalRuntimeInfo.providerBackedModelCount}</p>
+                    <p>
+                      <span className="font-medium text-foreground">Provider cowork normalization:</span>{' '}
+                      {internalRuntimeInfo.providerCoworkRunCount > 0
+                        ? `${internalRuntimeInfo.providerCoworkStructuredCount} structured · ${internalRuntimeInfo.providerCoworkNormalizedCount} normalized · ${internalRuntimeInfo.providerCoworkFallbackCount} fallback`
+                        : 'no retained provider-backed cowork runs'}
+                    </p>
                     <p><span className="font-medium text-foreground">Active session:</span> {internalRuntimeInfo.activeSessionKey ?? 'none'}</p>
                     <p><span className="font-medium text-foreground">Default model:</span> {internalRuntimeInfo.defaultModel}</p>
                     <p><span className="font-medium text-foreground">Status:</span> {internalRuntimeInfo.status.availableInBuild ? 'Internal development runtime available.' : internalRuntimeInfo.status.unavailableReason}</p>

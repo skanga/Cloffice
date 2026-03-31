@@ -18,7 +18,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import type { ChatMessage, ChatActivityItem } from '@/app-types';
-import type { InternalEngineRunRecord, InternalEngineRuntimeRetentionPolicy } from '@/lib/internal-engine-bridge';
+import type { InternalEngineRunRecord, InternalEngineRuntimeInfo, InternalEngineRuntimeRetentionPolicy } from '@/lib/internal-engine-bridge';
 
 type ActivityPageProps = {
   chatMessages: ChatMessage[];
@@ -126,6 +126,7 @@ export function ActivityPage({
   const [sourceFilter, setSourceFilter] = useState<'all' | 'chat' | 'cowork' | 'schedule' | 'runtime'>('all');
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
   const [internalRunHistory, setInternalRunHistory] = useState<InternalEngineRunRecord[]>([]);
+  const [internalRuntimeInfo, setInternalRuntimeInfo] = useState<InternalEngineRuntimeInfo | null>(null);
   const [runtimeRetentionPolicy, setRuntimeRetentionPolicy] = useState<InternalEngineRuntimeRetentionPolicy | null>(null);
   const [runDetailsById, setRunDetailsById] = useState<Record<string, InternalEngineRunRecord>>({});
 
@@ -141,17 +142,20 @@ export function ActivityPage({
 
     const loadRunHistory = async () => {
       try {
-        const [runs, retentionPolicy] = await Promise.all([
+        const [runs, runtimeInfo, retentionPolicy] = await Promise.all([
           bridge.getInternalRunHistory(24),
+          bridge.getInternalEngineRuntimeInfo?.() ?? Promise.resolve(null),
           bridge.getInternalRuntimeRetentionPolicy?.() ?? Promise.resolve(null),
         ]);
         if (!cancelled) {
           setInternalRunHistory(runs);
+          setInternalRuntimeInfo(runtimeInfo);
           setRuntimeRetentionPolicy(retentionPolicy);
         }
       } catch {
         if (!cancelled) {
           setInternalRunHistory([]);
+          setInternalRuntimeInfo(null);
           setRuntimeRetentionPolicy(null);
         }
       }
@@ -308,6 +312,29 @@ export function ActivityPage({
               <Info className="size-3.5 text-muted-foreground/60" />
               <span className="font-sans text-[12px] text-muted-foreground">
                 Artifact retention {runtimeRetentionPolicy.artifactHistoryRetentionLimit}
+              </span>
+            </div>
+          </>
+        ) : null}
+        {internalRuntimeInfo ? (
+          <>
+            <Separator orientation="vertical" className="h-4" />
+            <div className="flex items-center gap-1.5">
+              <Info className="size-3.5 text-muted-foreground/60" />
+              <span className="font-sans text-[12px] text-muted-foreground">
+                Provider cowork {internalRuntimeInfo.providerCoworkStructuredCount} structured
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Info className="size-3.5 text-amber-500" />
+              <span className="font-sans text-[12px] text-muted-foreground">
+                {internalRuntimeInfo.providerCoworkNormalizedCount} normalized
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <AlertTriangle className="size-3.5 text-red-500" />
+              <span className="font-sans text-[12px] text-muted-foreground">
+                {internalRuntimeInfo.providerCoworkFallbackCount} fallback
               </span>
             </div>
           </>

@@ -1768,6 +1768,18 @@ function createInternalEngineMainService() {
     async getRuntimeInfo(): Promise<InternalEngineRuntimeInfo> {
       await refreshProviderCatalogFromConfig();
       const latestTimelineEntry = latestRunTimelineEntry();
+      const providerCoworkRuns = Array.from(runs.values()).filter(
+        (run) => run.providerBacked && (run.providerPhase === 'planning' || run.providerPhase === 'continuation'),
+      );
+      const providerCoworkStructuredCount = providerCoworkRuns.filter(
+        (run) => run.responseNormalization === 'provider_structured',
+      ).length;
+      const providerCoworkNormalizedCount = providerCoworkRuns.filter(
+        (run) => run.responseNormalization === 'normalized_sections',
+      ).length;
+      const providerCoworkFallbackCount = providerCoworkRuns.filter(
+        (run) => run.responseNormalization === 'synthetic_fallback',
+      ).length;
       return {
         status: shellStatus,
         runtimeHome,
@@ -1790,6 +1802,10 @@ function createInternalEngineMainService() {
         latestRunTimelineMessage: latestTimelineEntry?.message ?? null,
         chatProviders: providerStatuses,
         providerBackedModelCount: providerModelChoices.length,
+        providerCoworkRunCount: providerCoworkRuns.length,
+        providerCoworkStructuredCount,
+        providerCoworkNormalizedCount,
+        providerCoworkFallbackCount,
         lastProviderId,
         lastProviderError,
         lastScheduledJobName,

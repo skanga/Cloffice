@@ -53,6 +53,10 @@ export type InternalEngineRuntimeInfo = {
   latestRunTimelineMessage: string | null;
   chatProviders: InternalProviderStatus[];
   providerBackedModelCount: number;
+  providerCoworkRunCount: number;
+  providerCoworkStructuredCount: number;
+  providerCoworkNormalizedCount: number;
+  providerCoworkFallbackCount: number;
   lastProviderId: InternalChatProviderId | null;
   lastProviderError: string | null;
   lastScheduledJobName: string | null;
