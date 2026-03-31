@@ -109,6 +109,8 @@ export type InternalEngineRunRecord = {
   model: string;
   providerBacked?: boolean;
   providerPhase?: 'chat' | 'planning' | 'continuation';
+  responseSchemaVersion?: number;
+  responseNormalization?: 'provider_structured' | 'normalized_sections' | 'synthetic_fallback';
   actionMode: 'none' | 'read-only';
   status: 'running' | 'awaiting_approval' | 'executing' | 'completed' | 'blocked' | 'interrupted';
   startedAt: number;

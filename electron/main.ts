@@ -195,6 +195,8 @@ function createInternalEngineMainService() {
     model: string;
     providerBacked?: boolean;
     providerPhase?: 'chat' | 'planning' | 'continuation';
+    responseSchemaVersion?: number;
+    responseNormalization?: 'provider_structured' | 'normalized_sections' | 'synthetic_fallback';
     actionMode: 'none' | 'read-only';
     status: PersistedInternalRunStatus;
     startedAt: number;
@@ -208,6 +210,8 @@ function createInternalEngineMainService() {
     resultSummary?: string;
     timeline?: PersistedInternalRunTimelineEntry[];
   };
+  type PersistedInternalRunResponseNormalization =
+    NonNullable<PersistedInternalRunRecord['responseNormalization']>;
   type PersistedInternalRunJournal = {
     version: 1;
     runs: PersistedInternalRunRecord[];
@@ -544,9 +548,15 @@ function createInternalEngineMainService() {
     task: string;
     rawText: string;
     requestedActions: EngineRequestedAction[];
-  }) => {
+  }): { text: string; normalization: PersistedInternalRunResponseNormalization } => {
     const sections = parseCoworkStructuredSections(params.rawText, ['Goal', 'Plan', 'Needed context', 'Next step']);
     const normalizedTask = params.task.replace(/\s+/g, ' ').trim() || 'the current cowork task';
+    const normalization: PersistedInternalRunResponseNormalization =
+      sections['Goal'] && sections['Plan'] && sections['Needed context'] && sections['Next step']
+        ? 'provider_structured'
+        : Object.keys(sections).length > 0
+          ? 'normalized_sections'
+          : 'synthetic_fallback';
     const neededContextFallback =
       params.requestedActions.length > 0
         ? `Additional context requested via read-only actions:\n${formatCoworkActionList(params.requestedActions)}`
@@ -555,19 +565,22 @@ function createInternalEngineMainService() {
       params.requestedActions.length > 0
         ? 'Review the approved read-only results, then refine the implementation recommendation.'
         : 'Proceed with the smallest implementation or refactor step supported by the current context.';
-    return [
-      'Goal:',
-      sections['Goal'] || normalizedTask,
-      '',
-      'Plan:',
-      sections['Plan'] || 'Break the task into the smallest defensible implementation step, then validate the expected impact.',
-      '',
-      'Needed context:',
-      sections['Needed context'] || neededContextFallback,
-      '',
-      'Next step:',
-      sections['Next step'] || nextStepFallback,
-    ].join('\n');
+    return {
+      text: [
+        'Goal:',
+        sections['Goal'] || normalizedTask,
+        '',
+        'Plan:',
+        sections['Plan'] || 'Break the task into the smallest defensible implementation step, then validate the expected impact.',
+        '',
+        'Needed context:',
+        sections['Needed context'] || neededContextFallback,
+        '',
+        'Next step:',
+        sections['Next step'] || nextStepFallback,
+      ].join('\n'),
+      normalization,
+    };
   };
   const normalizeProviderBackedCoworkContinuationText = (params: {
     rawText: string;
@@ -577,8 +590,14 @@ function createInternalEngineMainService() {
       errors: string[];
     };
     requestedActions: EngineRequestedAction[];
-  }) => {
+  }): { text: string; normalization: PersistedInternalRunResponseNormalization } => {
     const sections = parseCoworkStructuredSections(params.rawText, ['Findings', 'Recommendation', 'Next step']);
+    const normalization: PersistedInternalRunResponseNormalization =
+      sections['Findings'] && sections['Recommendation'] && sections['Next step']
+        ? 'provider_structured'
+        : Object.keys(sections).length > 0
+          ? 'normalized_sections'
+          : 'synthetic_fallback';
     const findingsFallback =
       params.execution.previews.length > 0
         ? params.execution.previews.join('\n\n')
@@ -593,16 +612,19 @@ function createInternalEngineMainService() {
       params.requestedActions.length > 0
         ? `Approve any newly requested read-only actions if more context is still required:\n${formatCoworkActionList(params.requestedActions)}`
         : 'Proceed with the next implementation or review step based on the findings above.';
-    return [
-      'Findings:',
-      sections['Findings'] || findingsFallback,
-      '',
-      'Recommendation:',
-      sections['Recommendation'] || recommendationFallback,
-      '',
-      'Next step:',
-      sections['Next step'] || nextStepFallback,
-    ].join('\n');
+    return {
+      text: [
+        'Findings:',
+        sections['Findings'] || findingsFallback,
+        '',
+        'Recommendation:',
+        sections['Recommendation'] || recommendationFallback,
+        '',
+        'Next step:',
+        sections['Next step'] || nextStepFallback,
+      ].join('\n'),
+      normalization,
+    };
   };
   const buildProviderBackedCoworkPlanningPrompt = (taskAndContext: string) => [
     'You are Cloffice Cowork operating in a guarded read-only planning phase.',
@@ -2111,6 +2133,7 @@ function createInternalEngineMainService() {
       const runId = crypto.randomUUID();
       let requestedActions = session.kind === 'cowork' ? buildCoworkFoundationActions(text) : [];
       let activityItems = session.kind === 'cowork' ? buildCoworkFoundationActivityItems(requestedActions) : [];
+      let responseNormalization: PersistedInternalRunRecord['responseNormalization'];
       const providerBackedChat = isProviderBackedInternalModel(nextModel);
       let assistantText: string;
       const streamMessageId = crypto.randomUUID();
@@ -2160,11 +2183,13 @@ function createInternalEngineMainService() {
           lastProviderError = null;
           if (session.kind === 'cowork') {
             requestedActions = sanitizeCoworkReadOnlyActions(parseEngineRequestedActions(providerResult.text));
-            assistantText = normalizeProviderBackedCoworkPlanningText({
+            const normalizedPlanning = normalizeProviderBackedCoworkPlanningText({
               task: text,
               rawText: providerResult.text,
               requestedActions,
             });
+            assistantText = normalizedPlanning.text;
+            responseNormalization = normalizedPlanning.normalization;
             activityItems =
               requestedActions.length > 0
                 ? buildCoworkFoundationActivityItems(requestedActions)
@@ -2199,6 +2224,12 @@ function createInternalEngineMainService() {
         ...(providerBackedChat ? { providerBacked: true as const } : {}),
         ...(providerBackedChat
           ? { providerPhase: session.kind === 'cowork' ? ('planning' as const) : ('chat' as const) }
+          : {}),
+        ...(providerBackedChat && session.kind === 'cowork'
+          ? {
+              responseSchemaVersion: 1 as const,
+              responseNormalization: responseNormalization ?? 'synthetic_fallback' as const,
+            }
           : {}),
         actionMode: requestedActions.length > 0 ? 'read-only' : 'none',
         status: requestedActions.length > 0 ? 'awaiting_approval' : 'completed',
@@ -2331,6 +2362,7 @@ function createInternalEngineMainService() {
       let requestedActions: EngineRequestedAction[] = [];
       let activityItems: ChatActivityItem[] = [];
       let assistantText: string;
+      let responseNormalization: PersistedInternalRunRecord['responseNormalization'];
       const streamMessageId = crypto.randomUUID();
       const priorActionIdentities = new Set(
         [
@@ -2391,11 +2423,13 @@ function createInternalEngineMainService() {
           requestedActions = sanitizeCoworkReadOnlyActions(parseEngineRequestedActions(providerResult.text), {
             exclude: priorActionIdentities,
           });
-          assistantText = normalizeProviderBackedCoworkContinuationText({
+          const normalizedContinuation = normalizeProviderBackedCoworkContinuationText({
             rawText: providerResult.text,
             execution,
             requestedActions,
           });
+          assistantText = normalizedContinuation.text;
+          responseNormalization = normalizedContinuation.normalization;
           activityItems =
             requestedActions.length > 0
               ? buildCoworkFoundationActivityItems(requestedActions)
@@ -2430,6 +2464,12 @@ function createInternalEngineMainService() {
         sessionKind: session.kind,
         model: nextModel,
         ...(providerBackedCowork ? { providerBacked: true as const, providerPhase: 'continuation' as const } : {}),
+        ...(providerBackedCowork
+          ? {
+              responseSchemaVersion: 1 as const,
+              responseNormalization: responseNormalization ?? 'synthetic_fallback' as const,
+            }
+          : {}),
         actionMode: requestedActions.length > 0 ? 'read-only' : 'none',
         status: requestedActions.length > 0 ? 'awaiting_approval' : continuationBlocked ? 'blocked' : 'completed',
         startedAt: existingRun?.startedAt ?? now(),

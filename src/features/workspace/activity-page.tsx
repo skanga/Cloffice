@@ -64,6 +64,8 @@ function buildScheduleRunActivity(run: InternalEngineRunRecord): ChatActivityIte
     run.scheduleName ? `Schedule: ${run.scheduleName}` : null,
     run.model ? `Model: ${run.model}` : null,
     run.providerPhase ? `Phase: ${run.providerPhase}` : null,
+    run.responseSchemaVersion ? `Schema: v${run.responseSchemaVersion}` : null,
+    run.responseNormalization ? `Normalization: ${run.responseNormalization}` : null,
     run.summary ?? run.resultSummary ?? null,
   ].filter(Boolean).join(' · ');
   return {
@@ -84,6 +86,8 @@ function buildRuntimeRunActivity(run: InternalEngineRunRecord): ChatActivityItem
     `Session: ${run.sessionKind}`,
     run.model ? `Model: ${run.model}` : null,
     run.providerPhase ? `Phase: ${run.providerPhase}` : null,
+    run.responseSchemaVersion ? `Schema: v${run.responseSchemaVersion}` : null,
+    run.responseNormalization ? `Normalization: ${run.responseNormalization}` : null,
     run.summary ?? run.resultSummary ?? null,
   ].filter(Boolean).join(' · ');
   return {
