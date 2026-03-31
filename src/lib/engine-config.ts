@@ -143,7 +143,7 @@ export function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpointU
     parseStoredEngineConfig(entry, fallbackEndpointUrl) ?? {
       appConfig: createDefaultAppConfig(fallbackEndpointUrl),
       engineDraft: createDefaultEngineDraft(fallbackEndpointUrl),
-      storageVersion: 1,
+      storageVersion: NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION,
     }
   );
 }
@@ -187,10 +187,10 @@ export function prepareEngineConfigWrite(
     developerOptIn: options?.developerOptIn ?? false,
   });
   const providerAwareWriteEligible = draft.providerId === 'internal';
-  const providerAwareWriteEnabled = providerAwareWriteMode === 'internal-experimental';
+  const providerAwareWriteEnabled = providerAwareWriteEligible;
 
   return {
-    activeFormat: providerAwareWriteEnabled ? 'provider-aware-v2' : 'app-config-v1-compat',
+    activeFormat: 'provider-aware-v2',
     legacyAppConfig: appConfigFromEngineDraft(draft),
     providerAwareConfig: buildDeferredProviderAwareEngineConfig(draft),
     providerAwareWriteEligible,

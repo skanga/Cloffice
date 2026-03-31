@@ -1,6 +1,7 @@
 /**
- * Transitional runtime config. Gateway keys are intentionally retained until
- * Cloffice ships its internal engine config migration.
+ * Legacy Electron bridge compatibility shape.
+ * Canonical engine config naming now uses endpoint/access-token terminology,
+ * but persisted bridge payloads still read these keys for migration safety.
  */
 export type AppConfig = {
   gatewayUrl: string;

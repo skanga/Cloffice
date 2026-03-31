@@ -1025,6 +1025,20 @@ export function SettingsPage({
                       </p>
                     </div>
                     <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-lg border border-border/50 bg-background/70 px-3 py-2">
+                        <p className="font-sans text-[11px] text-muted-foreground">{t('Retained runs', 'Behaltene Laeufe')}</p>
+                        <p className="mt-1 text-sm font-medium text-foreground">
+                          {internalRuntimeInfo?.runCount ?? 0} / {internalRuntimeRetentionPolicy.runHistoryRetentionLimit}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-border/50 bg-background/70 px-3 py-2">
+                        <p className="font-sans text-[11px] text-muted-foreground">{t('Retained artifacts', 'Behaltene Artefakte')}</p>
+                        <p className="mt-1 text-sm font-medium text-foreground">
+                          {internalRuntimeInfo?.artifactCount ?? 0} / {internalRuntimeRetentionPolicy.artifactHistoryRetentionLimit}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
                       <label className="grid gap-1">
                         <span className="font-sans text-xs text-muted-foreground">{t('Run history limit', 'Limit fuer Laufhistorie')}</span>
                         <select

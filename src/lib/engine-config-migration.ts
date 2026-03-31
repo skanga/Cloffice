@@ -29,8 +29,8 @@ export type ProviderAwareEngineConfigMigrationPlan = {
   currentStorageVersion: typeof CURRENT_ENGINE_CONFIG_STORAGE_VERSION;
   nextStorageVersion: typeof NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION;
   currentReader: 'app-config-v1-compat';
-  currentWriter: 'app-config-v1-compat';
-  nextWriter: 'deferred-provider-aware-v2';
+  currentWriter: 'app-config-v1-compat' | 'provider-aware-v2';
+  nextWriter: 'provider-aware-v2';
   legacyKeys: readonly ['gatewayUrl', 'gatewayToken'];
   futureFields: readonly ['providerId', 'runtimeKind', 'transport', 'endpointUrl', 'accessToken', 'internalProviderConfig'];
   blockers: Record<EngineProviderId, string | null>;
@@ -41,18 +41,18 @@ export const FIRST_PROVIDER_AWARE_ENGINE_CONFIG_MIGRATION: ProviderAwareEngineCo
   currentStorageVersion: CURRENT_ENGINE_CONFIG_STORAGE_VERSION,
   nextStorageVersion: NEXT_PROVIDER_AWARE_ENGINE_CONFIG_STORAGE_VERSION,
   currentReader: 'app-config-v1-compat',
-  currentWriter: 'app-config-v1-compat',
-  nextWriter: 'deferred-provider-aware-v2',
+  currentWriter: 'provider-aware-v2',
+  nextWriter: 'provider-aware-v2',
   legacyKeys: ['gatewayUrl', 'gatewayToken'],
   futureFields: ['providerId', 'runtimeKind', 'transport', 'endpointUrl', 'accessToken', 'internalProviderConfig'],
   blockers: {
     'openclaw-compat': null,
-    internal: 'Persisted provider-aware runtime settings have not shipped yet, so existing installs still write the legacy gateway keys only.',
+    internal: null,
   },
   notes: [
-    'Keep reading the legacy AppConfig shape until a versioned provider-aware config schema exists.',
-    'Do not rewrite existing installs to a new shape until the internal engine runtime is actually available.',
-    'When v2 ships, read both v1 and v2, but continue writing v1 during the first compatibility window.',
+    'Read both the legacy AppConfig shape and the provider-aware v2 shape during the migration window.',
+    'New and updated internal-engine installs should write the provider-aware v2 config format.',
+    'Legacy gatewayUrl/gatewayToken keys remain read-compatible only until old installs have migrated.',
   ],
 };
 

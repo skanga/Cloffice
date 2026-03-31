@@ -18,7 +18,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import type { ChatMessage, ChatActivityItem } from '@/app-types';
-import type { InternalEngineRunRecord } from '@/lib/internal-engine-bridge';
+import type { InternalEngineRunRecord, InternalEngineRuntimeRetentionPolicy } from '@/lib/internal-engine-bridge';
 
 type ActivityPageProps = {
   chatMessages: ChatMessage[];
@@ -122,6 +122,7 @@ export function ActivityPage({
   const [sourceFilter, setSourceFilter] = useState<'all' | 'chat' | 'cowork' | 'schedule' | 'runtime'>('all');
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
   const [internalRunHistory, setInternalRunHistory] = useState<InternalEngineRunRecord[]>([]);
+  const [runtimeRetentionPolicy, setRuntimeRetentionPolicy] = useState<InternalEngineRuntimeRetentionPolicy | null>(null);
   const [runDetailsById, setRunDetailsById] = useState<Record<string, InternalEngineRunRecord>>({});
 
   useEffect(() => {
@@ -136,13 +137,18 @@ export function ActivityPage({
 
     const loadRunHistory = async () => {
       try {
-        const runs = await bridge.getInternalRunHistory(24);
+        const [runs, retentionPolicy] = await Promise.all([
+          bridge.getInternalRunHistory(24),
+          bridge.getInternalRuntimeRetentionPolicy?.() ?? Promise.resolve(null),
+        ]);
         if (!cancelled) {
           setInternalRunHistory(runs);
+          setRuntimeRetentionPolicy(retentionPolicy);
         }
       } catch {
         if (!cancelled) {
           setInternalRunHistory([]);
+          setRuntimeRetentionPolicy(null);
         }
       }
     };
@@ -285,6 +291,23 @@ export function ActivityPage({
           <Timer className="size-3.5 text-amber-500" />
           <span className="font-sans text-[12px] text-muted-foreground">{stats.withActivity} with actions</span>
         </div>
+        {runtimeRetentionPolicy ? (
+          <>
+            <Separator orientation="vertical" className="h-4" />
+            <div className="flex items-center gap-1.5">
+              <Info className="size-3.5 text-muted-foreground/60" />
+              <span className="font-sans text-[12px] text-muted-foreground">
+                Run retention {internalRunHistory.length}/{runtimeRetentionPolicy.runHistoryRetentionLimit}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Info className="size-3.5 text-muted-foreground/60" />
+              <span className="font-sans text-[12px] text-muted-foreground">
+                Artifact retention {runtimeRetentionPolicy.artifactHistoryRetentionLimit}
+              </span>
+            </div>
+          </>
+        ) : null}
       </div>
 
       <div className="flex min-h-0 flex-col rounded-xl border border-border/60 bg-card">
