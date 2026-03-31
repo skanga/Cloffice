@@ -46,7 +46,6 @@ export const FIRST_PROVIDER_AWARE_ENGINE_CONFIG_MIGRATION: ProviderAwareEngineCo
   legacyKeys: ['gatewayUrl', 'gatewayToken'],
   futureFields: ['providerId', 'runtimeKind', 'transport', 'endpointUrl', 'accessToken', 'internalProviderConfig'],
   blockers: {
-    'openclaw-compat': null,
     internal: null,
   },
   notes: [

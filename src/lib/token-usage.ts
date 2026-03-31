@@ -34,7 +34,7 @@ export function parseUsageFromPayload(
   payload: Record<string, unknown>,
   model?: string,
 ): MessageUsage | undefined {
-  // Try nested `usage` object first (OpenClaw / Anthropic style)
+  // Try nested `usage` object first (Anthropic-style and similar responses)
   const nested = payload.usage;
   if (nested && typeof nested === 'object') {
     const u = nested as Record<string, unknown>;

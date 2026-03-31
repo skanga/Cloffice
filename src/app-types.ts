@@ -269,23 +269,9 @@ export type LocalFileStatResult = {
   modifiedMs: number;
 };
 
-/** Compatibility runtime discovery result for the current OpenClaw-based path. */
-export type GatewayDiscoveryResult = {
-  /** A running gateway was found and responded to a health check. */
-  found: boolean;
-  /** The WebSocket URL of the discovered gateway (e.g. ws://127.0.0.1:18789). */
-  gatewayUrl: string | null;
-  /** An OpenClaw binary was found on disk but no gateway is running. */
-  binaryFound: boolean;
-  /** Filesystem path to the discovered binary, if any. */
-  binaryPath: string | null;
-  /** Human-readable summary of what was detected. */
-  message: string;
-};
-
-export type EngineRuntimeKind = 'openclaw-compat' | 'internal';
-export type EngineTransport = 'websocket-gateway' | 'internal-ipc';
-export type EngineProviderId = 'openclaw-compat' | 'internal';
+export type EngineRuntimeKind = 'internal';
+export type EngineTransport = 'internal-ipc';
+export type EngineProviderId = 'internal';
 
 export type LocalActionType = 'create_file' | 'append_file' | 'read_file' | 'list_dir' | 'exists' | 'stat' | 'rename' | 'delete' | 'shell_exec' | 'web_fetch';
 

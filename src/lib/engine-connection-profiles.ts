@@ -5,8 +5,8 @@ import { accessTokenFromAppConfig, endpointUrlFromAppConfig } from './engine-con
 export type StoredEngineConnectionProfile = {
   id: string;
   name: string;
-  gatewayUrl: string;
-  gatewayToken: string;
+  endpointUrl: string;
+  accessToken: string;
   providerId?: EngineProviderId;
   createdAt: number;
   updatedAt: number;
@@ -21,8 +21,18 @@ export function parseStoredEngineConnectionProfile(entry: unknown): EngineConnec
   const record = entry as Record<string, unknown>;
   const id = typeof record.id === 'string' ? record.id.trim() : '';
   const name = typeof record.name === 'string' ? record.name.trim() : '';
-  const endpointUrl = typeof record.gatewayUrl === 'string' ? record.gatewayUrl.trim() : '';
-  const accessToken = typeof record.gatewayToken === 'string' ? record.gatewayToken : '';
+  const endpointUrl =
+    typeof record.endpointUrl === 'string'
+      ? record.endpointUrl.trim()
+      : typeof record.gatewayUrl === 'string'
+        ? record.gatewayUrl.trim()
+        : '';
+  const accessToken =
+    typeof record.accessToken === 'string'
+      ? record.accessToken
+      : typeof record.gatewayToken === 'string'
+        ? record.gatewayToken
+        : '';
   const providerId = 'internal';
   const createdAt = typeof record.createdAt === 'number' ? record.createdAt : Date.now();
   const updatedAt = typeof record.updatedAt === 'number' ? record.updatedAt : createdAt;
@@ -48,8 +58,8 @@ export function serializeEngineConnectionProfile(profile: EngineConnectionProfil
   return {
     id: profile.id,
     name: profile.name,
-    gatewayUrl: profile.endpointUrl,
-    gatewayToken: profile.accessToken,
+    endpointUrl: profile.endpointUrl,
+    accessToken: profile.accessToken,
     providerId: profile.providerId,
     createdAt: profile.createdAt,
     updatedAt: profile.updatedAt,

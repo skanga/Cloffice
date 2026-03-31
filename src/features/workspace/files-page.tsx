@@ -768,8 +768,8 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
             </div>
             <h2 className="text-base font-semibold">Workspace access unavailable</h2>
             <p className="mt-1.5 text-sm text-muted-foreground">
-              Cloffice no longer guides OpenClaw compatibility workspace setup here.
-              Use the internal engine for built-in workspace access, or keep this legacy runtime for chat/session compatibility only.
+              Cloffice no longer guides legacy runtime workspace setup here.
+              Use the internal engine for built-in workspace access, or keep this legacy runtime only for older session data that has not been migrated yet.
             </p>
           </div>
 

@@ -2,9 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, safeStorage, s
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { exec, execFile } from 'node:child_process';
+import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import os from 'node:os';
 import crypto from 'node:crypto';
 
 const execAsync = promisify(exec);
@@ -23,7 +22,6 @@ import type {
   LocalFileReadResult,
   LocalFileRenameResult,
   LocalFileStatResult,
-  GatewayDiscoveryResult,
 } from '../src/app-types.js';
 import { describeInternalEngineShell } from '../src/lib/internal-engine-placeholder.js';
 import type { EngineChatMessage, EngineConnectOptions, EngineCronJob, EngineModelChoice, EngineSessionSummary } from '../src/lib/engine-runtime-types.js';
@@ -62,15 +60,13 @@ import {
   type InternalProviderStatus,
 } from '../src/lib/internal-provider-adapter.js';
 
-  const execFileAsync = promisify(execFile);
-
 const defaultConfig: AppConfig = {
   gatewayUrl: 'internal://dev-runtime',
   gatewayToken: '',
 };
 
 const CLOFFICE_CONFIG_FILE = 'cloffice-config.json';
-const LEGACY_CONFIG_FILE = 'openclaw-config.json';
+const LEGACY_ENGINE_CONFIG_FILE = 'openclaw-config.json';
 const PROVIDER_SECRETS_FILE = 'cloffice-provider-secrets.json';
 
 type StoredInternalProviderSecrets = Pick<InternalProviderConfig, 'openaiApiKey' | 'anthropicApiKey' | 'geminiApiKey'>;
@@ -2701,7 +2697,7 @@ const extensionCategories: Record<string, string> = {
 };
 
 const configPath = () => path.join(app.getPath('userData'), CLOFFICE_CONFIG_FILE);
-const legacyConfigPath = () => path.join(app.getPath('userData'), LEGACY_CONFIG_FILE);
+const legacyConfigPath = () => path.join(app.getPath('userData'), LEGACY_ENGINE_CONFIG_FILE);
 const providerSecretsPath = () => path.join(app.getPath('userData'), PROVIDER_SECRETS_FILE);
 
 const isDev = !app.isPackaged;
@@ -3610,114 +3606,6 @@ async function runHealthCheck(gatewayUrl: string): Promise<HealthCheckResult> {
 }
 
 // ---------------------------------------------------------------------------
-// Gateway auto-discovery
-// ---------------------------------------------------------------------------
-
-const DEFAULT_PORTS = [18789, 18790];
-
-async function probeGatewayHealth(port: number): Promise<boolean> {
-  const candidates = [`http://127.0.0.1:${port}/health`, `http://127.0.0.1:${port}/`];
-  for (const url of candidates) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 2000);
-      const response = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeout);
-      if (response.ok) return true;
-    } catch {
-      continue;
-    }
-  }
-  return false;
-}
-
-function getOpenClawBinaryCandidates(): string[] {
-  const home = os.homedir();
-  const isWindows = process.platform === 'win32';
-  const bin = isWindows ? 'openclaw.exe' : 'openclaw';
-
-  const paths: string[] = [
-    // Standard install location
-    path.join(home, '.openclaw', 'bin', bin),
-    // Legacy Relay-managed location
-    path.join(home, '.relay', 'openclaw', bin),
-  ];
-
-  if (!isWindows) {
-    paths.push(
-      path.join('/usr', 'local', 'bin', 'openclaw'),
-      path.join(home, '.local', 'bin', 'openclaw'),
-    );
-  }
-
-  return paths;
-}
-
-async function findBinaryOnPath(): Promise<string | null> {
-  const command = process.platform === 'win32' ? 'where' : 'which';
-  // On Windows, npm global binaries are .cmd wrappers — try that first
-  const names = process.platform === 'win32' ? ['openclaw.cmd', 'openclaw'] : ['openclaw'];
-  for (const name of names) {
-    try {
-      const { stdout } = await execFileAsync(command, [name], { timeout: 3000 });
-      const firstLine = stdout.trim().split(/\r?\n/)[0];
-      if (firstLine) return firstLine;
-    } catch {
-      // not found, try next variant
-    }
-  }
-  return null;
-}
-
-async function findBinaryOnDisk(): Promise<string | null> {
-  for (const candidate of getOpenClawBinaryCandidates()) {
-    try {
-      await fs.access(candidate);
-      return candidate;
-    } catch {
-      continue;
-    }
-  }
-  return findBinaryOnPath();
-}
-
-async function discoverGateway(): Promise<GatewayDiscoveryResult> {
-  // Step 1: Probe default ports for a running gateway
-  for (const port of DEFAULT_PORTS) {
-    const alive = await probeGatewayHealth(port);
-    if (alive) {
-      return {
-        found: true,
-        gatewayUrl: `ws://127.0.0.1:${port}`,
-        binaryFound: true,
-        binaryPath: null,
-        message: `OpenClaw compatibility runtime detected on port ${port}.`,
-      };
-    }
-  }
-
-  // Step 2: No running gateway — check if binary is installed
-  const binaryPath = await findBinaryOnDisk();
-  if (binaryPath) {
-    return {
-      found: false,
-      gatewayUrl: null,
-      binaryFound: true,
-      binaryPath,
-      message: `OpenClaw compatibility binary found at ${binaryPath} but no runtime is running.`,
-    };
-  }
-
-  // Step 3: Nothing found
-  return {
-    found: false,
-    gatewayUrl: null,
-    binaryFound: false,
-    binaryPath: null,
-    message: 'No local OpenClaw compatibility runtime detected.',
-  };
-}
-
 async function createWindow() {
   const preloadPath = fileURLToPath(new URL('./preload.cjs', import.meta.url));
 
