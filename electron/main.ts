@@ -544,6 +544,116 @@ function createInternalEngineMainService() {
         .filter(([, value]) => value.length > 0),
     );
   };
+  const parseCoworkMarkdownSections = (
+    text: string,
+    allowed: readonly string[],
+  ): Partial<Record<string, string>> => {
+    const sectionMap = new Map(allowed.map((name) => [name.toLowerCase(), name]));
+    const normalized = stripEngineActionPayloadFromText(text).replace(/\r/g, '').trim();
+    if (!normalized) {
+      return {};
+    }
+    const lines = normalized.split('\n');
+    const sections = new Map<string, string[]>();
+    let currentKey: string | null = null;
+    for (const rawLine of lines) {
+      const line = rawLine.trimEnd();
+      const plainLine = line
+        .replace(/^\s*[-*]\s*/, '')
+        .replace(/^#{1,6}\s*/, '')
+        .replace(/^\*\*([^*]+)\*\*:?\s*/, '$1: ')
+        .replace(/^__([^_]+)__:?\s*/, '$1: ')
+        .trim();
+      const headingMatch = plainLine.match(/^(?:\d+\.\s*)?([A-Za-z][A-Za-z ]*[A-Za-z])\s*:?\s*(.*)$/);
+      const sectionKey = headingMatch ? sectionMap.get(headingMatch[1].trim().toLowerCase()) : null;
+      if (sectionKey) {
+        currentKey = sectionKey;
+        const existing = sections.get(sectionKey) ?? [];
+        const inlineValue = headingMatch?.[2]?.trim();
+        if (inlineValue) {
+          existing.push(inlineValue);
+        }
+        sections.set(sectionKey, existing);
+        continue;
+      }
+      if (!currentKey) {
+        continue;
+      }
+      const existing = sections.get(currentKey) ?? [];
+      existing.push(line);
+      sections.set(currentKey, existing);
+    }
+    return Object.fromEntries(
+      Array.from(sections.entries())
+        .map(([key, value]) => [key, value.join('\n').trim()])
+        .filter(([, value]) => value.length > 0),
+    );
+  };
+  const inferCoworkStructuredSections = (
+    text: string,
+    allowed: readonly string[],
+  ): Partial<Record<string, string>> => {
+    const normalized = stripEngineActionPayloadFromText(text).replace(/\r/g, '').trim();
+    if (!normalized) {
+      return {};
+    }
+    const paragraphs = normalized
+      .split(/\n\s*\n/)
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+    if (paragraphs.length === 0) {
+      return {};
+    }
+
+    if (
+      allowed.length === 4
+      && allowed.includes('Goal')
+      && allowed.includes('Plan')
+      && allowed.includes('Needed context')
+      && allowed.includes('Next step')
+    ) {
+      const [goal, plan, neededContext, nextStep] = paragraphs;
+      return {
+        ...(goal ? { Goal: goal } : {}),
+        ...(plan ? { Plan: plan } : {}),
+        ...(neededContext ? { 'Needed context': neededContext } : {}),
+        ...(nextStep ? { 'Next step': nextStep } : {}),
+      };
+    }
+
+    if (
+      allowed.length === 3
+      && allowed.includes('Findings')
+      && allowed.includes('Recommendation')
+      && allowed.includes('Next step')
+    ) {
+      const [findings, recommendation, nextStep] = paragraphs;
+      return {
+        ...(findings ? { Findings: findings } : {}),
+        ...(recommendation ? { Recommendation: recommendation } : {}),
+        ...(nextStep ? { 'Next step': nextStep } : {}),
+      };
+    }
+
+    return {};
+  };
+  const resolveCoworkStructuredSections = (
+    text: string,
+    allowed: readonly string[],
+  ): { sections: Partial<Record<string, string>>; matchedHeadings: number } => {
+    const plainSections = parseCoworkStructuredSections(text, allowed);
+    const markdownSections = parseCoworkMarkdownSections(text, allowed);
+    const inferredSections = inferCoworkStructuredSections(text, allowed);
+    const mergedSections = {
+      ...inferredSections,
+      ...markdownSections,
+      ...plainSections,
+    };
+    return {
+      sections: mergedSections,
+      matchedHeadings: Math.max(Object.keys(plainSections).length, Object.keys(markdownSections).length),
+    };
+  };
   const formatCoworkActionList = (actions: EngineRequestedAction[]) =>
     actions.length > 0
       ? actions.map((action) => `- ${action.type} ${action.path}`).join('\n')
@@ -562,12 +672,12 @@ function createInternalEngineMainService() {
     rawText: string;
     requestedActions: EngineRequestedAction[];
   }): { text: string; normalization: PersistedInternalRunResponseNormalization } => {
-    const sections = parseCoworkStructuredSections(params.rawText, ['Goal', 'Plan', 'Needed context', 'Next step']);
+    const { sections, matchedHeadings } = resolveCoworkStructuredSections(params.rawText, ['Goal', 'Plan', 'Needed context', 'Next step']);
     const normalizedTask = params.task.replace(/\s+/g, ' ').trim() || 'the current cowork task';
     const normalization: PersistedInternalRunResponseNormalization =
       sections['Goal'] && sections['Plan'] && sections['Needed context'] && sections['Next step']
         ? 'provider_structured'
-        : Object.keys(sections).length > 0
+        : matchedHeadings > 0 || Object.keys(sections).length > 1
           ? 'normalized_sections'
           : 'synthetic_fallback';
     const neededContextFallback =
@@ -604,11 +714,11 @@ function createInternalEngineMainService() {
     };
     requestedActions: EngineRequestedAction[];
   }): { text: string; normalization: PersistedInternalRunResponseNormalization } => {
-    const sections = parseCoworkStructuredSections(params.rawText, ['Findings', 'Recommendation', 'Next step']);
+    const { sections, matchedHeadings } = resolveCoworkStructuredSections(params.rawText, ['Findings', 'Recommendation', 'Next step']);
     const normalization: PersistedInternalRunResponseNormalization =
       sections['Findings'] && sections['Recommendation'] && sections['Next step']
         ? 'provider_structured'
-        : Object.keys(sections).length > 0
+        : matchedHeadings > 0 || Object.keys(sections).length > 1
           ? 'normalized_sections'
           : 'synthetic_fallback';
     const findingsFallback =
@@ -642,16 +752,18 @@ function createInternalEngineMainService() {
   const buildProviderBackedCoworkPlanningPrompt = (taskAndContext: string) => [
     'You are Cloffice Cowork operating in a guarded read-only planning phase.',
     'Respond with concise prose, not filler.',
+    'Use plain text only. Do not use markdown headings, bold formatting, tables, or fenced code blocks.',
     'Use this structure in order:',
-    '1. Goal',
-    '2. Plan',
-    '3. Needed context',
-    '4. Next step',
+    'Goal: <one short paragraph>',
+    'Plan: <2-4 short bullets or sentences>',
+    'Needed context: <say "None." if no more context is needed>',
+    'Next step: <one concrete next step>',
     'Only request engine_actions when you need more context to plan accurately.',
     'Supported action types are exactly: list_dir, read_file, exists, stat.',
     'Do not request shell_exec, web_fetch, create_file, append_file, rename, or delete.',
     'Do not repeat the same action unless new information justifies it.',
     'If you do not need more context, say so explicitly in Needed context.',
+    'If you request engine_actions, keep the prose complete and still include all four sections.',
     buildInternalEngineActionInstruction(),
     'Task and project context follows.',
     taskAndContext,
@@ -817,14 +929,16 @@ function createInternalEngineMainService() {
   }) => [
     'Continue the cowork task using the latest execution results.',
     'Respond with concise prose, not filler.',
+    'Use plain text only. Do not use markdown headings, bold formatting, tables, or fenced code blocks.',
     'Use this structure in order:',
-    '1. Findings',
-    '2. Recommendation',
-    '3. Next step',
+    'Findings: <short evidence-based summary>',
+    'Recommendation: <best next move given the results>',
+    'Next step: <one concrete next step>',
     'You may request additional safe read-only actions only if they are necessary.',
     'Supported action types are exactly: list_dir, read_file, exists, stat.',
     'Do not re-request an action if the current execution results already answered it.',
     'If the current execution results are sufficient, do not request any engine_actions.',
+    'If you request engine_actions, keep the prose complete and still include all three sections.',
     buildInternalEngineActionInstruction(),
     '',
     `Session key: ${params.sessionKey}`,
