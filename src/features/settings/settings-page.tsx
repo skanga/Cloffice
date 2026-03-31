@@ -15,7 +15,7 @@ import type { InternalProviderConfig } from '@/lib/engine-config';
 import { listConnectors, persistConnectorConfig } from '@/lib/connectors';
 import { loadAllowedDomains, saveAllowedDomains } from '@/lib/connectors/web-fetch';
 import { getEngineProvider, listEngineProviders } from '@/lib/engine-provider-registry';
-import type { InternalEngineRunRecord, InternalEngineRuntimeInfo } from '@/lib/internal-engine-bridge';
+import type { InternalEngineRunRecord, InternalEngineRuntimeInfo, InternalEngineRuntimeRetentionPolicy } from '@/lib/internal-engine-bridge';
 import type { InternalProviderConnectionTestResult } from '@/lib/internal-provider-adapter';
 import type { ConnectorDefinition } from '@/lib/connectors/connector-types';
 
@@ -284,6 +284,7 @@ export function SettingsPage({
   const [prefersDarkSystem, setPrefersDarkSystem] = useState(false);
   const [connectionNameDraft, setConnectionNameDraft] = useState('');
   const [internalRuntimeInfo, setInternalRuntimeInfo] = useState<InternalEngineRuntimeInfo | null>(null);
+  const [internalRuntimeRetentionPolicy, setInternalRuntimeRetentionPolicy] = useState<InternalEngineRuntimeRetentionPolicy | null>(null);
   const [internalRunHistory, setInternalRunHistory] = useState<InternalEngineRunRecord[]>([]);
   const [highlightedRunId, setHighlightedRunId] = useState<string | null>(null);
   const [testingProviderId, setTestingProviderId] = useState<'openai' | 'anthropic' | 'gemini' | null>(null);
@@ -357,6 +358,7 @@ export function SettingsPage({
     const bridge = getDesktopBridge();
     if (!bridge?.getInternalEngineRuntimeInfo) {
       setInternalRuntimeInfo(null);
+      setInternalRuntimeRetentionPolicy(null);
       setInternalRunHistory([]);
       return;
     }
@@ -364,15 +366,18 @@ export function SettingsPage({
     let cancelled = false;
     Promise.all([
       bridge.getInternalEngineRuntimeInfo(),
+      bridge.getInternalRuntimeRetentionPolicy?.() ?? Promise.resolve(null),
       bridge.getInternalRunHistory?.(5) ?? Promise.resolve([]),
-    ]).then(([info, runs]) => {
+    ]).then(([info, retentionPolicy, runs]) => {
       if (!cancelled) {
         setInternalRuntimeInfo(info);
+        setInternalRuntimeRetentionPolicy(retentionPolicy);
         setInternalRunHistory(runs);
       }
     }).catch(() => {
       if (!cancelled) {
         setInternalRuntimeInfo(null);
+        setInternalRuntimeRetentionPolicy(null);
         setInternalRunHistory([]);
       }
     });
@@ -380,6 +385,18 @@ export function SettingsPage({
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  const handleRuntimeRetentionChange = useCallback(async (
+    field: 'runHistoryRetentionLimit' | 'artifactHistoryRetentionLimit',
+    value: number,
+  ) => {
+    const bridge = getDesktopBridge();
+    if (!bridge?.setInternalRuntimeRetentionPolicy) {
+      return;
+    }
+    const nextPolicy = await bridge.setInternalRuntimeRetentionPolicy({ [field]: value });
+    setInternalRuntimeRetentionPolicy(nextPolicy);
   }, []);
 
   useEffect(() => {
@@ -995,6 +1012,50 @@ export function SettingsPage({
 
       {activeSection === 'Developer' && (
         <div className="flex flex-col gap-6">
+                {internalRuntimeRetentionPolicy ? (
+                  <section className="rounded-xl border border-border/60 bg-card p-4">
+                    <div className="mb-3">
+                      <p className="text-sm font-medium text-foreground">{t('Runtime retention', 'Runtime-Aufbewahrung')}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {t(
+                          'Runtime-owned retention for internal runs and artifacts.',
+                          'Runtime-eigene Aufbewahrung fuer interne Laeufe und Artefakte.',
+                        )}{' '}
+                        {t('Schema version', 'Schema-Version')}: {internalRuntimeRetentionPolicy.schemaVersion}
+                      </p>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <label className="grid gap-1">
+                        <span className="font-sans text-xs text-muted-foreground">{t('Run history limit', 'Limit fuer Laufhistorie')}</span>
+                        <select
+                          className="h-9 rounded-md border border-border bg-background px-3 text-sm"
+                          value={internalRuntimeRetentionPolicy.runHistoryRetentionLimit}
+                          onChange={(event) => {
+                            void handleRuntimeRetentionChange('runHistoryRetentionLimit', Number(event.target.value));
+                          }}
+                        >
+                          {[25, 50, 100, 120, 200, 400].map((limit) => (
+                            <option key={`runtime-run-retention-${limit}`} value={limit}>{limit}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="grid gap-1">
+                        <span className="font-sans text-xs text-muted-foreground">{t('Artifact history limit', 'Limit fuer Artefakthistorie')}</span>
+                        <select
+                          className="h-9 rounded-md border border-border bg-background px-3 text-sm"
+                          value={internalRuntimeRetentionPolicy.artifactHistoryRetentionLimit}
+                          onChange={(event) => {
+                            void handleRuntimeRetentionChange('artifactHistoryRetentionLimit', Number(event.target.value));
+                          }}
+                        >
+                          {[25, 50, 100, 200, 400].map((limit) => (
+                            <option key={`runtime-artifact-retention-${limit}`} value={limit}>{limit}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  </section>
+                ) : null}
                 <section className="rounded-xl border border-border/60 bg-card p-4">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>

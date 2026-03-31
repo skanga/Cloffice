@@ -11,6 +11,7 @@ interface Window {
     getInternalEngineRuntimeInfo: () => Promise<any>;
     getInternalRunHistory: (limit?: number) => Promise<any[]>;
     getInternalRunDetails: (runId: string) => Promise<any | null>;
+    getInternalRuntimeRetentionPolicy: () => Promise<any>;
     connectInternalEngine: (options: any) => Promise<void>;
     disconnectInternalEngine: () => Promise<void>;
     getInternalEngineActiveSessionKey: () => Promise<string>;
@@ -43,6 +44,10 @@ interface Window {
       prompt?: string;
       model?: string | null;
       clearHistory?: boolean;
+    }) => Promise<any>;
+    setInternalRuntimeRetentionPolicy: (payload: {
+      runHistoryRetentionLimit?: number;
+      artifactHistoryRetentionLimit?: number;
     }) => Promise<any>;
     setInternalScheduleHistoryRetentionLimit: (limit: number) => Promise<number>;
     deleteInternalPromptSchedule: (id: string) => Promise<void>;

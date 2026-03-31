@@ -22,6 +22,7 @@ import type {
   InternalEnginePendingApprovalDecision,
   InternalEnginePendingApprovalDecisionResult,
   InternalEngineRunRecord,
+  InternalEngineRuntimeRetentionPolicy,
   InternalEngineRuntimeInfo,
   InternalEngineSendChatResult,
   InternalEngineShellStatus,
@@ -185,6 +186,8 @@ const desktopBridgeApi = {
     ipcRenderer.invoke('internal-engine:get-run-history', limit) as Promise<InternalEngineRunRecord[]>,
   getInternalRunDetails: (runId: string) =>
     ipcRenderer.invoke('internal-engine:get-run-details', runId) as Promise<InternalEngineRunRecord | null>,
+  getInternalRuntimeRetentionPolicy: () =>
+    ipcRenderer.invoke('internal-engine:get-runtime-retention-policy') as Promise<InternalEngineRuntimeRetentionPolicy>,
   connectInternalEngine: (options: EngineConnectOptions) =>
     ipcRenderer.invoke('internal-engine:connect', options) as Promise<void>,
   disconnectInternalEngine: () =>
@@ -225,6 +228,8 @@ const desktopBridgeApi = {
       ipcRenderer.invoke('internal-engine:run-prompt-schedule-now', id) as Promise<{ id: string; name: string; schedule: string; enabled: boolean; state: string; nextRunAt: string | null; lastRunAt: string | null }>,
   setInternalScheduleHistoryRetentionLimit: (limit: number) =>
       ipcRenderer.invoke('internal-engine:set-schedule-history-retention-limit', limit) as Promise<number>,
+  setInternalRuntimeRetentionPolicy: (payload: { runHistoryRetentionLimit?: number; artifactHistoryRetentionLimit?: number }) =>
+      ipcRenderer.invoke('internal-engine:set-runtime-retention-policy', payload) as Promise<InternalEngineRuntimeRetentionPolicy>,
   seedInternalScheduleArtifactForE2E: (id: string) =>
       ipcRenderer.invoke('internal-engine:seed-schedule-artifact-e2e', id),
   sendInternalChat: (sessionKey: string, text: string) =>

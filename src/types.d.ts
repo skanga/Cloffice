@@ -22,6 +22,7 @@ import type {
   InternalEnginePendingApprovalDecision,
   InternalEnginePendingApprovalDecisionResult,
   InternalEngineRunRecord,
+  InternalEngineRuntimeRetentionPolicy,
   InternalEngineRuntimeInfo,
   InternalEngineSendChatResult,
   InternalEngineShellStatus,
@@ -36,6 +37,7 @@ type DesktopBridgeApi = {
     getInternalEngineRuntimeInfo: () => Promise<InternalEngineRuntimeInfo>;
     getInternalRunHistory: (limit?: number) => Promise<InternalEngineRunRecord[]>;
     getInternalRunDetails: (runId: string) => Promise<InternalEngineRunRecord | null>;
+    getInternalRuntimeRetentionPolicy: () => Promise<InternalEngineRuntimeRetentionPolicy>;
     connectInternalEngine: (options: EngineConnectOptions) => Promise<void>;
   disconnectInternalEngine: () => Promise<void>;
   getInternalEngineActiveSessionKey: () => Promise<string>;
@@ -60,8 +62,12 @@ type DesktopBridgeApi = {
     projectTitle?: string;
     rootPath?: string;
     model?: string | null;
-  }) => Promise<EngineCronJob>;
-  updateInternalPromptSchedule: (id: string, payload: {
+    }) => Promise<EngineCronJob>;
+    setInternalRuntimeRetentionPolicy: (payload: {
+      runHistoryRetentionLimit?: number;
+      artifactHistoryRetentionLimit?: number;
+    }) => Promise<InternalEngineRuntimeRetentionPolicy>;
+    updateInternalPromptSchedule: (id: string, payload: {
       enabled?: boolean;
       intervalMinutes?: number;
       name?: string;

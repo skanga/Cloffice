@@ -59,6 +59,12 @@ export type InternalEngineRuntimeInfo = {
   lastScheduleError: string | null;
 };
 
+export type InternalEngineRuntimeRetentionPolicy = {
+  schemaVersion: number;
+  runHistoryRetentionLimit: number;
+  artifactHistoryRetentionLimit: number;
+};
+
 export type InternalEngineRunTimelineEntry = {
   id: string;
   at: number;
@@ -236,6 +242,7 @@ export type InternalEngineDesktopBridge = {
   getInternalEngineRuntimeInfo(): Promise<InternalEngineRuntimeInfo>;
   getInternalRunHistory(limit?: number): Promise<InternalEngineRunRecord[]>;
   getInternalRunDetails(runId: string): Promise<InternalEngineRunRecord | null>;
+  getInternalRuntimeRetentionPolicy(): Promise<InternalEngineRuntimeRetentionPolicy>;
   connectInternalEngine(options: EngineConnectOptions): Promise<void>;
   disconnectInternalEngine(): Promise<void>;
   getInternalEngineActiveSessionKey(): Promise<string>;
@@ -262,6 +269,10 @@ export type InternalEngineDesktopBridge = {
     model?: string | null;
   }): Promise<EngineCronJob>;
   setInternalScheduleHistoryRetentionLimit(limit: number): Promise<number>;
+  setInternalRuntimeRetentionPolicy(payload: {
+    runHistoryRetentionLimit?: number;
+    artifactHistoryRetentionLimit?: number;
+  }): Promise<InternalEngineRuntimeRetentionPolicy>;
   updateInternalPromptSchedule(id: string, payload: {
     enabled?: boolean;
     intervalMinutes?: number;

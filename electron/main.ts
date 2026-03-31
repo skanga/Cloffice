@@ -118,6 +118,9 @@ function createInternalEngineMainService() {
   }));
   const mainSessionKey = 'internal:main';
   const maxSessionHistory = 80;
+  const runtimePersistenceSchemaVersion = 2;
+  const defaultRunHistoryRetentionLimit = 120;
+  const defaultArtifactHistoryRetentionLimit = 200;
   let activeSessionKey: string | null = null;
   const sessions = new Map<string, {
     key: string;
@@ -136,10 +139,12 @@ function createInternalEngineMainService() {
     updatedAt: number;
   };
   type PersistedInternalEngineState = {
-    version: 1;
+    version: 1 | 2;
     activeSessionKey: string | null;
     cleanShutdown: boolean;
     lastPersistedAt: number;
+    runHistoryRetentionLimit?: number;
+    artifactHistoryRetentionLimit?: number;
     sessions: PersistedInternalEngineSession[];
   };
   type PersistedInternalRunStatus =
@@ -286,6 +291,8 @@ function createInternalEngineMainService() {
   let artifacts: PersistedInternalArtifactRecord[] = [];
   let pendingApprovalFlows: InternalApprovalRecoveryFlow[] = [];
   let schedules: PersistedInternalScheduleRecord[] = [];
+  let runHistoryRetentionLimit = defaultRunHistoryRetentionLimit;
+  let artifactHistoryRetentionLimit = defaultArtifactHistoryRetentionLimit;
   let scheduleHistoryRetentionLimit = 6;
   let schedulerTimer: NodeJS.Timeout | null = null;
   const runningScheduleIds = new Set<string>();
@@ -308,6 +315,46 @@ function createInternalEngineMainService() {
     }
   };
   const now = () => Date.now();
+  const normalizeRetentionLimit = (value: unknown, fallback: number) => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return fallback;
+    }
+    const normalized = Math.floor(value);
+    if (normalized < 1) {
+      return fallback;
+    }
+    return Math.min(normalized, 1000);
+  };
+  const buildRuntimeRetentionPolicy = () => ({
+    schemaVersion: runtimePersistenceSchemaVersion,
+    runHistoryRetentionLimit,
+    artifactHistoryRetentionLimit,
+  });
+  const pruneRunJournal = () => {
+    const orderedRuns = [...runs.values()].sort((left, right) => left.updatedAt - right.updatedAt);
+    const protectedRunIds = new Set(
+      orderedRuns
+        .filter((run) => run.status === 'running' || run.status === 'awaiting_approval' || run.status === 'executing')
+        .map((run) => run.runId),
+    );
+    const completedRuns = orderedRuns.filter((run) => !protectedRunIds.has(run.runId));
+    const retainedCompletedRunIds = new Set(completedRuns.slice(-runHistoryRetentionLimit).map((run) => run.runId));
+    const retainedRunIds = new Set([...protectedRunIds, ...retainedCompletedRunIds]);
+    for (const runId of [...runs.keys()]) {
+      if (!retainedRunIds.has(runId)) {
+        runs.delete(runId);
+      }
+    }
+  };
+  const pruneArtifactJournal = () => {
+    artifacts = [...artifacts]
+      .sort((left, right) => left.createdAt - right.createdAt)
+      .slice(-artifactHistoryRetentionLimit);
+  };
+  const enforceRuntimeRetention = () => {
+    pruneRunJournal();
+    pruneArtifactJournal();
+  };
   const refreshProviderCatalog = () => {
     const catalog = buildInternalProviderCatalog(storedInternalProviderConfig);
     providerStatuses = catalog.statuses;
@@ -1290,9 +1337,13 @@ function createInternalEngineMainService() {
     return latest;
   };
   const writePersistedState = async (override?: Partial<Pick<PersistedInternalEngineState, 'cleanShutdown'>>): Promise<void> => {
+    enforceRuntimeRetention();
     await fs.mkdir(runtimeHome, { recursive: true });
     await fs.writeFile(stateFilePath, JSON.stringify({
       ...buildPersistedState(),
+      version: runtimePersistenceSchemaVersion,
+      runHistoryRetentionLimit,
+      artifactHistoryRetentionLimit,
       ...override,
     }, null, 2), 'utf8');
     await fs.writeFile(runJournalFilePath, JSON.stringify(buildPersistedRunJournal(), null, 2), 'utf8');
@@ -1395,6 +1446,8 @@ function createInternalEngineMainService() {
       activeSessionKey = restoredActiveSessionKey && sessions.has(restoredActiveSessionKey)
         ? restoredActiveSessionKey
         : null;
+      runHistoryRetentionLimit = normalizeRetentionLimit(parsed.runHistoryRetentionLimit, defaultRunHistoryRetentionLimit);
+      artifactHistoryRetentionLimit = normalizeRetentionLimit(parsed.artifactHistoryRetentionLimit, defaultArtifactHistoryRetentionLimit);
       const cleanShutdown = parsed.cleanShutdown === true;
       stateRestoreStatus = restoredSessions.length > 0
         ? cleanShutdown ? 'restored' : 'recovered_after_interruption'
@@ -1415,6 +1468,8 @@ function createInternalEngineMainService() {
       }
       sessions.clear();
       activeSessionKey = null;
+      runHistoryRetentionLimit = defaultRunHistoryRetentionLimit;
+      artifactHistoryRetentionLimit = defaultArtifactHistoryRetentionLimit;
     }
     try {
       const rawRuns = await fs.readFile(runJournalFilePath, 'utf8');
@@ -1492,6 +1547,7 @@ function createInternalEngineMainService() {
     if (lastRecoveryNote) {
       appendRecoveryNote(activeSessionKey || mainSessionKey, lastRecoveryNote);
     }
+    enforceRuntimeRetention();
     stateLoaded = true;
   };
   const computeNextRunAt = (intervalMinutes: number, fromTime = now()) =>
@@ -1738,6 +1794,13 @@ function createInternalEngineMainService() {
         ...(run.timeline ? { timeline: [...run.timeline].sort((left, right) => left.at - right.at) } : {}),
       };
     },
+    async getRuntimeRetentionPolicy() {
+      if (!shellStatus.availableInBuild) {
+        return buildRuntimeRetentionPolicy();
+      }
+      await loadPersistedState();
+      return buildRuntimeRetentionPolicy();
+    },
     async testProviderConnection(
       providerId: InternalChatProviderId,
       configOverride?: Partial<InternalProviderConfig>,
@@ -1794,6 +1857,17 @@ function createInternalEngineMainService() {
     async getScheduleHistoryRetentionLimit(): Promise<number> {
       requireConnected();
       return scheduleHistoryRetentionLimit;
+    },
+    async setRuntimeRetentionPolicy(payload: {
+      runHistoryRetentionLimit?: number;
+      artifactHistoryRetentionLimit?: number;
+    }) {
+      await loadPersistedState();
+      runHistoryRetentionLimit = normalizeRetentionLimit(payload.runHistoryRetentionLimit, runHistoryRetentionLimit);
+      artifactHistoryRetentionLimit = normalizeRetentionLimit(payload.artifactHistoryRetentionLimit, artifactHistoryRetentionLimit);
+      enforceRuntimeRetention();
+      await persistState();
+      return buildRuntimeRetentionPolicy();
     },
     async createPromptSchedule(payload: {
       kind?: 'chat' | 'cowork';
@@ -3480,6 +3554,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('internal-engine:get-runtime-info', async () => internalEngineService.getRuntimeInfo());
   ipcMain.handle('internal-engine:get-run-history', async (_event, limit?: number) => internalEngineService.getRunHistory(limit));
   ipcMain.handle('internal-engine:get-run-details', async (_event, runId: string) => internalEngineService.getRunDetails(runId));
+  ipcMain.handle('internal-engine:get-runtime-retention-policy', async () => internalEngineService.getRuntimeRetentionPolicy());
   ipcMain.handle('internal-engine:connect', async (_event, options: EngineConnectOptions) => internalEngineService.connect(options));
   ipcMain.handle('internal-engine:disconnect', async () => internalEngineService.disconnect());
   ipcMain.handle('internal-engine:get-active-session-key', async () => internalEngineService.getActiveSessionKey());
@@ -3507,6 +3582,11 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle('internal-engine:delete-prompt-schedule', async (_event, id: string) => internalEngineService.deletePromptSchedule(id));
   ipcMain.handle('internal-engine:run-prompt-schedule-now', async (_event, id: string) => internalEngineService.runPromptScheduleNow(id));
+  ipcMain.handle(
+    'internal-engine:set-runtime-retention-policy',
+    async (_event, payload: { runHistoryRetentionLimit?: number; artifactHistoryRetentionLimit?: number }) =>
+      internalEngineService.setRuntimeRetentionPolicy(payload),
+  );
   ipcMain.handle('internal-engine:set-schedule-history-retention-limit', async (_event, limit: number) =>
     internalEngineService.setScheduleHistoryRetentionLimit(limit));
   ipcMain.handle('internal-engine:seed-schedule-artifact-e2e', async (_event, id: string) => internalEngineService.seedScheduleArtifactForE2E(id));
