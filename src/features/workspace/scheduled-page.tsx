@@ -40,12 +40,14 @@ type ScheduledPageProps = {
   onDuplicateJob?: (job: ScheduledJob) => void | Promise<void>;
   onBulkRunJobsNow?: (jobIds: string[]) => void | Promise<void>;
   onBulkDuplicateJobs?: (jobs: ScheduledJob[]) => void | Promise<void>;
+  onBulkClearJobHistory?: (jobIds: string[]) => void | Promise<void>;
   onBulkToggleJobs?: (jobIds: string[], enabled: boolean) => void | Promise<void>;
   onBulkDeleteJobs?: (jobIds: string[]) => void | Promise<void>;
   onExportSchedules?: (jobs: ScheduledJob[]) => void | Promise<void>;
   onImportSchedules?: (content: string) => void | Promise<void>;
   onToggleJob?: (jobId: string, enabled: boolean) => void | Promise<void>;
   onSetJobInterval?: (jobId: string, intervalMinutes: number) => void | Promise<void>;
+  onClearJobHistory?: (jobId: string) => void | Promise<void>;
   onDeleteJob?: (jobId: string) => void | Promise<void>;
   onOpenRunHistory?: (jobId: string, runId: string) => void | Promise<void>;
   onCreateSchedule?: (input: EngineScheduleCreateInput) => void | Promise<void>;
@@ -174,12 +176,14 @@ export function ScheduledPage({
   onDuplicateJob,
   onBulkRunJobsNow,
   onBulkDuplicateJobs,
+  onBulkClearJobHistory,
   onBulkToggleJobs,
   onBulkDeleteJobs,
   onExportSchedules,
   onImportSchedules,
   onToggleJob,
   onSetJobInterval,
+  onClearJobHistory,
   onDeleteJob,
   onOpenRunHistory,
   onCreateSchedule,
@@ -404,6 +408,14 @@ export function ScheduledPage({
       return;
     }
     await onBulkDeleteJobs(targetIds);
+    setSelectedJobIds((current) => current.filter((id) => !targetIds.includes(id)));
+  };
+  const handleBulkClearHistory = async () => {
+    const targetIds = selectedJobIds.filter((id) => visibleJobIds.includes(id));
+    if (!targetIds.length || !onBulkClearJobHistory) {
+      return;
+    }
+    await onBulkClearJobHistory(targetIds);
     setSelectedJobIds((current) => current.filter((id) => !targetIds.includes(id)));
   };
   const handleBulkRunNow = async () => {
@@ -742,6 +754,17 @@ export function ScheduledPage({
                     onClick={() => void handleBulkDuplicate()}
                   >
                     Duplicate selected
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-[11px]"
+                    data-testid="schedule-bulk-clear-history"
+                    disabled={visibleSelectedCount === 0}
+                    onClick={() => void handleBulkClearHistory()}
+                  >
+                    Clear selected history
                   </Button>
                   <Button
                     type="button"
@@ -1201,6 +1224,16 @@ export function ScheduledPage({
                                 onClick={() => void onRunJobNow?.(job.id)}
                               >
                                 Run now
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-[11px]"
+                                data-testid={`scheduled-job-clear-history-${job.id}`}
+                                onClick={() => void onClearJobHistory?.(job.id)}
+                              >
+                                Clear history
                               </Button>
                               <Button
                                 type="button"

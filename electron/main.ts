@@ -1813,6 +1813,7 @@ function createInternalEngineMainService() {
         name?: string;
         prompt?: string;
         model?: string | null;
+        clearHistory?: boolean;
       },
     ): Promise<EngineCronJob> {
       requireConnected();
@@ -1850,6 +1851,19 @@ function createInternalEngineMainService() {
           schedule.nextRunAt = computeNextRunAt(schedule.intervalMinutes);
           schedule.state = 'idle';
         }
+      }
+      if (payload.clearHistory) {
+        schedule.lastRunAt = null;
+        schedule.lastRunId = undefined;
+        schedule.lastRunStatus = undefined;
+        schedule.lastRunSummary = undefined;
+        schedule.totalRunCount = 0;
+        schedule.completedRunCount = 0;
+        schedule.blockedRunCount = 0;
+        schedule.approvalWaitCount = 0;
+        schedule.recentRunHistory = [];
+        schedule.state = schedule.enabled ? 'idle' : 'paused';
+        schedule.nextRunAt = schedule.enabled ? computeNextRunAt(schedule.intervalMinutes) : null;
       }
       await persistState();
       return toEngineCronJob(schedule);

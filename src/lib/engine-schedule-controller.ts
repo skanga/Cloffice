@@ -18,6 +18,7 @@ type InternalScheduleBridge = {
     name?: string;
     prompt?: string;
     model?: string | null;
+    clearHistory?: boolean;
   }) => Promise<unknown>;
   deleteInternalPromptSchedule?: (id: string) => Promise<void>;
   runInternalPromptScheduleNow?: (id: string) => Promise<unknown>;
@@ -222,6 +223,7 @@ export async function updateEngineSchedule(params: {
     name?: string;
     prompt?: string;
     model?: string | null;
+    clearHistory?: boolean;
   };
 }): Promise<string> {
   if (!params.bridge?.updateInternalPromptSchedule) {
@@ -234,6 +236,9 @@ export async function updateEngineSchedule(params: {
   }
   if (params.payload.intervalMinutes) {
     return `Updated internal schedule cadence to every ${params.payload.intervalMinutes} minute${params.payload.intervalMinutes === 1 ? '' : 's'}.`;
+  }
+  if (params.payload.clearHistory) {
+    return 'Cleared internal schedule history.';
   }
   if (typeof params.payload.name === 'string' || typeof params.payload.prompt === 'string' || params.payload.model !== undefined) {
     return 'Updated internal schedule details.';
@@ -250,6 +255,7 @@ export async function updateEngineScheduleWithStatus(params: {
     name?: string;
     prompt?: string;
     model?: string | null;
+    clearHistory?: boolean;
   };
 }): Promise<{ message: string; shouldReloadScheduledJobs: boolean }> {
   try {

@@ -2704,6 +2704,7 @@ export default function App() {
       name?: string;
       prompt?: string;
       model?: string | null;
+      clearHistory?: boolean;
     }) => {
       const result = await updateEngineScheduleWithStatus({
         bridge,
@@ -2805,6 +2806,18 @@ export default function App() {
       }
       await loadScheduledJobs();
       setStatus(`Ran ${scheduleIds.length} internal schedule${scheduleIds.length === 1 ? '' : 's'} now.`);
+    };
+
+    const handleBulkClearInternalPromptScheduleHistory = async (scheduleIds: string[]) => {
+      for (const scheduleId of scheduleIds) {
+        await updateEngineScheduleWithStatus({
+          bridge,
+          scheduleId,
+          payload: { clearHistory: true },
+        });
+      }
+      await loadScheduledJobs();
+      setStatus(`Cleared history for ${scheduleIds.length} internal schedule${scheduleIds.length === 1 ? '' : 's'}.`);
     };
 
     const handleBulkDeleteInternalPromptSchedules = async (scheduleIds: string[]) => {
@@ -4169,12 +4182,14 @@ export default function App() {
                           onRunJobNow={(jobId) => void handleRunInternalPromptScheduleNow(jobId)}
                           onBulkRunJobsNow={(jobIds) => void handleBulkRunInternalPromptSchedulesNow(jobIds)}
                           onBulkDuplicateJobs={(jobs) => void handleBulkDuplicateInternalPromptSchedules(jobs)}
+                          onBulkClearJobHistory={(jobIds) => void handleBulkClearInternalPromptScheduleHistory(jobIds)}
                           onBulkToggleJobs={(jobIds, enabled) => void handleBulkToggleInternalPromptSchedules(jobIds, enabled)}
                           onBulkDeleteJobs={(jobIds) => void handleBulkDeleteInternalPromptSchedules(jobIds)}
                           onExportSchedules={(jobs) => void handleExportInternalPromptSchedules(jobs)}
                           onImportSchedules={(content) => void handleImportInternalPromptSchedules(content)}
                           onToggleJob={(jobId, enabled) => void handleUpdateInternalPromptSchedule(jobId, { enabled })}
                           onSetJobInterval={(jobId, intervalMinutes) => void handleUpdateInternalPromptSchedule(jobId, { intervalMinutes })}
+                          onClearJobHistory={(jobId) => void handleUpdateInternalPromptSchedule(jobId, { clearHistory: true })}
                           onDeleteJob={(jobId) => void handleDeleteInternalPromptSchedule(jobId)}
                           focusedJobId={focusedScheduledJobId}
                           onOpenRunHistory={(jobId, runId) => {

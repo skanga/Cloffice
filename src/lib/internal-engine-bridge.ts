@@ -262,6 +262,10 @@ export type InternalEngineDesktopBridge = {
   updateInternalPromptSchedule(id: string, payload: {
     enabled?: boolean;
     intervalMinutes?: number;
+    name?: string;
+    prompt?: string;
+    model?: string | null;
+    clearHistory?: boolean;
   }): Promise<EngineCronJob>;
   deleteInternalPromptSchedule(id: string): Promise<void>;
   sendInternalChat(sessionKey: string, text: string): Promise<InternalEngineSendChatResult>;

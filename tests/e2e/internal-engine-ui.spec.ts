@@ -502,6 +502,27 @@ test.describe('Internal engine UI flow', () => {
       return jobs.filter((job: any) => job?.name === 'UI bulk schedule one copy' || job?.name === 'UI bulk schedule two copy').length;
     }), { timeout: 15000 }).toBe(2);
 
+    await page.getByTestId(`scheduled-job-select-${createdJobs[0].id}`).check();
+    await page.getByTestId(`scheduled-job-select-${createdJobs[1].id}`).check();
+    await page.getByTestId('schedule-bulk-clear-history').click();
+    await expect.poll(async () => page.evaluate(async (jobIds) => {
+      const bridge = window.cloffice ?? window.relay;
+      const jobs = await bridge.listInternalCronJobs();
+      return jobIds.map((jobId: string) => {
+        const match = jobs.find((job: any) => job?.id === jobId);
+        return match
+          ? {
+              totalRunCount: match.totalRunCount ?? 0,
+              lastRunAt: match.lastRunAt,
+              recentRunHistoryLength: Array.isArray(match.recentRunHistory) ? match.recentRunHistory.length : 0,
+            }
+          : null;
+      });
+    }, createdJobs.map((job) => job.id)), { timeout: 15000 }).toEqual([
+      { totalRunCount: 0, lastRunAt: null, recentRunHistoryLength: 0 },
+      { totalRunCount: 0, lastRunAt: null, recentRunHistoryLength: 0 },
+    ]);
+
     await page.getByTestId('schedule-select-all-visible').check();
     await page.getByTestId('schedule-bulk-delete').click();
     await expect(page.getByTestId(`scheduled-job-${createdJobs[0].id}`)).toBeHidden({ timeout: 15000 });
