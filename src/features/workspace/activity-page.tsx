@@ -1,17 +1,14 @@
-ï»¿import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
   Clock,
-  Filter,
   Info,
-  Pause,
   Play,
-  RefreshCw,
-  RotateCcw,
   Search,
+  Timer,
   Zap,
 } from 'lucide-react';
 
@@ -21,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import type { ChatMessage, ChatActivityItem } from '@/app-types';
+import type { InternalEngineRunRecord } from '@/lib/internal-engine-bridge';
 
 type ActivityPageProps = {
   chatMessages: ChatMessage[];
@@ -33,7 +31,7 @@ type ActivityPageProps = {
 type ActivityEntry = {
   id: string;
   timestamp: number;
-  source: 'chat' | 'cowork';
+  source: 'chat' | 'cowork' | 'schedule';
   sessionKey: string;
   role: 'user' | 'assistant' | 'system';
   text: string;
@@ -42,11 +40,35 @@ type ActivityEntry = {
 
 type ToneFilter = 'all' | 'success' | 'danger' | 'neutral';
 
+function getDesktopBridge() {
+  return window.cloffice ?? window.relay ?? null;
+}
+
 function extractActivities(msg: ChatMessage): ChatActivityItem[] {
   if (msg.meta?.kind === 'activity' && Array.isArray(msg.meta.items)) {
     return msg.meta.items;
   }
   return [];
+}
+
+function buildScheduleRunActivity(run: InternalEngineRunRecord): ChatActivityItem {
+  const tone: 'success' | 'danger' | 'neutral' = run.status === 'completed'
+    ? 'success'
+    : run.status === 'blocked' || run.status === 'interrupted'
+      ? 'danger'
+      : 'neutral';
+  const details = [
+    run.scheduleName ? `Schedule: ${run.scheduleName}` : null,
+    run.model ? `Model: ${run.model}` : null,
+    run.providerPhase ? `Phase: ${run.providerPhase}` : null,
+    run.summary ?? run.resultSummary ?? null,
+  ].filter(Boolean).join(' · ');
+  return {
+    id: `schedule-run-${run.runId}`,
+    tone,
+    label: `Scheduled run ${run.status.replace(/_/g, ' ')}`,
+    details: details || undefined,
+  };
 }
 
 function timeAgo(timestamp: number): string {
@@ -73,8 +95,38 @@ export function ActivityPage({
 }: ActivityPageProps) {
   const [filterQuery, setFilterQuery] = useState('');
   const [toneFilter, setToneFilter] = useState<ToneFilter>('all');
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'chat' | 'cowork'>('all');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'chat' | 'cowork' | 'schedule'>('all');
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
+  const [internalRunHistory, setInternalRunHistory] = useState<InternalEngineRunRecord[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const bridge = getDesktopBridge();
+    if (!bridge?.getInternalRunHistory) {
+      setInternalRunHistory([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const loadRunHistory = async () => {
+      try {
+        const runs = await bridge.getInternalRunHistory(24);
+        if (!cancelled) {
+          setInternalRunHistory(runs.filter((run) => Boolean(run.scheduleId)));
+        }
+      } catch {
+        if (!cancelled) {
+          setInternalRunHistory([]);
+        }
+      }
+    };
+
+    void loadRunHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [engineConnected]);
 
   const entries = useMemo(() => {
     const all: ActivityEntry[] = [];
@@ -99,9 +151,23 @@ export function ActivityPage({
     processMessages(chatMessages, 'chat', activeSessionKey);
     counter = 0;
     processMessages(coworkMessages, 'cowork', coworkSessionKey);
+    for (const run of internalRunHistory) {
+      all.push({
+        id: `schedule-${run.runId}`,
+        timestamp: run.updatedAt || run.startedAt,
+        source: 'schedule',
+        sessionKey: run.sessionKey,
+        role: 'system',
+        text: run.summary
+          || run.resultSummary
+          || run.promptPreview
+          || `Scheduled run ${run.status.replace(/_/g, ' ')}`,
+        activities: [buildScheduleRunActivity(run)],
+      });
+    }
 
     return all.sort((a, b) => b.timestamp - a.timestamp);
-  }, [chatMessages, coworkMessages, activeSessionKey, coworkSessionKey]);
+  }, [chatMessages, coworkMessages, activeSessionKey, coworkSessionKey, internalRunHistory]);
 
   const filteredEntries = useMemo(() => {
     let result = entries;
@@ -143,7 +209,6 @@ export function ActivityPage({
 
   return (
     <section className="mx-auto grid h-full w-full max-w-[1060px] min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-3">
-      {/* Header */}
       <header>
         <div className="flex items-center gap-2">
           <Zap className="size-5 text-amber-600" />
@@ -157,7 +222,6 @@ export function ActivityPage({
         </p>
       </header>
 
-      {/* Stats bar */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/60 bg-card px-4 py-2.5">
         <div className="flex items-center gap-1.5">
           <Clock className="size-3.5 text-muted-foreground/60" />
@@ -174,14 +238,12 @@ export function ActivityPage({
         </div>
         <Separator orientation="vertical" className="h-4" />
         <div className="flex items-center gap-1.5">
-          <Zap className="size-3.5 text-amber-500" />
-          <span className="font-sans text-[12px] text-muted-foreground">{stats.withActivity} with tool calls</span>
+          <Timer className="size-3.5 text-amber-500" />
+          <span className="font-sans text-[12px] text-muted-foreground">{stats.withActivity} with actions</span>
         </div>
       </div>
 
-      {/* Filter bar + timeline */}
       <div className="flex min-h-0 flex-col rounded-xl border border-border/60 bg-card">
-        {/* Filters */}
         <div className="flex items-center gap-2 border-b border-border/40 px-4 py-2">
           <Search className="size-3.5 text-muted-foreground/60" />
           <Input
@@ -193,7 +255,7 @@ export function ActivityPage({
           />
           <Separator orientation="vertical" className="h-4" />
           <div className="flex items-center gap-1">
-            {(['all', 'chat', 'cowork'] as const).map((src) => (
+            {(['all', 'chat', 'cowork', 'schedule'] as const).map((src) => (
               <button
                 key={src}
                 type="button"
@@ -202,7 +264,7 @@ export function ActivityPage({
                 }`}
                 onClick={() => setSourceFilter(src)}
               >
-                {src === 'all' ? 'All' : src === 'chat' ? 'Chat' : 'Cowork'}
+                {src === 'all' ? 'All' : src === 'chat' ? 'Chat' : src === 'cowork' ? 'Cowork' : 'Scheduled'}
               </button>
             ))}
           </div>
@@ -223,7 +285,6 @@ export function ActivityPage({
           </div>
         </div>
 
-        {/* Timeline */}
         <ScrollArea className="flex-1">
           {filteredEntries.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -231,12 +292,11 @@ export function ActivityPage({
               <p className="font-sans text-sm text-muted-foreground">
                 {filterQuery || toneFilter !== 'all' || sourceFilter !== 'all'
                   ? 'No matches for this filter.'
-                  : 'No activity yet. Start a chat or a cowork task.'}
+                  : 'No activity yet. Start a chat, a cowork task, or a scheduled run.'}
               </p>
             </div>
           ) : (
             <div className="relative px-4 py-3">
-              {/* Vertical timeline line */}
               <div className="absolute left-[27px] top-3 bottom-3 w-px bg-border/50" />
 
               <div className="grid gap-1">
@@ -250,7 +310,6 @@ export function ActivityPage({
 
                   return (
                     <div key={entry.id} className="relative flex gap-3 py-1.5">
-                      {/* Timeline dot */}
                       <div
                         className={`relative z-10 flex size-5 shrink-0 items-center justify-center rounded-full border ${
                           entry.role === 'user'
@@ -263,14 +322,17 @@ export function ActivityPage({
                         <ToneIcon className={`size-2.5 ${entry.role === 'user' ? 'text-amber-600' : hasActivities ? TONE_CONFIG[primaryTone].color : 'text-muted-foreground/60'}`} />
                       </div>
 
-                      {/* Content */}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="font-sans text-[10px] uppercase">
+                          <Badge
+                            variant="outline"
+                            className="font-sans text-[10px] uppercase"
+                            data-testid={entry.source === 'schedule' ? 'activity-source-schedule' : undefined}
+                          >
                             {entry.source}
                           </Badge>
                           <span className="font-sans text-[10px] text-muted-foreground">
-                            {entry.role === 'user' ? 'You' : 'Agent'}
+                            {entry.source === 'schedule' ? 'Runtime' : entry.role === 'user' ? 'You' : 'Agent'}
                           </span>
                           <span className="font-sans text-[10px] text-muted-foreground/60">
                             {timeAgo(entry.timestamp)}
@@ -279,10 +341,9 @@ export function ActivityPage({
 
                         <p className="mt-0.5 line-clamp-2 font-sans text-[12px] text-foreground/80">
                           {entry.text.slice(0, 200)}
-                          {entry.text.length > 200 ? 'â€¦' : ''}
+                          {entry.text.length > 200 ? '…' : ''}
                         </p>
 
-                        {/* Activity items */}
                         {hasActivities && (
                           <div className="mt-1.5">
                             <button
@@ -332,4 +393,3 @@ export function ActivityPage({
     </section>
   );
 }
-

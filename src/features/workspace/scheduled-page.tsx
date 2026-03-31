@@ -136,6 +136,33 @@ function aggregateScheduleMetrics(jobs: ScheduledJob[], groupMode: Exclude<Group
   });
 }
 
+function collectRecentScheduleEvents(jobs: ScheduledJob[]) {
+  return jobs.flatMap((job) => {
+    const retained = job.recentRunHistory?.map((entry, index) => ({
+      key: `${job.id}-${entry.runId ?? index}-${entry.at}`,
+      jobId: job.id,
+      jobName: job.name,
+      status: entry.status,
+      at: entry.at,
+      summary: entry.summary ?? job.lastRunSummary ?? null,
+    })) ?? [];
+    if (retained.length > 0) {
+      return retained;
+    }
+    if (!job.lastRunAt || !job.lastRunStatus) {
+      return [];
+    }
+    return [{
+      key: `${job.id}-last-${job.lastRunAt}`,
+      jobId: job.id,
+      jobName: job.name,
+      status: job.lastRunStatus,
+      at: job.lastRunAt,
+      summary: job.lastRunSummary ?? null,
+    }];
+  }).sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+}
+
 function buildArtifactSummaryText(job: ScheduledJob): string {
   const lines = [
     `Schedule: ${job.name}`,
@@ -330,6 +357,12 @@ export function ScheduledPage({
     blocked: jobs.filter((job) => job.state === 'blocked').length,
     completed: jobs.filter((job) => job.lastRunStatus === 'completed').length,
   }), [jobs]);
+  const recentScheduleEvents = useMemo(() => collectRecentScheduleEvents(jobs).slice(0, 6), [jobs]);
+  const recentOutcomeMetrics = useMemo(() => ({
+    completed: recentScheduleEvents.filter((entry) => entry.status === 'completed').length,
+    awaitingApproval: recentScheduleEvents.filter((entry) => entry.status === 'awaiting_approval').length,
+    blocked: recentScheduleEvents.filter((entry) => entry.status === 'blocked' || entry.status === 'interrupted').length,
+  }), [recentScheduleEvents]);
   const groupedVisibleJobs = useMemo(() => {
     if (groupMode === 'none') {
       return [{ key: 'all', label: 'All schedules', jobs: visibleJobs }];
@@ -576,7 +609,7 @@ export function ScheduledPage({
       </div>
 
       {jobs.length > 0 ? (
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <section className="rounded-xl border border-border/60 bg-card px-4 py-3" data-testid="schedule-metrics-project">
             <div className="flex items-center justify-between gap-2">
               <p className="font-sans text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">By project</p>
@@ -655,6 +688,55 @@ export function ScheduledPage({
                   <Badge variant="outline" className="font-sans text-[10px]">{healthMetrics.completed}</Badge>
                 </div>
               </div>
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-border/60 bg-card px-4 py-3" data-testid="schedule-metrics-recent">
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-sans text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Recent outcomes</p>
+              <Badge variant="outline" className="font-sans text-[10px]">{recentScheduleEvents.length}</Badge>
+            </div>
+            <div className="mt-2 grid gap-2">
+              <div className="rounded-md border border-border/50 bg-background/60 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-sans text-[12px] font-medium text-foreground">Completed</span>
+                  <Badge variant="outline" className="font-sans text-[10px]">{recentOutcomeMetrics.completed}</Badge>
+                </div>
+              </div>
+              <div className="rounded-md border border-border/50 bg-background/60 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-sans text-[12px] font-medium text-foreground">Awaiting approval</span>
+                  <Badge variant="outline" className="font-sans text-[10px]">{recentOutcomeMetrics.awaitingApproval}</Badge>
+                </div>
+              </div>
+              <div className="rounded-md border border-border/50 bg-background/60 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-sans text-[12px] font-medium text-foreground">Blocked or interrupted</span>
+                  <Badge variant="outline" className="font-sans text-[10px]">{recentOutcomeMetrics.blocked}</Badge>
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-2">
+              {recentScheduleEvents.length > 0 ? recentScheduleEvents.map((entry) => (
+                <div
+                  key={entry.key}
+                  className="rounded-md border border-border/50 bg-background/60 px-3 py-2"
+                  data-testid={`schedule-recent-event-${entry.jobId}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-sans text-[12px] font-medium text-foreground">{entry.jobName}</span>
+                    <Badge variant="outline" className="font-sans text-[10px]">{titleCase(entry.status.replace(/_/g, ' '))}</Badge>
+                  </div>
+                  <p className="mt-1 font-sans text-[11px] text-muted-foreground">{formatTime(entry.at)}</p>
+                  {entry.summary ? (
+                    <p className="mt-1 line-clamp-2 font-sans text-[11px] text-muted-foreground">{entry.summary}</p>
+                  ) : null}
+                </div>
+              )) : (
+                <div className="rounded-md border border-dashed border-border/60 bg-background/40 px-3 py-3">
+                  <p className="font-sans text-[11px] text-muted-foreground">No retained schedule run history yet.</p>
+                </div>
+              )}
             </div>
           </section>
         </div>
@@ -1602,4 +1684,7 @@ export function ScheduledPage({
     </section>
   );
 }
+
+
+
 

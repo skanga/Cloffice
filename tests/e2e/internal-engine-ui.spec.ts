@@ -285,6 +285,16 @@ async function openSchedulePage(page: Page) {
   await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible({ timeout: 15000 });
 }
 
+async function openActivityPage(page: Page) {
+  await expect(async () => {
+    const activityControl = page.getByRole('button', { name: 'Activity', exact: true })
+      .or(page.getByRole('tab', { name: 'Activity', exact: true }));
+    await expect(activityControl.first()).toBeVisible();
+    await activityControl.first().click();
+  }).toPass({ timeout: 15000 });
+  await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible({ timeout: 15000 });
+}
+
 async function openDeveloperSettings(page: Page) {
   await page.keyboard.press('Control+,');
   await expect(async () => {
@@ -925,6 +935,8 @@ test.describe('Internal engine UI flow', () => {
     await expect(page.getByTestId('schedule-metrics-health')).toContainText('Schedules with errors');
     await expect(page.getByTestId('schedule-metrics-health')).toContainText('Completed runs');
     await expect(page.getByTestId('schedule-metrics-health')).toContainText('1');
+    await expect(page.getByTestId('schedule-metrics-recent')).toContainText('Recent outcomes');
+    await expect(page.getByTestId('schedule-metrics-recent')).toContainText('UI schedule artifact drilldown');
     await expect(scheduledJobCard).toContainText('Last artifact');
     await expect(scheduledJobCard.getByTestId(`scheduled-job-open-artifact-${seededJob.id}`)).toBeVisible();
     await expect(scheduledJobCard.getByTestId(`scheduled-job-copy-artifact-${seededJob.id}`)).toBeVisible();
@@ -941,4 +953,52 @@ test.describe('Internal engine UI flow', () => {
     await expect(scheduledJobCard).toContainText('Preview');
     await expect(scheduledJobCard).toContainText('Errors');
   });
+  test('activity page shows scheduled runtime events outside the schedule view', async () => {
+    await markOnboardingComplete(page);
+    await connectInternalProviderFromSettings(page);
+    await clearInternalSchedules(page);
+
+    const rootFolder = await prepareProjectRoot(page);
+    await createProjectFromSidebar(page, {
+      title: 'Activity Schedule Project',
+      description: 'Exercise activity-page visibility for scheduled runtime events.',
+      rootFolder,
+    });
+    await openProjectCowork(page, 'Activity Schedule Project');
+
+    const scheduledJob = await page.evaluate(async () => {
+      const bridge = window.cloffice ?? window.relay;
+      const created = await bridge.createInternalPromptSchedule({
+        kind: 'chat',
+        name: 'Activity scheduled runtime event',
+        prompt: 'Reply with exactly: schedule activity ok',
+        intervalMinutes: 5,
+        model: 'internal/dev-chat',
+      });
+      await bridge.runInternalPromptScheduleNow(created.id);
+      return created;
+    });
+
+    await expect.poll(
+      async () => page.evaluate(async (jobId) => {
+        const bridge = window.cloffice ?? window.relay;
+        const runs = await bridge.getInternalRunHistory(24);
+        return runs.some((run: any) => run?.scheduleId === jobId && run?.status === 'completed');
+      }, scheduledJob.id),
+      { timeout: 20000, message: 'expected scheduled runtime event to land in internal run history' },
+    ).toBe(true);
+
+    await openSchedulePage(page);
+    await openActivityPage(page);
+    await page.getByRole('button', { name: 'Scheduled', exact: true }).click();
+    await expect(page.getByTestId('activity-source-schedule').first()).toBeVisible({ timeout: 15000 });
+    await page.getByRole('button', { name: '1 action', exact: true }).first().click();
+    await expect(page.getByText('Schedule: Activity scheduled runtime event')).toBeVisible({ timeout: 15000 });
+  });
 });
+
+
+
+
+
+
