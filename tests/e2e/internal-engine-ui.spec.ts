@@ -991,6 +991,12 @@ test.describe('Internal engine UI flow', () => {
       }, scheduledJob.id),
       { timeout: 20000, message: 'expected scheduled runtime event to land in internal run history' },
     ).toBe(true);
+    const scheduledRunId = await page.evaluate(async (jobId) => {
+      const bridge = window.cloffice ?? window.relay;
+      const runs = await bridge.getInternalRunHistory(24);
+      const match = runs.find((run: any) => run?.scheduleId === jobId && run?.status === 'completed');
+      return match?.runId ?? null;
+    }, scheduledJob.id);
 
     await page.evaluate(async () => {
       const bridge = window.cloffice ?? window.relay;
@@ -1012,11 +1018,14 @@ test.describe('Internal engine UI flow', () => {
     await expect(page.getByTestId('activity-source-schedule').first()).toBeVisible({ timeout: 15000 });
     await page.getByRole('button', { name: '1 action', exact: true }).first().click();
     await expect(page.getByText('Schedule: Activity scheduled runtime event')).toBeVisible({ timeout: 15000 });
-
     await page.getByRole('button', { name: 'Runtime', exact: true }).click();
     await expect(page.getByTestId('activity-source-runtime').first()).toBeVisible({ timeout: 15000 });
     await page.getByRole('button', { name: '1 action', exact: true }).first().click();
     await expect(page.getByText('Session: chat')).toBeVisible({ timeout: 15000 });
+    await page.getByRole('button', { name: 'Scheduled', exact: true }).click();
+    await page.getByTestId(`activity-open-run-${scheduledRunId}`).first().click();
+    await expect(page.getByText('Recent internal runs')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId(`internal-run-card-${scheduledRunId}`)).toBeVisible({ timeout: 15000 });
   });
 });
 

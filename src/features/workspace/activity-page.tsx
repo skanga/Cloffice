@@ -26,6 +26,7 @@ type ActivityPageProps = {
   activeSessionKey: string;
   coworkSessionKey: string;
   engineConnected: boolean;
+  onOpenInternalRun?: (runId: string, scheduleId?: string | null) => void;
 };
 
 type ActivityEntry = {
@@ -36,6 +37,8 @@ type ActivityEntry = {
   role: 'user' | 'assistant' | 'system';
   text: string;
   activities: ChatActivityItem[];
+  runId?: string;
+  scheduleId?: string;
 };
 
 type ToneFilter = 'all' | 'success' | 'danger' | 'neutral';
@@ -112,6 +115,7 @@ export function ActivityPage({
   activeSessionKey,
   coworkSessionKey,
   engineConnected,
+  onOpenInternalRun,
 }: ActivityPageProps) {
   const [filterQuery, setFilterQuery] = useState('');
   const [toneFilter, setToneFilter] = useState<ToneFilter>('all');
@@ -143,8 +147,12 @@ export function ActivityPage({
     };
 
     void loadRunHistory();
+    const intervalId = window.setInterval(() => {
+      void loadRunHistory();
+    }, 5000);
     return () => {
       cancelled = true;
+      window.clearInterval(intervalId);
     };
   }, [engineConnected]);
 
@@ -184,6 +192,8 @@ export function ActivityPage({
           || run.promptPreview
           || `${source === 'schedule' ? 'Scheduled' : 'Runtime'} run ${run.status.replace(/_/g, ' ')}`,
         activities: [source === 'schedule' ? buildScheduleRunActivity(run) : buildRuntimeRunActivity(run)],
+        runId: run.runId,
+        scheduleId: run.scheduleId,
       });
     }
 
@@ -364,6 +374,18 @@ export function ActivityPage({
                           <span className="font-sans text-[10px] text-muted-foreground/60">
                             {timeAgo(entry.timestamp)}
                           </span>
+                          {entry.runId && onOpenInternalRun ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="ml-auto h-6 px-2 text-[10px]"
+                              data-testid={`activity-open-run-${entry.runId}`}
+                              onClick={() => onOpenInternalRun(entry.runId!, entry.scheduleId ?? null)}
+                            >
+                              Open run
+                            </Button>
+                          ) : null}
                         </div>
 
                         <p className="mt-0.5 line-clamp-2 font-sans text-[12px] text-foreground/80">

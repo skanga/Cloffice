@@ -4162,13 +4162,19 @@ export default function App() {
                   <ScrollArea className="h-full">
                     {activePage === 'activity' && (
                       <ActivityPage
-                        chatMessages={chatMessages}
-                        coworkMessages={coworkMessages}
-                        activeSessionKey={activeSessionKey}
-                        coworkSessionKey={coworkSessionKey}
-                        engineConnected={engineConnected}
-                      />
-                    )}
+                          chatMessages={chatMessages}
+                          coworkMessages={coworkMessages}
+                          activeSessionKey={activeSessionKey}
+                          coworkSessionKey={coworkSessionKey}
+                          engineConnected={engineConnected}
+                          onOpenInternalRun={(runId, scheduleId) => {
+                            setFocusedScheduledJobId(scheduleId ?? null);
+                            setFocusedInternalRunId(runId);
+                            setActivePage('settings');
+                            setSettingsSection('Developer');
+                          }}
+                        />
+                      )}
 
                     {activePage === 'memory' && (
                       <MemoryPage

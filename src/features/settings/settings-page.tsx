@@ -1072,6 +1072,7 @@ export function SettingsPage({
                             <div
                               key={run.runId}
                               id={`internal-run-${run.runId}`}
+                              data-testid={`internal-run-card-${run.runId}`}
                               className={`rounded-lg border p-3 transition-colors ${
                                 isHighlighted
                                   ? 'border-amber-400 bg-amber-50/70 dark:border-amber-700 dark:bg-amber-950/20'
