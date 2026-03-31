@@ -215,7 +215,7 @@ const desktopBridgeApi = {
     ipcRenderer.invoke('internal-engine:get-schedule-history-retention-limit') as Promise<number>,
   createInternalPromptSchedule: (payload: { kind?: 'chat' | 'cowork'; prompt: string; name?: string; intervalMinutes?: number; projectId?: string; projectTitle?: string; rootPath?: string; model?: string | null }) =>
       ipcRenderer.invoke('internal-engine:create-prompt-schedule', payload) as Promise<{ id: string; name: string; schedule: string; enabled: boolean; state: string; nextRunAt: string | null; lastRunAt: string | null }>,
-  updateInternalPromptSchedule: (id: string, payload: { enabled?: boolean; intervalMinutes?: number; name?: string; prompt?: string; model?: string | null }) =>
+  updateInternalPromptSchedule: (id: string, payload: { enabled?: boolean; intervalMinutes?: number; name?: string; prompt?: string; model?: string | null; clearHistory?: boolean }) =>
       ipcRenderer.invoke('internal-engine:update-prompt-schedule', id, payload) as Promise<{ id: string; name: string; schedule: string; enabled: boolean; state: string; nextRunAt: string | null; lastRunAt: string | null }>,
   deleteInternalPromptSchedule: (id: string) =>
       ipcRenderer.invoke('internal-engine:delete-prompt-schedule', id) as Promise<void>,
