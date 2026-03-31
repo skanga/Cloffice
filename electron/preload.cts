@@ -211,6 +211,8 @@ const desktopBridgeApi = {
     ipcRenderer.invoke('internal-engine:get-history', sessionKey, limit) as Promise<Array<{ id: string; role: 'user' | 'assistant' | 'system'; text: string }>>,
   listInternalCronJobs: () =>
     ipcRenderer.invoke('internal-engine:list-cron-jobs') as Promise<Array<{ id: string; name: string; schedule: string; enabled: boolean; state: string; nextRunAt: string | null; lastRunAt: string | null }>>,
+  getInternalScheduleHistoryRetentionLimit: () =>
+    ipcRenderer.invoke('internal-engine:get-schedule-history-retention-limit') as Promise<number>,
   createInternalPromptSchedule: (payload: { kind?: 'chat' | 'cowork'; prompt: string; name?: string; intervalMinutes?: number; projectId?: string; projectTitle?: string; rootPath?: string; model?: string | null }) =>
       ipcRenderer.invoke('internal-engine:create-prompt-schedule', payload) as Promise<{ id: string; name: string; schedule: string; enabled: boolean; state: string; nextRunAt: string | null; lastRunAt: string | null }>,
   updateInternalPromptSchedule: (id: string, payload: { enabled?: boolean; intervalMinutes?: number; name?: string; prompt?: string; model?: string | null }) =>
@@ -219,6 +221,8 @@ const desktopBridgeApi = {
       ipcRenderer.invoke('internal-engine:delete-prompt-schedule', id) as Promise<void>,
   runInternalPromptScheduleNow: (id: string) =>
       ipcRenderer.invoke('internal-engine:run-prompt-schedule-now', id) as Promise<{ id: string; name: string; schedule: string; enabled: boolean; state: string; nextRunAt: string | null; lastRunAt: string | null }>,
+  setInternalScheduleHistoryRetentionLimit: (limit: number) =>
+      ipcRenderer.invoke('internal-engine:set-schedule-history-retention-limit', limit) as Promise<number>,
   seedInternalScheduleArtifactForE2E: (id: string) =>
       ipcRenderer.invoke('internal-engine:seed-schedule-artifact-e2e', id),
   sendInternalChat: (sessionKey: string, text: string) =>

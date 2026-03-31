@@ -49,6 +49,7 @@ type DesktopBridgeApi = {
   deleteInternalSession: (sessionKey: string) => Promise<void>;
   getInternalHistory: (sessionKey: string, limit?: number) => Promise<EngineChatMessage[]>;
   listInternalCronJobs: () => Promise<EngineCronJob[]>;
+  getInternalScheduleHistoryRetentionLimit: () => Promise<number>;
   createInternalPromptSchedule: (payload: {
     kind?: 'chat' | 'cowork';
     prompt: string;
@@ -65,7 +66,9 @@ type DesktopBridgeApi = {
       name?: string;
       prompt?: string;
       model?: string | null;
+      clearHistory?: boolean;
     }) => Promise<EngineCronJob>;
+    setInternalScheduleHistoryRetentionLimit: (limit: number) => Promise<number>;
     deleteInternalPromptSchedule: (id: string) => Promise<void>;
     runInternalPromptScheduleNow: (id: string) => Promise<EngineCronJob>;
     seedInternalScheduleArtifactForE2E?: (id: string) => Promise<unknown>;

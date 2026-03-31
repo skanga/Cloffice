@@ -632,6 +632,7 @@ export default function App() {
   const [changingCoworkModel, setChangingCoworkModel] = useState(false);
   const [scheduledJobs, setScheduledJobs] = useState<ScheduledJob[]>([]);
   const [scheduledLoading, setScheduledLoading] = useState(false);
+  const [scheduleHistoryRetentionLimit, setScheduleHistoryRetentionLimit] = useState(6);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [recentRenameTarget, setRecentRenameTarget] = useState<RecentWorkspaceEntry | null>(null);
@@ -2820,6 +2821,17 @@ export default function App() {
       setStatus(`Cleared history for ${scheduleIds.length} internal schedule${scheduleIds.length === 1 ? '' : 's'}.`);
     };
 
+    const handleSetInternalScheduleHistoryRetentionLimit = async (limit: number) => {
+      if (!bridge?.setInternalScheduleHistoryRetentionLimit) {
+        setStatus(buildRuntimeClientUnavailableStatus());
+        return;
+      }
+      const nextLimit = await bridge.setInternalScheduleHistoryRetentionLimit(limit);
+      setScheduleHistoryRetentionLimit(nextLimit);
+      await loadScheduledJobs();
+      setStatus(`Keeping the most recent ${nextLimit} schedule history entr${nextLimit === 1 ? 'y' : 'ies'} per schedule.`);
+    };
+
     const handleBulkDeleteInternalPromptSchedules = async (scheduleIds: string[]) => {
       for (const scheduleId of scheduleIds) {
         await deleteEngineScheduleWithStatus({
@@ -3624,6 +3636,10 @@ export default function App() {
         engineConnectOptionsFromDraft(getCurrentEngineDraft()),
       );
       setScheduledJobs(result.jobs);
+      if (bridge?.getInternalScheduleHistoryRetentionLimit && draftEngineProviderId === 'internal') {
+        const nextLimit = await bridge.getInternalScheduleHistoryRetentionLimit();
+        setScheduleHistoryRetentionLimit(nextLimit);
+      }
       if (result.errorMessage) {
         setStatus(result.errorMessage);
       }
@@ -4176,8 +4192,10 @@ export default function App() {
                           createScheduleStatus={status}
                           defaultCreateModel={coworkModel}
                           scheduleModels={coworkModels}
+                          scheduleHistoryRetentionLimit={scheduleHistoryRetentionLimit}
                           onCreateSchedule={(input) => void handleCreateInternalPromptSchedule(input)}
                           onUpdateScheduleDetails={(jobId, input) => void handleUpdateInternalPromptSchedule(jobId, input)}
+                          onSetScheduleHistoryRetentionLimit={(limit) => void handleSetInternalScheduleHistoryRetentionLimit(limit)}
                           onDuplicateJob={(job) => void handleDuplicateInternalPromptSchedule(job)}
                           onRunJobNow={(jobId) => void handleRunInternalPromptScheduleNow(jobId)}
                           onBulkRunJobsNow={(jobIds) => void handleBulkRunInternalPromptSchedulesNow(jobIds)}

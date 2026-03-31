@@ -249,6 +249,7 @@ export type InternalEngineDesktopBridge = {
   deleteInternalSession(sessionKey: string): Promise<void>;
   getInternalHistory(sessionKey: string, limit?: number): Promise<EngineChatMessage[]>;
   listInternalCronJobs(): Promise<EngineCronJob[]>;
+  getInternalScheduleHistoryRetentionLimit(): Promise<number>;
   createInternalPromptSchedule(payload: {
     kind?: 'chat' | 'cowork';
     prompt: string;
@@ -259,6 +260,7 @@ export type InternalEngineDesktopBridge = {
     rootPath?: string;
     model?: string | null;
   }): Promise<EngineCronJob>;
+  setInternalScheduleHistoryRetentionLimit(limit: number): Promise<number>;
   updateInternalPromptSchedule(id: string, payload: {
     enabled?: boolean;
     intervalMinutes?: number;

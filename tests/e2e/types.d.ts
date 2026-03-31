@@ -24,6 +24,7 @@ interface Window {
     deleteInternalSession: (sessionKey: string) => Promise<void>;
     getInternalHistory: (sessionKey: string, limit?: number) => Promise<any[]>;
     listInternalCronJobs: () => Promise<any[]>;
+    getInternalScheduleHistoryRetentionLimit: () => Promise<number>;
     createInternalPromptSchedule: (payload: {
       kind?: 'chat' | 'cowork';
       prompt: string;
@@ -37,7 +38,12 @@ interface Window {
     updateInternalPromptSchedule: (id: string, payload: {
       enabled?: boolean;
       intervalMinutes?: number;
+      name?: string;
+      prompt?: string;
+      model?: string | null;
+      clearHistory?: boolean;
     }) => Promise<any>;
+  setInternalScheduleHistoryRetentionLimit: (limit: number) => Promise<number>;
   deleteInternalPromptSchedule: (id: string) => Promise<void>;
   seedInternalScheduleArtifactForE2E?: (id: string) => Promise<unknown>;
     sendInternalChat: (sessionKey: string, text: string) => Promise<any>;

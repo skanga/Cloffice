@@ -36,6 +36,7 @@ type ScheduledPageProps = {
   createScheduleBusy?: boolean;
   defaultCreateModel?: string | null;
   scheduleModels?: Array<{ value: string; label: string }>;
+  scheduleHistoryRetentionLimit?: number;
   onRunJobNow?: (jobId: string) => void | Promise<void>;
   onDuplicateJob?: (job: ScheduledJob) => void | Promise<void>;
   onBulkRunJobsNow?: (jobIds: string[]) => void | Promise<void>;
@@ -52,6 +53,7 @@ type ScheduledPageProps = {
   onOpenRunHistory?: (jobId: string, runId: string) => void | Promise<void>;
   onCreateSchedule?: (input: EngineScheduleCreateInput) => void | Promise<void>;
   onUpdateScheduleDetails?: (jobId: string, input: { name: string; prompt: string; model?: string | null }) => void | Promise<void>;
+  onSetScheduleHistoryRetentionLimit?: (limit: number) => void | Promise<void>;
 };
 
 type ViewMode = 'timeline' | 'calendar';
@@ -213,6 +215,7 @@ export function ScheduledPage({
   createScheduleBusy = false,
   defaultCreateModel = null,
   scheduleModels = [],
+  scheduleHistoryRetentionLimit = 6,
   onRunJobNow,
   onDuplicateJob,
   onBulkRunJobsNow,
@@ -229,6 +232,7 @@ export function ScheduledPage({
   onOpenRunHistory,
   onCreateSchedule,
   onUpdateScheduleDetails,
+  onSetScheduleHistoryRetentionLimit,
 }: ScheduledPageProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('timeline');
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
@@ -320,6 +324,12 @@ export function ScheduledPage({
   const visibleJobIds = useMemo(() => visibleJobs.map((job) => job.id), [visibleJobs]);
   const projectMetrics = useMemo(() => aggregateScheduleMetrics(jobs, 'project').slice(0, 4), [jobs]);
   const modelMetrics = useMemo(() => aggregateScheduleMetrics(jobs, 'model').slice(0, 4), [jobs]);
+  const healthMetrics = useMemo(() => ({
+    pendingApprovals: jobs.filter((job) => job.state === 'awaiting_approval').length,
+    withErrors: jobs.filter((job) => (job.lastArtifactErrorCount ?? 0) > 0 || Boolean(job.lastError?.trim())).length,
+    blocked: jobs.filter((job) => job.state === 'blocked').length,
+    completed: jobs.filter((job) => job.lastRunStatus === 'completed').length,
+  }), [jobs]);
   const groupedVisibleJobs = useMemo(() => {
     if (groupMode === 'none') {
       return [{ key: 'all', label: 'All schedules', jobs: visibleJobs }];
@@ -566,7 +576,7 @@ export function ScheduledPage({
       </div>
 
       {jobs.length > 0 ? (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid gap-3 md:grid-cols-3">
           <section className="rounded-xl border border-border/60 bg-card px-4 py-3" data-testid="schedule-metrics-project">
             <div className="flex items-center justify-between gap-2">
               <p className="font-sans text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">By project</p>
@@ -614,6 +624,60 @@ export function ScheduledPage({
               ))}
             </div>
           </section>
+
+          <section className="rounded-xl border border-border/60 bg-card px-4 py-3" data-testid="schedule-metrics-health">
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-sans text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Health</p>
+              <Badge variant="outline" className="font-sans text-[10px]">{jobs.length}</Badge>
+            </div>
+            <div className="mt-2 grid gap-2">
+              <div className="rounded-md border border-border/50 bg-background/60 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-sans text-[12px] font-medium text-foreground">Pending approvals</span>
+                  <Badge variant="outline" className="font-sans text-[10px]">{healthMetrics.pendingApprovals}</Badge>
+                </div>
+              </div>
+              <div className="rounded-md border border-border/50 bg-background/60 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-sans text-[12px] font-medium text-foreground">Schedules with errors</span>
+                  <Badge variant="outline" className="font-sans text-[10px]">{healthMetrics.withErrors}</Badge>
+                </div>
+              </div>
+              <div className="rounded-md border border-border/50 bg-background/60 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-sans text-[12px] font-medium text-foreground">Blocked runs</span>
+                  <Badge variant="outline" className="font-sans text-[10px]">{healthMetrics.blocked}</Badge>
+                </div>
+              </div>
+              <div className="rounded-md border border-border/50 bg-background/60 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-sans text-[12px] font-medium text-foreground">Completed runs</span>
+                  <Badge variant="outline" className="font-sans text-[10px]">{healthMetrics.completed}</Badge>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {scheduleActionsEnabled ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-card px-4 py-3">
+          <span className="font-sans text-[12px] font-medium text-foreground">History retention</span>
+          <span className="font-sans text-[11px] text-muted-foreground">
+            Keep the most recent run-history entries per schedule.
+          </span>
+          <select
+            value={String(scheduleHistoryRetentionLimit)}
+            onChange={(event) => void onSetScheduleHistoryRetentionLimit?.(Number(event.target.value))}
+            className="ml-auto h-9 rounded-xl border border-border bg-background px-3 font-sans text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+            data-testid="schedule-history-retention-select"
+          >
+            {[3, 6, 12, 25].map((limit) => (
+              <option key={limit} value={limit}>
+                Keep {limit}
+              </option>
+            ))}
+          </select>
         </div>
       ) : null}
 

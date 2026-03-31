@@ -264,6 +264,7 @@ function createInternalEngineMainService() {
   };
   type PersistedInternalScheduleJournal = {
     version: 1;
+    historyRetentionLimit?: number;
     schedules: PersistedInternalScheduleRecord[];
   };
   const stateFilePath = path.join(runtimeHome, 'state.v1.json');
@@ -285,6 +286,7 @@ function createInternalEngineMainService() {
   let artifacts: PersistedInternalArtifactRecord[] = [];
   let pendingApprovalFlows: InternalApprovalRecoveryFlow[] = [];
   let schedules: PersistedInternalScheduleRecord[] = [];
+  let scheduleHistoryRetentionLimit = 6;
   let schedulerTimer: NodeJS.Timeout | null = null;
   const runningScheduleIds = new Set<string>();
   let lastScheduledJobName: string | null = null;
@@ -1147,6 +1149,7 @@ function createInternalEngineMainService() {
   });
   const buildPersistedScheduleJournal = (): PersistedInternalScheduleJournal => ({
     version: 1,
+    historyRetentionLimit: scheduleHistoryRetentionLimit,
     schedules: schedules
       .slice()
       .sort((left, right) => {
@@ -1196,7 +1199,9 @@ function createInternalEngineMainService() {
     ...(typeof schedule.completedRunCount === 'number' ? { completedRunCount: schedule.completedRunCount } : {}),
     ...(typeof schedule.blockedRunCount === 'number' ? { blockedRunCount: schedule.blockedRunCount } : {}),
     ...(typeof schedule.approvalWaitCount === 'number' ? { approvalWaitCount: schedule.approvalWaitCount } : {}),
-    ...(schedule.recentRunHistory?.length ? { recentRunHistory: schedule.recentRunHistory.slice(-6).reverse() } : {}),
+    ...(schedule.recentRunHistory?.length
+      ? { recentRunHistory: schedule.recentRunHistory.slice(-scheduleHistoryRetentionLimit).reverse() }
+      : {}),
     ...(schedule.lastRunId ? { lastRunId: schedule.lastRunId } : {}),
     ...(schedule.lastRunStatus ? { lastRunStatus: schedule.lastRunStatus } : {}),
     ...(schedule.lastRunSummary ? { lastRunSummary: schedule.lastRunSummary } : {}),
@@ -1214,7 +1219,7 @@ function createInternalEngineMainService() {
       at: new Date().toISOString(),
       ...(entry.summary ? { summary: entry.summary } : {}),
     };
-    schedule.recentRunHistory = [...(schedule.recentRunHistory ?? []), historyEntry].slice(-6);
+    schedule.recentRunHistory = [...(schedule.recentRunHistory ?? []), historyEntry].slice(-scheduleHistoryRetentionLimit);
     if (!seenRunId) {
       schedule.totalRunCount = (schedule.totalRunCount ?? 0) + 1;
     }
@@ -1460,6 +1465,10 @@ function createInternalEngineMainService() {
     try {
       const rawSchedules = await fs.readFile(scheduleJournalFilePath, 'utf8');
       const parsedSchedules = JSON.parse(rawSchedules) as Record<string, unknown>;
+      scheduleHistoryRetentionLimit =
+        Number.isFinite(parsedSchedules.historyRetentionLimit) && Number(parsedSchedules.historyRetentionLimit) >= 1
+          ? Math.max(1, Math.round(Number(parsedSchedules.historyRetentionLimit)))
+          : 6;
       schedules = Array.isArray(parsedSchedules.schedules)
         ? parsedSchedules.schedules
             .map((entry) => parsePersistedSchedule(entry))
@@ -1470,6 +1479,7 @@ function createInternalEngineMainService() {
         console.warn('[Cloffice] Failed to load internal schedule journal, starting with an empty schedule journal.', error);
       }
       schedules = [];
+      scheduleHistoryRetentionLimit = 6;
     }
 
     ensureSession(mainSessionKey, 'main');
@@ -1765,6 +1775,10 @@ function createInternalEngineMainService() {
       requireConnected();
       return schedules.map(toEngineCronJob);
     },
+    async getScheduleHistoryRetentionLimit(): Promise<number> {
+      requireConnected();
+      return scheduleHistoryRetentionLimit;
+    },
     async createPromptSchedule(payload: {
       kind?: 'chat' | 'cowork';
       prompt: string;
@@ -1887,6 +1901,20 @@ function createInternalEngineMainService() {
       }
       await runScheduledPrompt(schedule);
       return toEngineCronJob(schedule);
+    },
+    async setScheduleHistoryRetentionLimit(limit: number): Promise<number> {
+      requireConnected();
+      if (!Number.isFinite(limit) || Number(limit) < 1) {
+        throw new Error('Schedule history retention limit must be at least 1.');
+      }
+      scheduleHistoryRetentionLimit = Math.max(1, Math.round(Number(limit)));
+      for (const schedule of schedules) {
+        if (schedule.recentRunHistory?.length) {
+          schedule.recentRunHistory = schedule.recentRunHistory.slice(-scheduleHistoryRetentionLimit);
+        }
+      }
+      await persistState();
+      return scheduleHistoryRetentionLimit;
     },
     async seedScheduleArtifactForE2E(id: string): Promise<EngineCronJob> {
       requireConnected();
@@ -3449,6 +3477,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('internal-engine:delete-session', async (_event, sessionKey: string) => internalEngineService.deleteSession(sessionKey));
   ipcMain.handle('internal-engine:get-history', async (_event, sessionKey: string, limit?: number) => internalEngineService.getHistory(sessionKey, limit));
   ipcMain.handle('internal-engine:list-cron-jobs', async () => internalEngineService.listCronJobs());
+  ipcMain.handle('internal-engine:get-schedule-history-retention-limit', async () => internalEngineService.getScheduleHistoryRetentionLimit());
   ipcMain.handle(
     'internal-engine:create-prompt-schedule',
     async (_event, payload: { kind?: 'chat' | 'cowork'; prompt: string; name?: string; intervalMinutes?: number; rootPath?: string; model?: string | null }) =>
@@ -3461,6 +3490,8 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle('internal-engine:delete-prompt-schedule', async (_event, id: string) => internalEngineService.deletePromptSchedule(id));
   ipcMain.handle('internal-engine:run-prompt-schedule-now', async (_event, id: string) => internalEngineService.runPromptScheduleNow(id));
+  ipcMain.handle('internal-engine:set-schedule-history-retention-limit', async (_event, limit: number) =>
+    internalEngineService.setScheduleHistoryRetentionLimit(limit));
   ipcMain.handle('internal-engine:seed-schedule-artifact-e2e', async (_event, id: string) => internalEngineService.seedScheduleArtifactForE2E(id));
   ipcMain.handle('internal-engine:send-chat', async (event, sessionKey: string, text: string) =>
     internalEngineService.sendChat(sessionKey, text, (frame) => {

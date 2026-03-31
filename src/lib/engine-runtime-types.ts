@@ -64,6 +64,7 @@ export type EngineCronJob = {
   lastArtifactErrorCount?: number;
   lastArtifactPreviews?: string[];
   lastArtifactErrors?: string[];
+  lastError?: string;
 };
 
 export type EngineToolEntry = {

@@ -504,6 +504,11 @@ test.describe('Internal engine UI flow', () => {
 
     await page.getByTestId(`scheduled-job-select-${createdJobs[0].id}`).check();
     await page.getByTestId(`scheduled-job-select-${createdJobs[1].id}`).check();
+    await page.getByTestId('schedule-history-retention-select').selectOption('3');
+    await expect.poll(async () => page.evaluate(async () => {
+      const bridge = window.cloffice ?? window.relay;
+      return bridge.getInternalScheduleHistoryRetentionLimit();
+    }), { timeout: 15000 }).toBe(3);
     await page.getByTestId('schedule-bulk-clear-history').click();
     await expect.poll(async () => page.evaluate(async (jobIds) => {
       const bridge = window.cloffice ?? window.relay;
@@ -917,6 +922,9 @@ test.describe('Internal engine UI flow', () => {
     await page.getByRole('button', { name: 'Refresh' }).click();
     const scheduledJobCard = page.getByTestId(`scheduled-job-${seededJob.id}`);
     await expect(scheduledJobCard).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId('schedule-metrics-health')).toContainText('Schedules with errors');
+    await expect(page.getByTestId('schedule-metrics-health')).toContainText('Completed runs');
+    await expect(page.getByTestId('schedule-metrics-health')).toContainText('1');
     await expect(scheduledJobCard).toContainText('Last artifact');
     await expect(scheduledJobCard.getByTestId(`scheduled-job-open-artifact-${seededJob.id}`)).toBeVisible();
     await expect(scheduledJobCard.getByTestId(`scheduled-job-copy-artifact-${seededJob.id}`)).toBeVisible();
