@@ -122,6 +122,7 @@ export function ActivityPage({
   const [sourceFilter, setSourceFilter] = useState<'all' | 'chat' | 'cowork' | 'schedule' | 'runtime'>('all');
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
   const [internalRunHistory, setInternalRunHistory] = useState<InternalEngineRunRecord[]>([]);
+  const [runDetailsById, setRunDetailsById] = useState<Record<string, InternalEngineRunRecord>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -229,14 +230,26 @@ export function ActivityPage({
     return { total, withActivity, successes, errors };
   }, [entries]);
 
-  const toggleExpand = useCallback((id: string) => {
+  const toggleExpand = useCallback((entry: ActivityEntry) => {
     setExpandedEntries((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(entry.id)) next.delete(entry.id);
+      else next.add(entry.id);
       return next;
     });
-  }, []);
+    if (!entry.runId || runDetailsById[entry.runId]) {
+      return;
+    }
+    const bridge = getDesktopBridge();
+    void bridge?.getInternalRunDetails?.(entry.runId).then((detail) => {
+      if (!detail) {
+        return;
+      }
+      setRunDetailsById((current) => ({ ...current, [entry.runId!]: detail }));
+    }).catch(() => {
+      // Best-effort detail hydration for runtime-backed activity entries.
+    });
+  }, [runDetailsById]);
 
   return (
     <section className="mx-auto grid h-full w-full max-w-[1060px] min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-3">
@@ -334,6 +347,7 @@ export function ActivityPage({
                 {filteredEntries.map((entry) => {
                   const hasActivities = entry.activities.length > 0;
                   const isExpanded = expandedEntries.has(entry.id);
+                  const runDetails = entry.runId ? runDetailsById[entry.runId] : null;
                   const primaryTone = entry.activities.find((a) => a.tone === 'danger')?.tone
                     || entry.activities.find((a) => a.tone === 'success')?.tone
                     || 'neutral';
@@ -398,7 +412,7 @@ export function ActivityPage({
                             <button
                               type="button"
                               className="flex items-center gap-1 font-sans text-[11px] text-muted-foreground hover:text-foreground"
-                              onClick={() => toggleExpand(entry.id)}
+                              onClick={() => toggleExpand(entry)}
                             >
                               {isExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
                               {entry.activities.length} action{entry.activities.length > 1 ? 's' : ''}
@@ -426,6 +440,55 @@ export function ActivityPage({
                                     </div>
                                   );
                                 })}
+                                {runDetails?.timeline?.length ? (
+                                  <div className="rounded-lg border border-border/50 bg-card/60 px-2.5 py-2">
+                                    <p className="font-sans text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      Timeline
+                                    </p>
+                                    <div className="mt-2 grid gap-1.5">
+                                      {runDetails.timeline.slice(0, 5).map((timelineEntry) => (
+                                        <div
+                                          key={timelineEntry.id}
+                                          className="rounded-md border border-border/40 bg-background/70 px-2 py-1.5"
+                                        >
+                                          <div className="flex items-center justify-between gap-2">
+                                            <span className="font-sans text-[11px] font-medium text-foreground">
+                                              {timelineEntry.phase}
+                                            </span>
+                                            <span className="font-sans text-[10px] text-muted-foreground">
+                                              {timeAgo(timelineEntry.at)}
+                                            </span>
+                                          </div>
+                                          <p className="mt-0.5 font-sans text-[11px] text-muted-foreground">
+                                            {timelineEntry.message}
+                                          </p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ) : null}
+                                {runDetails?.artifact ? (
+                                  <div className="rounded-lg border border-border/50 bg-card/60 px-2.5 py-2">
+                                    <div className="flex items-center gap-2">
+                                      <p className="font-sans text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                        Artifact
+                                      </p>
+                                      <Badge variant="outline" className="font-sans text-[10px]">
+                                        {runDetails.artifact.receiptCount} receipt{runDetails.artifact.receiptCount === 1 ? '' : 's'}
+                                      </Badge>
+                                    </div>
+                                    {runDetails.artifact.summary ? (
+                                      <p className="mt-1 font-sans text-[11px] text-muted-foreground">
+                                        {runDetails.artifact.summary}
+                                      </p>
+                                    ) : null}
+                                    {runDetails.artifact.errors.length > 0 ? (
+                                      <p className="mt-1 font-sans text-[11px] text-destructive">
+                                        {runDetails.artifact.errors[0]}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                ) : null}
                               </div>
                             )}
                           </div>

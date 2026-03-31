@@ -183,6 +183,8 @@ const desktopBridgeApi = {
     ipcRenderer.invoke('internal-engine:get-runtime-info') as Promise<InternalEngineRuntimeInfo>,
   getInternalRunHistory: (limit?: number) =>
     ipcRenderer.invoke('internal-engine:get-run-history', limit) as Promise<InternalEngineRunRecord[]>,
+  getInternalRunDetails: (runId: string) =>
+    ipcRenderer.invoke('internal-engine:get-run-details', runId) as Promise<InternalEngineRunRecord | null>,
   connectInternalEngine: (options: EngineConnectOptions) =>
     ipcRenderer.invoke('internal-engine:connect', options) as Promise<void>,
   disconnectInternalEngine: () =>

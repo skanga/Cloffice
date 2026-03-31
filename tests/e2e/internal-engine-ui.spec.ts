@@ -1018,6 +1018,7 @@ test.describe('Internal engine UI flow', () => {
     await expect(page.getByTestId('activity-source-schedule').first()).toBeVisible({ timeout: 15000 });
     await page.getByRole('button', { name: '1 action', exact: true }).first().click();
     await expect(page.getByText('Schedule: Activity scheduled runtime event')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('Timeline')).toBeVisible({ timeout: 15000 });
     await page.getByRole('button', { name: 'Runtime', exact: true }).click();
     await expect(page.getByTestId('activity-source-runtime').first()).toBeVisible({ timeout: 15000 });
     await page.getByRole('button', { name: '1 action', exact: true }).first().click();

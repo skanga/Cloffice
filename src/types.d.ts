@@ -32,10 +32,11 @@ import type { InternalApprovalRecoveryFlow } from './lib/internal-approval-recov
 type DesktopBridgeApi = {
   getConfig: () => Promise<AppConfig>;
   saveConfig: (config: AppConfig) => Promise<AppConfig>;
-  getInternalEngineStatus: () => Promise<InternalEngineShellStatus>;
-  getInternalEngineRuntimeInfo: () => Promise<InternalEngineRuntimeInfo>;
-  getInternalRunHistory: (limit?: number) => Promise<InternalEngineRunRecord[]>;
-  connectInternalEngine: (options: EngineConnectOptions) => Promise<void>;
+    getInternalEngineStatus: () => Promise<InternalEngineShellStatus>;
+    getInternalEngineRuntimeInfo: () => Promise<InternalEngineRuntimeInfo>;
+    getInternalRunHistory: (limit?: number) => Promise<InternalEngineRunRecord[]>;
+    getInternalRunDetails: (runId: string) => Promise<InternalEngineRunRecord | null>;
+    connectInternalEngine: (options: EngineConnectOptions) => Promise<void>;
   disconnectInternalEngine: () => Promise<void>;
   getInternalEngineActiveSessionKey: () => Promise<string>;
   createInternalChatSession: () => Promise<string>;

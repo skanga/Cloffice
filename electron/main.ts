@@ -1722,6 +1722,22 @@ function createInternalEngineMainService() {
           ...(run.timeline ? { timeline: [...run.timeline].sort((left, right) => left.at - right.at) } : {}),
         }));
     },
+    async getRunDetails(runId: string): Promise<InternalEngineRunRecord | null> {
+      if (!shellStatus.availableInBuild) {
+        return null;
+      }
+      await loadPersistedState();
+      const run = runs.get(runId);
+      if (!run) {
+        return null;
+      }
+      const artifact = run.artifactId ? artifacts.find((entry) => entry.id === run.artifactId) ?? null : null;
+      return {
+        ...run,
+        ...(artifact ? { artifact } : {}),
+        ...(run.timeline ? { timeline: [...run.timeline].sort((left, right) => left.at - right.at) } : {}),
+      };
+    },
     async testProviderConnection(
       providerId: InternalChatProviderId,
       configOverride?: Partial<InternalProviderConfig>,
@@ -3463,6 +3479,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('internal-engine:status', async () => internalEngineService.getStatus());
   ipcMain.handle('internal-engine:get-runtime-info', async () => internalEngineService.getRuntimeInfo());
   ipcMain.handle('internal-engine:get-run-history', async (_event, limit?: number) => internalEngineService.getRunHistory(limit));
+  ipcMain.handle('internal-engine:get-run-details', async (_event, runId: string) => internalEngineService.getRunDetails(runId));
   ipcMain.handle('internal-engine:connect', async (_event, options: EngineConnectOptions) => internalEngineService.connect(options));
   ipcMain.handle('internal-engine:disconnect', async () => internalEngineService.disconnect());
   ipcMain.handle('internal-engine:get-active-session-key', async () => internalEngineService.getActiveSessionKey());

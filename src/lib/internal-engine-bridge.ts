@@ -235,6 +235,7 @@ export type InternalEngineDesktopBridge = {
   getInternalEngineStatus(): Promise<InternalEngineShellStatus>;
   getInternalEngineRuntimeInfo(): Promise<InternalEngineRuntimeInfo>;
   getInternalRunHistory(limit?: number): Promise<InternalEngineRunRecord[]>;
+  getInternalRunDetails(runId: string): Promise<InternalEngineRunRecord | null>;
   connectInternalEngine(options: EngineConnectOptions): Promise<void>;
   disconnectInternalEngine(): Promise<void>;
   getInternalEngineActiveSessionKey(): Promise<string>;

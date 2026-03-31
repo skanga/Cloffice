@@ -10,6 +10,7 @@ interface Window {
     getInternalEngineStatus: () => Promise<any>;
     getInternalEngineRuntimeInfo: () => Promise<any>;
     getInternalRunHistory: (limit?: number) => Promise<any[]>;
+    getInternalRunDetails: (runId: string) => Promise<any | null>;
     connectInternalEngine: (options: any) => Promise<void>;
     disconnectInternalEngine: () => Promise<void>;
     getInternalEngineActiveSessionKey: () => Promise<string>;
@@ -43,9 +44,9 @@ interface Window {
       model?: string | null;
       clearHistory?: boolean;
     }) => Promise<any>;
-  setInternalScheduleHistoryRetentionLimit: (limit: number) => Promise<number>;
-  deleteInternalPromptSchedule: (id: string) => Promise<void>;
-  seedInternalScheduleArtifactForE2E?: (id: string) => Promise<unknown>;
+    setInternalScheduleHistoryRetentionLimit: (limit: number) => Promise<number>;
+    deleteInternalPromptSchedule: (id: string) => Promise<void>;
+    seedInternalScheduleArtifactForE2E?: (id: string) => Promise<unknown>;
     sendInternalChat: (sessionKey: string, text: string) => Promise<any>;
     setInternalEngineEventHandler: (handler: ((frame: any) => void) | null) => void;
     testInternalProviderConnection: (providerId: 'openai' | 'anthropic' | 'gemini', config?: any) => Promise<any>;
