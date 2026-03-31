@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+﻿import { useMemo, useRef, useState } from 'react';
 import { useEffect } from 'react';
 import {
   AlertTriangle,
@@ -58,6 +58,7 @@ type ScheduledPageProps = {
 
 type ViewMode = 'timeline' | 'calendar';
 type GroupMode = 'none' | 'project' | 'model';
+type RecentOutcomeFilter = 'all' | 'completed' | 'awaiting_approval' | 'blocked';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTH_NAMES = [
@@ -73,9 +74,9 @@ function formatTime(value: string | null): string {
 }
 
 function formatTimeShort(value: string | null): string {
-  if (!value) return '—';
+  if (!value) return 'â€”';
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '—';
+  if (Number.isNaN(parsed.getTime())) return 'â€”';
   return new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit' }).format(parsed);
 }
 
@@ -281,6 +282,7 @@ export function ScheduledPage({
   const [searchQuery, setSearchQuery] = useState('');
   const [stateFilter, setStateFilter] = useState<'all' | 'active' | 'paused' | 'pending'>('all');
   const [groupMode, setGroupMode] = useState<GroupMode>('none');
+  const [recentOutcomeFilter, setRecentOutcomeFilter] = useState<RecentOutcomeFilter>('all');
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -363,6 +365,19 @@ export function ScheduledPage({
     awaitingApproval: recentScheduleEvents.filter((entry) => entry.status === 'awaiting_approval').length,
     blocked: recentScheduleEvents.filter((entry) => entry.status === 'blocked' || entry.status === 'interrupted').length,
   }), [recentScheduleEvents]);
+  const recent24hCount = useMemo(() => recentScheduleEvents.filter((entry) => {
+    const at = new Date(entry.at).getTime();
+    return Number.isFinite(at) && Date.now() - at <= 24 * 60 * 60 * 1000;
+  }).length, [recentScheduleEvents]);
+  const filteredRecentScheduleEvents = useMemo(() => {
+    if (recentOutcomeFilter === 'all') {
+      return recentScheduleEvents;
+    }
+    if (recentOutcomeFilter === 'blocked') {
+      return recentScheduleEvents.filter((entry) => entry.status === 'blocked' || entry.status === 'interrupted');
+    }
+    return recentScheduleEvents.filter((entry) => entry.status === recentOutcomeFilter);
+  }, [recentOutcomeFilter, recentScheduleEvents]);
   const groupedVisibleJobs = useMemo(() => {
     if (groupMode === 'none') {
       return [{ key: 'all', label: 'All schedules', jobs: visibleJobs }];
@@ -627,7 +642,7 @@ export function ScheduledPage({
                     <Badge variant="outline" className="font-sans text-[10px]">{metric.total} job{metric.total === 1 ? '' : 's'}</Badge>
                   </div>
                   <p className="mt-1 font-sans text-[11px] text-muted-foreground">
-                    {metric.active} active · {metric.pending} pending approval · {metric.completed} completed
+                    {metric.active} active Â· {metric.pending} pending approval Â· {metric.completed} completed
                   </p>
                 </div>
               ))}
@@ -651,7 +666,7 @@ export function ScheduledPage({
                     <Badge variant="outline" className="font-sans text-[10px]">{metric.total} job{metric.total === 1 ? '' : 's'}</Badge>
                   </div>
                   <p className="mt-1 font-sans text-[11px] text-muted-foreground">
-                    {metric.active} active · {metric.pending} pending approval · {metric.completed} completed
+                    {metric.active} active Â· {metric.pending} pending approval Â· {metric.completed} completed
                   </p>
                 </div>
               ))}
@@ -696,6 +711,9 @@ export function ScheduledPage({
               <p className="font-sans text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Recent outcomes</p>
               <Badge variant="outline" className="font-sans text-[10px]">{recentScheduleEvents.length}</Badge>
             </div>
+            <p className="mt-1 font-sans text-[11px] text-muted-foreground">
+              {recent24hCount} retained event{recent24hCount === 1 ? '' : 's'} in the last 24 hours.
+            </p>
             <div className="mt-2 grid gap-2">
               <div className="rounded-md border border-border/50 bg-background/60 px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
@@ -716,8 +734,28 @@ export function ScheduledPage({
                 </div>
               </div>
             </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {([
+                ['all', 'All'],
+                ['completed', 'Completed'],
+                ['awaiting_approval', 'Awaiting approval'],
+                ['blocked', 'Blocked'],
+              ] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={`rounded-md px-2 py-1 font-sans text-[11px] transition-colors ${
+                    recentOutcomeFilter === value ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50'
+                  }`}
+                  data-testid={`schedule-recent-filter-${value}`}
+                  onClick={() => setRecentOutcomeFilter(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="mt-3 grid gap-2">
-              {recentScheduleEvents.length > 0 ? recentScheduleEvents.map((entry) => (
+              {filteredRecentScheduleEvents.length > 0 ? filteredRecentScheduleEvents.map((entry) => (
                 <div
                   key={entry.key}
                   className="rounded-md border border-border/50 bg-background/60 px-3 py-2"
@@ -734,7 +772,11 @@ export function ScheduledPage({
                 </div>
               )) : (
                 <div className="rounded-md border border-dashed border-border/60 bg-background/40 px-3 py-3">
-                  <p className="font-sans text-[11px] text-muted-foreground">No retained schedule run history yet.</p>
+                  <p className="font-sans text-[11px] text-muted-foreground">
+                    {recentScheduleEvents.length > 0
+                      ? 'No retained schedule runs match this filter.'
+                      : 'No retained schedule run history yet.'}
+                  </p>
                 </div>
               )}
             </div>
@@ -872,7 +914,7 @@ export function ScheduledPage({
       {/* Main content */}
       <div className="min-h-0 rounded-xl border border-border/60 bg-card">
         {viewMode === 'timeline' ? (
-          /* ── Timeline view ── */
+          /* â”€â”€ Timeline view â”€â”€ */
             <ScrollArea className="h-full">
             <div className="border-b border-border/50 px-4 py-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -1539,7 +1581,7 @@ export function ScheduledPage({
             )}
           </ScrollArea>
         ) : (
-          /* ── Calendar view ── */
+          /* â”€â”€ Calendar view â”€â”€ */
           <div className="grid min-h-0 grid-cols-1 gap-0" style={{ gridTemplateColumns: selectedDate ? '1fr 280px' : '1fr' }}>
             <div className="p-4">
               {/* Month header */}
@@ -1684,6 +1726,10 @@ export function ScheduledPage({
     </section>
   );
 }
+
+
+
+
 
 
 

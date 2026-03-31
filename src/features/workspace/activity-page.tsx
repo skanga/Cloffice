@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -31,7 +31,7 @@ type ActivityPageProps = {
 type ActivityEntry = {
   id: string;
   timestamp: number;
-  source: 'chat' | 'cowork' | 'schedule';
+  source: 'chat' | 'cowork' | 'schedule' | 'runtime';
   sessionKey: string;
   role: 'user' | 'assistant' | 'system';
   text: string;
@@ -62,11 +62,31 @@ function buildScheduleRunActivity(run: InternalEngineRunRecord): ChatActivityIte
     run.model ? `Model: ${run.model}` : null,
     run.providerPhase ? `Phase: ${run.providerPhase}` : null,
     run.summary ?? run.resultSummary ?? null,
-  ].filter(Boolean).join(' � ');
+  ].filter(Boolean).join(' · ');
   return {
     id: `schedule-run-${run.runId}`,
     tone,
     label: `Scheduled run ${run.status.replace(/_/g, ' ')}`,
+    details: details || undefined,
+  };
+}
+
+function buildRuntimeRunActivity(run: InternalEngineRunRecord): ChatActivityItem {
+  const tone: 'success' | 'danger' | 'neutral' = run.status === 'completed'
+    ? 'success'
+    : run.status === 'blocked' || run.status === 'interrupted'
+      ? 'danger'
+      : 'neutral';
+  const details = [
+    `Session: ${run.sessionKind}`,
+    run.model ? `Model: ${run.model}` : null,
+    run.providerPhase ? `Phase: ${run.providerPhase}` : null,
+    run.summary ?? run.resultSummary ?? null,
+  ].filter(Boolean).join(' · ');
+  return {
+    id: `runtime-run-${run.runId}`,
+    tone,
+    label: `Runtime run ${run.status.replace(/_/g, ' ')}`,
     details: details || undefined,
   };
 }
@@ -95,7 +115,7 @@ export function ActivityPage({
 }: ActivityPageProps) {
   const [filterQuery, setFilterQuery] = useState('');
   const [toneFilter, setToneFilter] = useState<ToneFilter>('all');
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'chat' | 'cowork' | 'schedule'>('all');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'chat' | 'cowork' | 'schedule' | 'runtime'>('all');
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
   const [internalRunHistory, setInternalRunHistory] = useState<InternalEngineRunRecord[]>([]);
 
@@ -113,7 +133,7 @@ export function ActivityPage({
       try {
         const runs = await bridge.getInternalRunHistory(24);
         if (!cancelled) {
-          setInternalRunHistory(runs.filter((run) => Boolean(run.scheduleId)));
+          setInternalRunHistory(runs);
         }
       } catch {
         if (!cancelled) {
@@ -152,17 +172,18 @@ export function ActivityPage({
     counter = 0;
     processMessages(coworkMessages, 'cowork', coworkSessionKey);
     for (const run of internalRunHistory) {
+      const source = run.scheduleId ? 'schedule' : 'runtime';
       all.push({
-        id: `schedule-${run.runId}`,
+        id: `${source}-${run.runId}`,
         timestamp: run.updatedAt || run.startedAt,
-        source: 'schedule',
+        source,
         sessionKey: run.sessionKey,
         role: 'system',
         text: run.summary
           || run.resultSummary
           || run.promptPreview
-          || `Scheduled run ${run.status.replace(/_/g, ' ')}`,
-        activities: [buildScheduleRunActivity(run)],
+          || `${source === 'schedule' ? 'Scheduled' : 'Runtime'} run ${run.status.replace(/_/g, ' ')}`,
+        activities: [source === 'schedule' ? buildScheduleRunActivity(run) : buildRuntimeRunActivity(run)],
       });
     }
 
@@ -255,7 +276,7 @@ export function ActivityPage({
           />
           <Separator orientation="vertical" className="h-4" />
           <div className="flex items-center gap-1">
-            {(['all', 'chat', 'cowork', 'schedule'] as const).map((src) => (
+            {(['all', 'chat', 'cowork', 'schedule', 'runtime'] as const).map((src) => (
               <button
                 key={src}
                 type="button"
@@ -264,7 +285,7 @@ export function ActivityPage({
                 }`}
                 onClick={() => setSourceFilter(src)}
               >
-                {src === 'all' ? 'All' : src === 'chat' ? 'Chat' : src === 'cowork' ? 'Cowork' : 'Scheduled'}
+                {src === 'all' ? 'All' : src === 'chat' ? 'Chat' : src === 'cowork' ? 'Cowork' : src === 'schedule' ? 'Scheduled' : 'Runtime'}
               </button>
             ))}
           </div>
@@ -327,12 +348,18 @@ export function ActivityPage({
                           <Badge
                             variant="outline"
                             className="font-sans text-[10px] uppercase"
-                            data-testid={entry.source === 'schedule' ? 'activity-source-schedule' : undefined}
+                            data-testid={entry.source === 'schedule'
+                              ? 'activity-source-schedule'
+                              : entry.source === 'runtime'
+                                ? 'activity-source-runtime'
+                                : undefined}
                           >
                             {entry.source}
                           </Badge>
                           <span className="font-sans text-[10px] text-muted-foreground">
-                            {entry.source === 'schedule' ? 'Runtime' : entry.role === 'user' ? 'You' : 'Agent'}
+                            {entry.source === 'schedule' || entry.source === 'runtime'
+                              ? 'Runtime'
+                              : entry.role === 'user' ? 'You' : 'Agent'}
                           </span>
                           <span className="font-sans text-[10px] text-muted-foreground/60">
                             {timeAgo(entry.timestamp)}
@@ -341,7 +368,7 @@ export function ActivityPage({
 
                         <p className="mt-0.5 line-clamp-2 font-sans text-[12px] text-foreground/80">
                           {entry.text.slice(0, 200)}
-                          {entry.text.length > 200 ? '�' : ''}
+                          {entry.text.length > 200 ? '…' : ''}
                         </p>
 
                         {hasActivities && (

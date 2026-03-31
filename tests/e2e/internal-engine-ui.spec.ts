@@ -1,4 +1,4 @@
-import { _electron as electron, expect, test } from '@playwright/test';
+﻿import { _electron as electron, expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 
 const ONBOARDING_COMPLETE_KEY = 'relay.onboarding.complete';
@@ -937,6 +937,10 @@ test.describe('Internal engine UI flow', () => {
     await expect(page.getByTestId('schedule-metrics-health')).toContainText('1');
     await expect(page.getByTestId('schedule-metrics-recent')).toContainText('Recent outcomes');
     await expect(page.getByTestId('schedule-metrics-recent')).toContainText('UI schedule artifact drilldown');
+    await page.getByTestId('schedule-recent-filter-completed').click({ force: true });
+    await expect(page.getByTestId('schedule-metrics-recent')).toContainText('last 24 hours');
+    await expect(page.getByTestId(`scheduled-job-${seededJob.id}`)).toBeVisible();
+    await expect(page.getByTestId(`schedule-recent-event-${seededJob.id}`)).toContainText('Completed');
     await expect(scheduledJobCard).toContainText('Last artifact');
     await expect(scheduledJobCard.getByTestId(`scheduled-job-open-artifact-${seededJob.id}`)).toBeVisible();
     await expect(scheduledJobCard.getByTestId(`scheduled-job-copy-artifact-${seededJob.id}`)).toBeVisible();
@@ -953,7 +957,7 @@ test.describe('Internal engine UI flow', () => {
     await expect(scheduledJobCard).toContainText('Preview');
     await expect(scheduledJobCard).toContainText('Errors');
   });
-  test('activity page shows scheduled runtime events outside the schedule view', async () => {
+  test('activity page shows scheduled and runtime internal events outside the schedule view', async () => {
     await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);
     await clearInternalSchedules(page);
@@ -961,7 +965,7 @@ test.describe('Internal engine UI flow', () => {
     const rootFolder = await prepareProjectRoot(page);
     await createProjectFromSidebar(page, {
       title: 'Activity Schedule Project',
-      description: 'Exercise activity-page visibility for scheduled runtime events.',
+      description: 'Exercise activity-page visibility for scheduled and runtime events.',
       rootFolder,
     });
     await openProjectCowork(page, 'Activity Schedule Project');
@@ -988,14 +992,37 @@ test.describe('Internal engine UI flow', () => {
       { timeout: 20000, message: 'expected scheduled runtime event to land in internal run history' },
     ).toBe(true);
 
+    await page.evaluate(async () => {
+      const bridge = window.cloffice ?? window.relay;
+      const sessionKey = await bridge.createInternalChatSession();
+      await bridge.sendInternalChat(sessionKey, 'Reply with exactly: runtime activity ok');
+    });
+    await expect.poll(
+      async () => page.evaluate(async () => {
+        const bridge = window.cloffice ?? window.relay;
+        const runs = await bridge.getInternalRunHistory(24);
+        return runs.some((run: any) => !run?.scheduleId && run?.sessionKind === 'chat' && run?.status === 'completed');
+      }),
+      { timeout: 20000, message: 'expected non-scheduled runtime event to land in internal run history' },
+    ).toBe(true);
+
     await openSchedulePage(page);
     await openActivityPage(page);
     await page.getByRole('button', { name: 'Scheduled', exact: true }).click();
     await expect(page.getByTestId('activity-source-schedule').first()).toBeVisible({ timeout: 15000 });
     await page.getByRole('button', { name: '1 action', exact: true }).first().click();
     await expect(page.getByText('Schedule: Activity scheduled runtime event')).toBeVisible({ timeout: 15000 });
+
+    await page.getByRole('button', { name: 'Runtime', exact: true }).click();
+    await expect(page.getByTestId('activity-source-runtime').first()).toBeVisible({ timeout: 15000 });
+    await page.getByRole('button', { name: '1 action', exact: true }).first().click();
+    await expect(page.getByText('Session: chat')).toBeVisible({ timeout: 15000 });
   });
 });
+
+
+
+
 
 
 
