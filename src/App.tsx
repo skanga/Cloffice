@@ -1,7 +1,9 @@
 import {
+  accessTokenFromAppConfig,
   createDefaultAppConfig,
   DEFAULT_ENGINE_PROVIDER_ID,
   DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL,
+  endpointUrlFromAppConfig,
   EMPTY_INTERNAL_PROVIDER_CONFIG,
   appConfigFromEngineDraft,
   buildEngineDraftConfig,
@@ -2233,8 +2235,8 @@ export default function App() {
     }
 
     let cancelled = false;
-    const runtimeEndpointUrl = normalizeEngineEndpointUrl(config.gatewayUrl);
-    const runtimeAccessToken = config.gatewayToken ?? '';
+    const runtimeEndpointUrl = endpointUrlFromAppConfig(config);
+    const runtimeAccessToken = accessTokenFromAppConfig(config);
 
     void connectEngineRuntimeShell({
       client,
@@ -2277,7 +2279,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [draftEngineProviderId, config.gatewayToken, config.gatewayUrl, onboardingComplete, configReady, markEngineConnectionLastUsed]);
+  }, [draftEngineProviderId, config, onboardingComplete, configReady, markEngineConnectionLastUsed]);
 
   useEffect(() => {
     if (activePage !== 'chat') {

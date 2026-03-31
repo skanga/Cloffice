@@ -56,6 +56,27 @@ export function normalizeEngineEndpointUrl(
   return typeof endpointUrl === 'string' && endpointUrl.trim() ? endpointUrl.trim() : fallbackEndpointUrl;
 }
 
+export function endpointUrlFromAppConfig(
+  config: Pick<AppConfig, 'gatewayUrl'>,
+  fallbackEndpointUrl: string = DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL,
+): string {
+  return normalizeEngineEndpointUrl(config.gatewayUrl, fallbackEndpointUrl);
+}
+
+export function accessTokenFromAppConfig(config: Pick<AppConfig, 'gatewayToken'>): string {
+  return config.gatewayToken ?? '';
+}
+
+export function createLegacyAppConfigFromConnection(
+  endpointUrl: string,
+  accessToken: string,
+): AppConfig {
+  return {
+    gatewayUrl: normalizeEngineEndpointUrl(endpointUrl),
+    gatewayToken: accessToken,
+  };
+}
+
 export function createDefaultAppConfig(
   fallbackEndpointUrl: string = DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL,
 ): AppConfig {
@@ -151,16 +172,13 @@ export function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpointU
 export function engineDraftFromAppConfig(config: AppConfig): EngineDraftConfig {
   return buildEngineDraftConfig({
     providerId: DEFAULT_ENGINE_PROVIDER_ID,
-    endpointUrl: normalizeEngineEndpointUrl(config.gatewayUrl),
-    accessToken: config.gatewayToken,
+    endpointUrl: endpointUrlFromAppConfig(config),
+    accessToken: accessTokenFromAppConfig(config),
   });
 }
 
 export function appConfigFromEngineDraft(draft: EngineDraftConfig): AppConfig {
-  return {
-    gatewayUrl: draft.endpointUrl,
-    gatewayToken: draft.accessToken,
-  };
+  return createLegacyAppConfigFromConnection(draft.endpointUrl, draft.accessToken);
 }
 
 export function buildDeferredProviderAwareEngineConfig(draft: EngineDraftConfig): ProviderAwareStoredEngineConfigV2 {

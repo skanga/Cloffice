@@ -1,5 +1,6 @@
 import type { AppConfig, EngineConnectionProfile, EngineProviderId } from '@/app-types';
 import type { EngineDraftConfig } from './engine-config';
+import { accessTokenFromAppConfig, endpointUrlFromAppConfig } from './engine-config';
 
 export type StoredEngineConnectionProfile = {
   id: string;
@@ -57,7 +58,7 @@ export function serializeEngineConnectionProfile(profile: EngineConnectionProfil
 }
 
 export function engineConnectionMatchesAppConfig(profile: EngineConnectionProfile, config: AppConfig): boolean {
-  return profile.endpointUrl === config.gatewayUrl.trim() && profile.accessToken === (config.gatewayToken ?? '');
+  return profile.endpointUrl === endpointUrlFromAppConfig(config) && profile.accessToken === accessTokenFromAppConfig(config);
 }
 
 export function engineConnectionMatchesDraft(

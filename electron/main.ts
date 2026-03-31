@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, safeStorage, session, shell } from 'electron';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -67,6 +67,23 @@ import {
 const defaultConfig: AppConfig = {
   gatewayUrl: 'internal://dev-runtime',
   gatewayToken: '',
+};
+
+const CLOFFICE_CONFIG_FILE = 'cloffice-config.json';
+const LEGACY_CONFIG_FILE = 'openclaw-config.json';
+const PROVIDER_SECRETS_FILE = 'cloffice-provider-secrets.json';
+
+type StoredInternalProviderSecrets = Pick<InternalProviderConfig, 'openaiApiKey' | 'anthropicApiKey' | 'geminiApiKey'>;
+type StoredProviderSecretsEnvelope = {
+  version: 1;
+  mode: 'safeStorage' | 'plaintext-fallback';
+  payload: string;
+};
+
+const EMPTY_INTERNAL_PROVIDER_SECRETS: StoredInternalProviderSecrets = {
+  openaiApiKey: '',
+  anthropicApiKey: '',
+  geminiApiKey: '',
 };
 
 function createInternalEngineMainService() {
@@ -2683,11 +2700,9 @@ const extensionCategories: Record<string, string> = {
   '.c': 'Code',
 };
 
-/**
- * Transitional config path retained for compatibility with existing Relay/OpenClaw installs.
- * TODO(engine-migration): move to a Cloffice-owned engine config file with explicit migration.
- */
-const configPath = () => path.join(app.getPath('userData'), 'openclaw-config.json');
+const configPath = () => path.join(app.getPath('userData'), CLOFFICE_CONFIG_FILE);
+const legacyConfigPath = () => path.join(app.getPath('userData'), LEGACY_CONFIG_FILE);
+const providerSecretsPath = () => path.join(app.getPath('userData'), PROVIDER_SECRETS_FILE);
 
 const isDev = !app.isPackaged;
 const MAX_READ_FILE_BYTES = 256 * 1024;
@@ -3338,46 +3353,214 @@ async function openLocalPath(targetPath: string): Promise<{ ok: boolean; error?:
   return { ok: true };
 }
 
-async function readRawConfigEntry(): Promise<unknown | null> {
+function normalizeStoredInternalProviderSecrets(entry: Partial<StoredInternalProviderSecrets> | null | undefined): StoredInternalProviderSecrets {
+  return {
+    openaiApiKey: typeof entry?.openaiApiKey === 'string' ? entry.openaiApiKey : '',
+    anthropicApiKey: typeof entry?.anthropicApiKey === 'string' ? entry.anthropicApiKey : '',
+    geminiApiKey: typeof entry?.geminiApiKey === 'string' ? entry.geminiApiKey : '',
+  };
+}
+
+function extractStoredInternalProviderSecrets(config: Partial<InternalProviderConfig> | null | undefined): StoredInternalProviderSecrets {
+  return normalizeStoredInternalProviderSecrets(config);
+}
+
+function stripStoredInternalProviderSecrets(
+  config: Partial<InternalProviderConfig> | null | undefined,
+): InternalProviderConfig {
+  return {
+    ...EMPTY_INTERNAL_PROVIDER_CONFIG,
+    ...config,
+    openaiApiKey: '',
+    anthropicApiKey: '',
+    geminiApiKey: '',
+  };
+}
+
+function hasStoredInternalProviderSecrets(secrets: StoredInternalProviderSecrets): boolean {
+  return Boolean(secrets.openaiApiKey || secrets.anthropicApiKey || secrets.geminiApiKey);
+}
+
+function mergeStoredInternalProviderConfig(
+  config: Partial<InternalProviderConfig> | null | undefined,
+  secrets: StoredInternalProviderSecrets,
+): InternalProviderConfig {
+  return {
+    ...EMPTY_INTERNAL_PROVIDER_CONFIG,
+    ...config,
+    ...secrets,
+  };
+}
+
+function extractSecretsFromConfigEntry(entry: unknown): StoredInternalProviderSecrets {
+  if (!entry || typeof entry !== 'object') {
+    return { ...EMPTY_INTERNAL_PROVIDER_SECRETS };
+  }
+
+  const record = entry as Record<string, unknown>;
+  if (record.version !== 2 || !record.internalProviderConfig || typeof record.internalProviderConfig !== 'object') {
+    return { ...EMPTY_INTERNAL_PROVIDER_SECRETS };
+  }
+
+  return extractStoredInternalProviderSecrets(record.internalProviderConfig as Partial<InternalProviderConfig>);
+}
+
+function sanitizeConfigEntryForDisk(
+  entry: unknown,
+): { sanitizedEntry: unknown; secrets: StoredInternalProviderSecrets | null } {
+  if (!entry || typeof entry !== 'object') {
+    return { sanitizedEntry: entry, secrets: null };
+  }
+
+  const record = entry as Record<string, unknown>;
+  if (record.version !== 2 || !record.internalProviderConfig || typeof record.internalProviderConfig !== 'object') {
+    return { sanitizedEntry: entry, secrets: null };
+  }
+
+  const secrets = extractStoredInternalProviderSecrets(record.internalProviderConfig as Partial<InternalProviderConfig>);
+
+  return {
+    sanitizedEntry: {
+      ...record,
+      internalProviderConfig: stripStoredInternalProviderSecrets(record.internalProviderConfig as Partial<InternalProviderConfig>),
+    },
+    secrets,
+  };
+}
+
+function hydrateConfigEntryWithSecrets(entry: unknown, secrets: StoredInternalProviderSecrets): unknown {
+  if (!entry || typeof entry !== 'object') {
+    return entry;
+  }
+
+  const record = entry as Record<string, unknown>;
+  if (record.version !== 2) {
+    return entry;
+  }
+
+  const baseConfig =
+    record.internalProviderConfig && typeof record.internalProviderConfig === 'object'
+      ? (record.internalProviderConfig as Partial<InternalProviderConfig>)
+      : undefined;
+
+  return {
+    ...record,
+    internalProviderConfig: mergeStoredInternalProviderConfig(baseConfig, secrets),
+  };
+}
+
+async function readJsonFile(targetPath: string): Promise<unknown | null> {
   try {
-    const raw = await fs.readFile(configPath(), 'utf8');
+    const raw = await fs.readFile(targetPath, 'utf8');
     return JSON.parse(raw) as unknown;
   } catch {
     return null;
   }
 }
 
+async function readStoredProviderSecrets(): Promise<StoredInternalProviderSecrets> {
+  const entry = await readJsonFile(providerSecretsPath());
+  if (!entry || typeof entry !== 'object') {
+    return { ...EMPTY_INTERNAL_PROVIDER_SECRETS };
+  }
+
+  const envelope = entry as Partial<StoredProviderSecretsEnvelope>;
+  if (envelope.version !== 1 || typeof envelope.payload !== 'string') {
+    return { ...EMPTY_INTERNAL_PROVIDER_SECRETS };
+  }
+
+  try {
+    const payload =
+      envelope.mode === 'safeStorage' && safeStorage.isEncryptionAvailable()
+        ? safeStorage.decryptString(Buffer.from(envelope.payload, 'base64'))
+        : Buffer.from(envelope.payload, 'base64').toString('utf8');
+    return normalizeStoredInternalProviderSecrets(JSON.parse(payload) as Partial<StoredInternalProviderSecrets>);
+  } catch {
+    return { ...EMPTY_INTERNAL_PROVIDER_SECRETS };
+  }
+}
+
+async function writeStoredProviderSecrets(secrets: StoredInternalProviderSecrets): Promise<void> {
+  const normalizedSecrets = normalizeStoredInternalProviderSecrets(secrets);
+  await fs.mkdir(path.dirname(providerSecretsPath()), { recursive: true });
+
+  if (!hasStoredInternalProviderSecrets(normalizedSecrets)) {
+    try {
+      await fs.unlink(providerSecretsPath());
+    } catch {
+      // ignore missing file
+    }
+    return;
+  }
+
+  const plaintext = JSON.stringify(normalizedSecrets);
+  const encryptionAvailable = safeStorage.isEncryptionAvailable();
+  const payload = encryptionAvailable
+    ? safeStorage.encryptString(plaintext).toString('base64')
+    : Buffer.from(plaintext, 'utf8').toString('base64');
+  const envelope: StoredProviderSecretsEnvelope = {
+    version: 1,
+    mode: encryptionAvailable ? 'safeStorage' : 'plaintext-fallback',
+    payload,
+  };
+
+  await fs.writeFile(providerSecretsPath(), JSON.stringify(envelope, null, 2), 'utf8');
+}
+
+async function readRawConfigEntry(): Promise<unknown | null> {
+  const currentEntry = await readJsonFile(configPath());
+  if (currentEntry !== null) {
+    return currentEntry;
+  }
+
+  const legacyEntry = await readJsonFile(legacyConfigPath());
+  if (legacyEntry === null) {
+    return null;
+  }
+
+  await writeRawConfigEntry(legacyEntry);
+  return readJsonFile(configPath());
+}
+
 async function writeRawConfigEntry(entry: unknown): Promise<unknown> {
+  const { sanitizedEntry, secrets } = sanitizeConfigEntryForDisk(entry);
   await fs.mkdir(path.dirname(configPath()), { recursive: true });
-  await fs.writeFile(configPath(), JSON.stringify(entry, null, 2), 'utf8');
-  return entry;
+  await fs.writeFile(configPath(), JSON.stringify(sanitizedEntry, null, 2), 'utf8');
+  if (secrets !== null) {
+    await writeStoredProviderSecrets(secrets);
+  }
+  return sanitizedEntry;
 }
 
 async function readStoredInternalProviderConfig(): Promise<InternalProviderConfig> {
   const rawEntry = await readRawConfigEntry();
   const parsed = parseStoredEngineConfig(rawEntry, defaultConfig.gatewayUrl);
-  return parsed?.engineDraft.internalProviderConfig ?? { ...EMPTY_INTERNAL_PROVIDER_CONFIG };
+  const secureSecrets = await readStoredProviderSecrets();
+  const mergedConfig = mergeStoredInternalProviderConfig(parsed?.engineDraft.internalProviderConfig, secureSecrets);
+
+  const inlineSecrets = extractSecretsFromConfigEntry(rawEntry);
+  if (hasStoredInternalProviderSecrets(inlineSecrets)) {
+    await writeStoredProviderSecrets(extractStoredInternalProviderSecrets(mergedConfig));
+    if (rawEntry !== null) {
+      await writeRawConfigEntry(rawEntry);
+    }
+  }
+
+  return mergedConfig;
 }
 
 async function readConfig(): Promise<AppConfig> {
-  try {
-    const parsed = await readRawConfigEntry() as Partial<AppConfig> & { baseUrl?: string; mode?: string } | null;
-    if (!parsed || typeof parsed !== 'object') {
-      return defaultConfig;
-    }
-    const inferredGatewayUrl =
-      parsed.gatewayUrl ??
-      (parsed.baseUrl
-        ? parsed.baseUrl.replace(/^https?:\/\//, (value) => (value === 'https://' ? 'wss://' : 'ws://'))
-        : defaultConfig.gatewayUrl);
+  const parsed = parseStoredEngineConfig(await readRawConfigEntry(), defaultConfig.gatewayUrl);
+  return parsed?.appConfig ?? defaultConfig;
+}
 
-    return {
-      gatewayUrl: inferredGatewayUrl,
-      gatewayToken: parsed.gatewayToken ?? defaultConfig.gatewayToken,
-    };
-  } catch {
-    return defaultConfig;
+async function readHydratedEngineConfigEntry(): Promise<unknown | null> {
+  const rawEntry = await readRawConfigEntry();
+  if (rawEntry === null) {
+    return null;
   }
+
+  return hydrateConfigEntryWithSecrets(rawEntry, await readStoredProviderSecrets());
 }
 
 async function writeConfig(config: AppConfig): Promise<AppConfig> {
@@ -3588,7 +3771,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('config:get', async () => readConfig());
   ipcMain.handle('config:save', async (_event, config: AppConfig) => writeConfig(config));
-  ipcMain.handle('engine-config:get', async () => readRawConfigEntry());
+  ipcMain.handle('engine-config:get', async () => readHydratedEngineConfigEntry());
   ipcMain.handle('engine-config:save', async (_event, entry: unknown) => writeRawConfigEntry(entry));
   ipcMain.handle('internal-engine:status', async () => internalEngineService.getStatus());
   ipcMain.handle('internal-engine:get-runtime-info', async () => internalEngineService.getRuntimeInfo());
