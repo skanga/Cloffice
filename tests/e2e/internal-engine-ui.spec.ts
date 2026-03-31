@@ -655,6 +655,12 @@ test.describe('Internal engine UI flow', () => {
     await openSchedulePage(page);
     await expect(page.getByText('Grouped project schedule')).toBeVisible({ timeout: 15000 });
     await expect(page.getByText('Ungrouped model schedule')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId('schedule-metrics-project')).toContainText('Internal Grouped Schedule Project');
+    await expect(page.getByTestId('schedule-metric-project-internal-grouped-schedule-project')).toContainText('1 job');
+    await expect(page.getByTestId('schedule-metric-project-no-project')).toContainText('1 job');
+    await expect(page.getByTestId('schedule-metrics-model')).toContainText('internal/dev-planner');
+    await expect(page.getByTestId('schedule-metric-model-internal-dev-planner')).toContainText('1 job');
+    await expect(page.getByTestId('schedule-metric-model-default-model')).toContainText('1 job');
 
     await page.getByTestId('schedule-group-project').click();
     await expect(page.getByTestId('schedule-group-section-internal-grouped-schedule-project')).toContainText('Grouped project schedule');

@@ -93,6 +93,47 @@ function getScheduleGroupLabel(job: ScheduledJob, groupMode: GroupMode): string 
   return 'All schedules';
 }
 
+function slugifyScheduleMetricLabel(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'group';
+}
+
+function aggregateScheduleMetrics(jobs: ScheduledJob[], groupMode: Exclude<GroupMode, 'none'>) {
+  const groups = new Map<string, {
+    label: string;
+    total: number;
+    active: number;
+    pending: number;
+    completed: number;
+  }>();
+  for (const job of jobs) {
+    const label = getScheduleGroupLabel(job, groupMode);
+    const current = groups.get(label) ?? {
+      label,
+      total: 0,
+      active: 0,
+      pending: 0,
+      completed: 0,
+    };
+    current.total += 1;
+    if (job.enabled) {
+      current.active += 1;
+    }
+    if (job.state === 'awaiting_approval') {
+      current.pending += 1;
+    }
+    if (job.lastRunStatus === 'completed') {
+      current.completed += 1;
+    }
+    groups.set(label, current);
+  }
+  return Array.from(groups.values()).sort((a, b) => {
+    if (b.total !== a.total) {
+      return b.total - a.total;
+    }
+    return a.label.localeCompare(b.label);
+  });
+}
+
 function buildArtifactSummaryText(job: ScheduledJob): string {
   const lines = [
     `Schedule: ${job.name}`,
@@ -277,6 +318,8 @@ export function ScheduledPage({
     return Array.from(groups.entries());
   }, [scheduleModels]);
   const visibleJobIds = useMemo(() => visibleJobs.map((job) => job.id), [visibleJobs]);
+  const projectMetrics = useMemo(() => aggregateScheduleMetrics(jobs, 'project').slice(0, 4), [jobs]);
+  const modelMetrics = useMemo(() => aggregateScheduleMetrics(jobs, 'model').slice(0, 4), [jobs]);
   const groupedVisibleJobs = useMemo(() => {
     if (groupMode === 'none') {
       return [{ key: 'all', label: 'All schedules', jobs: visibleJobs }];
@@ -521,6 +564,58 @@ export function ScheduledPage({
           {status.trim() || 'Connected.'}
         </span>
       </div>
+
+      {jobs.length > 0 ? (
+        <div className="grid gap-3 md:grid-cols-2">
+          <section className="rounded-xl border border-border/60 bg-card px-4 py-3" data-testid="schedule-metrics-project">
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-sans text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">By project</p>
+              <Badge variant="outline" className="font-sans text-[10px]">{projectMetrics.length}</Badge>
+            </div>
+            <div className="mt-2 grid gap-2">
+              {projectMetrics.map((metric) => (
+                <div
+                  key={`project-${metric.label}`}
+                  className="rounded-md border border-border/50 bg-background/60 px-3 py-2"
+                  data-testid={`schedule-metric-project-${slugifyScheduleMetricLabel(metric.label)}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-sans text-[12px] font-medium text-foreground">{metric.label}</span>
+                    <Badge variant="outline" className="font-sans text-[10px]">{metric.total} job{metric.total === 1 ? '' : 's'}</Badge>
+                  </div>
+                  <p className="mt-1 font-sans text-[11px] text-muted-foreground">
+                    {metric.active} active · {metric.pending} pending approval · {metric.completed} completed
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-border/60 bg-card px-4 py-3" data-testid="schedule-metrics-model">
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-sans text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">By model</p>
+              <Badge variant="outline" className="font-sans text-[10px]">{modelMetrics.length}</Badge>
+            </div>
+            <div className="mt-2 grid gap-2">
+              {modelMetrics.map((metric) => (
+                <div
+                  key={`model-${metric.label}`}
+                  className="rounded-md border border-border/50 bg-background/60 px-3 py-2"
+                  data-testid={`schedule-metric-model-${slugifyScheduleMetricLabel(metric.label)}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-sans text-[12px] font-medium text-foreground">{metric.label}</span>
+                    <Badge variant="outline" className="font-sans text-[10px]">{metric.total} job{metric.total === 1 ? '' : 's'}</Badge>
+                  </div>
+                  <p className="mt-1 font-sans text-[11px] text-muted-foreground">
+                    {metric.active} active · {metric.pending} pending approval · {metric.completed} completed
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {createScheduleEnabled ? (
         <div className="rounded-xl border border-border/60 bg-card px-4 py-3">
