@@ -761,6 +761,14 @@ export function SettingsPage({
                         ? `${internalRuntimeInfo.providerCoworkStructuredCount} structured · ${internalRuntimeInfo.providerCoworkNormalizedCount} normalized · ${internalRuntimeInfo.providerCoworkFallbackCount} fallback`
                         : 'no retained provider-backed cowork runs'}
                     </p>
+                    {internalRuntimeInfo.providerCoworkNormalizationByProvider.length > 0 ? (
+                      <p className="sm:col-span-2">
+                        <span className="font-medium text-foreground">By provider:</span>{' '}
+                        {internalRuntimeInfo.providerCoworkNormalizationByProvider
+                          .map((provider) => `${provider.providerId} (${provider.structuredCount} structured · ${provider.normalizedCount} normalized · ${provider.fallbackCount} fallback)`)
+                          .join(' · ')}
+                      </p>
+                    ) : null}
                     <p><span className="font-medium text-foreground">Active session:</span> {internalRuntimeInfo.activeSessionKey ?? 'none'}</p>
                     <p><span className="font-medium text-foreground">Default model:</span> {internalRuntimeInfo.defaultModel}</p>
                     <p><span className="font-medium text-foreground">Status:</span> {internalRuntimeInfo.status.availableInBuild ? 'Internal development runtime available.' : internalRuntimeInfo.status.unavailableReason}</p>

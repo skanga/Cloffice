@@ -1,4 +1,4 @@
-﻿import { _electron as electron, expect, test } from '@playwright/test';
+import { _electron as electron, expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 
 const ONBOARDING_COMPLETE_KEY = 'relay.onboarding.complete';
@@ -178,13 +178,27 @@ async function finishOnboarding(page: Page) {
   }
 }
 
-async function markOnboardingComplete(page: Page) {
-  await page.evaluate(([onboardingKey, usageModeKey]) => {
+async function resolveActivePage(page: Page): Promise<Page> {
+  if (!page.isClosed()) {
+    return page;
+  }
+  const replacement = page.context().pages().find((candidate) => !candidate.isClosed());
+  if (!replacement) {
+    throw new Error('No active Electron page is available.');
+  }
+  await replacement.waitForLoadState('domcontentloaded').catch(() => {});
+  return replacement;
+}
+
+async function markOnboardingComplete(page: Page): Promise<Page> {
+  const activePage = await resolveActivePage(page);
+  await activePage.evaluate(([onboardingKey, usageModeKey]) => {
     localStorage.setItem(onboardingKey, 'true');
     localStorage.setItem(usageModeKey, 'guest');
   }, [ONBOARDING_COMPLETE_KEY, USAGE_MODE_KEY] as const);
-  await page.reload();
-  await page.waitForLoadState('domcontentloaded');
+  await activePage.reload();
+  await activePage.waitForLoadState('domcontentloaded');
+  return resolveActivePage(activePage);
 }
 
 async function connectInternalProviderFromSettings(page: Page) {
@@ -335,7 +349,7 @@ test.describe('Internal engine UI flow', () => {
   });
 
   test('operator can approve a live cowork read-only action through the internal runtime UI flow', async () => {
-    await markOnboardingComplete(page);
+    page = await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);
     await expect(page.getByTitle('Add project')).toBeVisible({ timeout: 15000 });
 
@@ -400,7 +414,7 @@ test.describe('Internal engine UI flow', () => {
   });
 
   test('operator can pause resume retime and delete an internal schedule through the UI', async () => {
-    await markOnboardingComplete(page);
+    page = await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);
     await clearInternalSchedules(page);
     const rootFolder = await prepareProjectRoot(page);
@@ -450,7 +464,7 @@ test.describe('Internal engine UI flow', () => {
   });
 
   test('operator can bulk pause resume and delete internal schedules through the UI', async () => {
-    await markOnboardingComplete(page);
+    page = await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);
     await clearInternalSchedules(page);
     const rootFolder = await prepareProjectRoot(page);
@@ -545,7 +559,7 @@ test.describe('Internal engine UI flow', () => {
   });
 
   test('operator can create and edit an internal schedule directly from the Schedule page UI', async () => {
-    await markOnboardingComplete(page);
+    page = await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);
     await clearInternalSchedules(page);
     const rootFolder = await prepareProjectRoot(page);
@@ -631,7 +645,7 @@ test.describe('Internal engine UI flow', () => {
   });
 
   test('operator can group schedules by project and model on the Schedule page', async () => {
-    await markOnboardingComplete(page);
+    page = await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);
     await clearInternalSchedules(page);
     const rootFolder = await prepareProjectRoot(page);
@@ -687,7 +701,7 @@ test.describe('Internal engine UI flow', () => {
   });
 
   test('operator can export and import internal schedules through the UI', async () => {
-    await markOnboardingComplete(page);
+    page = await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);
     await clearInternalSchedules(page);
     const rootFolder = await prepareProjectRoot(page);
@@ -774,7 +788,7 @@ test.describe('Internal engine UI flow', () => {
   });
 
   test('operator can export and import schedules from Settings developer tools', async () => {
-    await markOnboardingComplete(page);
+    page = await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);
     await clearInternalSchedules(page);
 
@@ -845,7 +859,7 @@ test.describe('Internal engine UI flow', () => {
   });
 
   test('scheduled internal cowork run surfaces approval recovery in the live UI', async () => {
-    await markOnboardingComplete(page);
+    page = await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);
     await clearInternalSchedules(page);
     await expect(page.getByTitle('Add project')).toBeVisible({ timeout: 15000 });
@@ -892,7 +906,7 @@ test.describe('Internal engine UI flow', () => {
   });
 
   test('schedule page shows artifact drill-down for a completed internal schedule', async () => {
-    await markOnboardingComplete(page);
+    page = await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);
     await clearInternalSchedules(page);
     const rootFolder = await prepareProjectRoot(page);
@@ -958,7 +972,7 @@ test.describe('Internal engine UI flow', () => {
     await expect(scheduledJobCard).toContainText('Errors');
   });
   test('activity page shows scheduled and runtime internal events outside the schedule view', async () => {
-    await markOnboardingComplete(page);
+    page = await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);
     await clearInternalSchedules(page);
 
@@ -1029,6 +1043,7 @@ test.describe('Internal engine UI flow', () => {
     await expect(page.getByTestId(`internal-run-card-${scheduledRunId}`)).toBeVisible({ timeout: 15000 });
   });
 });
+
 
 
 

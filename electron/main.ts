@@ -1885,6 +1885,25 @@ function createInternalEngineMainService() {
       const providerCoworkRuns = Array.from(runs.values()).filter(
         (run) => run.providerBacked && (run.providerPhase === 'planning' || run.providerPhase === 'continuation'),
       );
+      const resolveProviderIdForRun = (run: PersistedInternalRunRecord): InternalChatProviderId | null => {
+        const model = typeof run.model === 'string' ? run.model.trim() : '';
+        if (model.startsWith('openai/')) return 'openai';
+        if (model.startsWith('anthropic/')) return 'anthropic';
+        if (model.startsWith('gemini/')) return 'gemini';
+        return null;
+      };
+      const providerCoworkNormalizationByProvider = (
+        ['openai', 'anthropic', 'gemini'] as const
+      ).map((providerId) => {
+        const providerRuns = providerCoworkRuns.filter((run) => resolveProviderIdForRun(run) === providerId);
+        return {
+          providerId,
+          runCount: providerRuns.length,
+          structuredCount: providerRuns.filter((run) => run.responseNormalization === 'provider_structured').length,
+          normalizedCount: providerRuns.filter((run) => run.responseNormalization === 'normalized_sections').length,
+          fallbackCount: providerRuns.filter((run) => run.responseNormalization === 'synthetic_fallback').length,
+        };
+      }).filter((entry) => entry.runCount > 0);
       const providerCoworkStructuredCount = providerCoworkRuns.filter(
         (run) => run.responseNormalization === 'provider_structured',
       ).length;
@@ -1920,6 +1939,7 @@ function createInternalEngineMainService() {
         providerCoworkStructuredCount,
         providerCoworkNormalizedCount,
         providerCoworkFallbackCount,
+        providerCoworkNormalizationByProvider,
         lastProviderId,
         lastProviderError,
         lastScheduledJobName,

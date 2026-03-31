@@ -337,6 +337,16 @@ export function ActivityPage({
                 {internalRuntimeInfo.providerCoworkFallbackCount} fallback
               </span>
             </div>
+            {internalRuntimeInfo.providerCoworkNormalizationByProvider.length > 0 ? (
+              <div className="flex items-center gap-1.5">
+                <Info className="size-3.5 text-muted-foreground/60" />
+                <span className="font-sans text-[12px] text-muted-foreground">
+                  {internalRuntimeInfo.providerCoworkNormalizationByProvider
+                    .map((provider) => `${provider.providerId}:${provider.fallbackCount} fallback`)
+                    .join(' · ')}
+                </span>
+              </div>
+            ) : null}
           </>
         ) : null}
       </div>
