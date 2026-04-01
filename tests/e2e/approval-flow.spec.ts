@@ -144,21 +144,9 @@ test.describe('Cowork approval flow', () => {
           const parsed = JSON.parse(raw) as {
             endpointUrl?: string;
             accessToken?: string;
-            gatewayUrl?: string;
-            gatewayToken?: string;
           };
-          const endpointUrl =
-            typeof parsed.endpointUrl === 'string'
-              ? parsed.endpointUrl.trim()
-              : typeof parsed.gatewayUrl === 'string'
-                ? parsed.gatewayUrl.trim()
-                : '';
-          const accessToken =
-            typeof parsed.accessToken === 'string'
-              ? parsed.accessToken
-              : typeof parsed.gatewayToken === 'string'
-                ? parsed.gatewayToken
-                : '';
+          const endpointUrl = typeof parsed.endpointUrl === 'string' ? parsed.endpointUrl.trim() : '';
+          const accessToken = typeof parsed.accessToken === 'string' ? parsed.accessToken : '';
           if (!endpointUrl) {
             return;
           }

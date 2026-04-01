@@ -98,15 +98,15 @@ function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpoint: string
 
   return {
     appConfig: {
-      endpointUrl: typeof record.gatewayUrl === 'string' && record.gatewayUrl.trim() ? record.gatewayUrl.trim() : fallbackEndpoint,
-      accessToken: typeof record.gatewayToken === 'string' ? record.gatewayToken : '',
+      endpointUrl: typeof record.endpointUrl === 'string' && record.endpointUrl.trim() ? record.endpointUrl.trim() : fallbackEndpoint,
+      accessToken: typeof record.accessToken === 'string' ? record.accessToken : '',
     },
     engineDraft: {
       providerId: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.providerId,
       runtimeKind: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.runtimeKind,
       transport: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.transport,
-      endpointUrl: typeof record.gatewayUrl === 'string' && record.gatewayUrl.trim() ? record.gatewayUrl.trim() : fallbackEndpoint,
-      accessToken: typeof record.gatewayToken === 'string' ? record.gatewayToken : '',
+      endpointUrl: typeof record.endpointUrl === 'string' && record.endpointUrl.trim() ? record.endpointUrl.trim() : fallbackEndpoint,
+      accessToken: typeof record.accessToken === 'string' ? record.accessToken : '',
       internalProviderConfig: {
         openaiApiKey: '',
         openaiBaseUrl: '',

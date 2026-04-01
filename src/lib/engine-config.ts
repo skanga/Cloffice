@@ -123,19 +123,10 @@ export function parseStoredAppConfig(entry: unknown, fallbackEndpointUrl: string
   const record = entry as Record<string, unknown>;
   return {
     endpointUrl: normalizeEngineEndpointUrl(
-      typeof record.endpointUrl === 'string'
-        ? record.endpointUrl
-        : typeof record.gatewayUrl === 'string'
-          ? record.gatewayUrl
-          : null,
+      typeof record.endpointUrl === 'string' ? record.endpointUrl : null,
       fallbackEndpointUrl,
     ),
-    accessToken:
-      typeof record.accessToken === 'string'
-        ? record.accessToken
-        : typeof record.gatewayToken === 'string'
-          ? record.gatewayToken
-          : '',
+    accessToken: typeof record.accessToken === 'string' ? record.accessToken : '',
   };
 }
 

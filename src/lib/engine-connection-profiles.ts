@@ -24,15 +24,11 @@ export function parseStoredEngineConnectionProfile(entry: unknown): EngineConnec
   const endpointUrl =
     typeof record.endpointUrl === 'string'
       ? record.endpointUrl.trim()
-      : typeof record.gatewayUrl === 'string'
-        ? record.gatewayUrl.trim()
-        : '';
+      : '';
   const accessToken =
     typeof record.accessToken === 'string'
       ? record.accessToken
-      : typeof record.gatewayToken === 'string'
-        ? record.gatewayToken
-        : '';
+      : '';
   const providerId = 'internal';
   const createdAt = typeof record.createdAt === 'number' ? record.createdAt : Date.now();
   const updatedAt = typeof record.updatedAt === 'number' ? record.updatedAt : createdAt;
