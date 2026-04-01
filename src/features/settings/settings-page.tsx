@@ -769,6 +769,14 @@ export function SettingsPage({
                           .join(' · ')}
                       </p>
                     ) : null}
+                    {internalRuntimeInfo.providerCoworkNormalizationTrend.length > 0 ? (
+                      <p className="sm:col-span-2">
+                        <span className="font-medium text-foreground">7-day trend:</span>{' '}
+                        {internalRuntimeInfo.providerCoworkNormalizationTrend
+                          .map((entry) => `${entry.date} (${entry.structuredCount}/${entry.normalizedCount}/${entry.fallbackCount})`)
+                          .join(' · ')}
+                      </p>
+                    ) : null}
                     <p><span className="font-medium text-foreground">Active session:</span> {internalRuntimeInfo.activeSessionKey ?? 'none'}</p>
                     <p><span className="font-medium text-foreground">Default model:</span> {internalRuntimeInfo.defaultModel}</p>
                     <p><span className="font-medium text-foreground">Status:</span> {internalRuntimeInfo.status.availableInBuild ? 'Internal development runtime available.' : internalRuntimeInfo.status.unavailableReason}</p>

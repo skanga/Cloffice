@@ -347,6 +347,16 @@ export function ActivityPage({
                 </span>
               </div>
             ) : null}
+            {internalRuntimeInfo.providerCoworkNormalizationTrend.length > 0 ? (
+              <div className="flex items-center gap-1.5">
+                <Info className="size-3.5 text-muted-foreground/60" />
+                <span className="font-sans text-[12px] text-muted-foreground">
+                  Trend {internalRuntimeInfo.providerCoworkNormalizationTrend
+                    .map((entry) => `${entry.date.slice(5)}:${entry.fallbackCount}`)
+                    .join(' · ')}
+                </span>
+              </div>
+            ) : null}
           </>
         ) : null}
       </div>

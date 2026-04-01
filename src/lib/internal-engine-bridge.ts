@@ -64,6 +64,13 @@ export type InternalEngineRuntimeInfo = {
     normalizedCount: number;
     fallbackCount: number;
   }>;
+  providerCoworkNormalizationTrend: Array<{
+    date: string;
+    runCount: number;
+    structuredCount: number;
+    normalizedCount: number;
+    fallbackCount: number;
+  }>;
   lastProviderId: InternalChatProviderId | null;
   lastProviderError: string | null;
   lastScheduledJobName: string | null;

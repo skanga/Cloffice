@@ -1958,6 +1958,36 @@ function createInternalEngineMainService() {
           fallbackCount: providerRuns.filter((run) => run.responseNormalization === 'synthetic_fallback').length,
         };
       }).filter((entry) => entry.runCount > 0);
+      const providerCoworkNormalizationTrend = Array.from(
+        providerCoworkRuns.reduce((buckets, run) => {
+          const date = formatDatePrefix(run.updatedAt || run.startedAt);
+          const current = buckets.get(date) ?? {
+            date,
+            runCount: 0,
+            structuredCount: 0,
+            normalizedCount: 0,
+            fallbackCount: 0,
+          };
+          current.runCount += 1;
+          if (run.responseNormalization === 'provider_structured') {
+            current.structuredCount += 1;
+          } else if (run.responseNormalization === 'normalized_sections') {
+            current.normalizedCount += 1;
+          } else if (run.responseNormalization === 'synthetic_fallback') {
+            current.fallbackCount += 1;
+          }
+          buckets.set(date, current);
+          return buckets;
+        }, new Map<string, {
+          date: string;
+          runCount: number;
+          structuredCount: number;
+          normalizedCount: number;
+          fallbackCount: number;
+        }>()).values(),
+      )
+        .sort((left, right) => left.date.localeCompare(right.date))
+        .slice(-7);
       const providerCoworkStructuredCount = providerCoworkRuns.filter(
         (run) => run.responseNormalization === 'provider_structured',
       ).length;
@@ -1994,6 +2024,7 @@ function createInternalEngineMainService() {
         providerCoworkNormalizedCount,
         providerCoworkFallbackCount,
         providerCoworkNormalizationByProvider,
+        providerCoworkNormalizationTrend,
         lastProviderId,
         lastProviderError,
         lastScheduledJobName,
