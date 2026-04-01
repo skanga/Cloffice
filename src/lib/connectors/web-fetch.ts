@@ -1,4 +1,5 @@
 import type { ConnectorDefinition, ConnectorActionResult, ConnectorExecutionContext } from './connector-types';
+import { LEGACY_STORAGE_KEYS, readLocalStorageItem, STORAGE_KEYS, writeLocalStorageItem } from '../storage-keys';
 
 export type WebFetchResult = {
   status: number;
@@ -8,7 +9,8 @@ export type WebFetchResult = {
   truncated: boolean;
 };
 
-const WEB_FETCH_CONFIG_KEY = 'relay.connectors.web-fetch';
+const WEB_FETCH_CONFIG_KEY = STORAGE_KEYS.connectorsWebFetch;
+const WEB_FETCH_CONFIG_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.connectorsWebFetch] as const;
 const MAX_BODY_LENGTH = 100_000;
 
 const DEFAULT_ALLOWED_DOMAINS = [
@@ -19,7 +21,7 @@ const DEFAULT_ALLOWED_DOMAINS = [
 
 export function loadAllowedDomains(): string[] {
   try {
-    const raw = localStorage.getItem(WEB_FETCH_CONFIG_KEY);
+    const raw = readLocalStorageItem(WEB_FETCH_CONFIG_KEY, WEB_FETCH_CONFIG_LEGACY_KEYS);
     if (raw) {
       const parsed = JSON.parse(raw) as { allowedDomains?: string[] };
       if (Array.isArray(parsed.allowedDomains)) return parsed.allowedDomains;
@@ -29,7 +31,7 @@ export function loadAllowedDomains(): string[] {
 }
 
 export function saveAllowedDomains(domains: string[]) {
-  localStorage.setItem(WEB_FETCH_CONFIG_KEY, JSON.stringify({ allowedDomains: domains }));
+  writeLocalStorageItem(WEB_FETCH_CONFIG_KEY, JSON.stringify({ allowedDomains: domains }), WEB_FETCH_CONFIG_LEGACY_KEYS);
 }
 
 function isDomainAllowed(url: string, allowedDomains: string[]): boolean {

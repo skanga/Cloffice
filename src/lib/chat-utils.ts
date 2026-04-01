@@ -4,6 +4,7 @@
  */
 import type { ChatActivityItem, ChatMessage } from '@/app-types';
 import type { EngineErrorInfo } from './engine-runtime-types';
+import { LEGACY_STORAGE_KEYS, readLocalStorageItem, STORAGE_KEYS } from './storage-keys';
 
 /* ── Exported types ──────────────────────────────────────────────────────── */
 
@@ -29,7 +30,8 @@ export type RecentWorkspaceEntry = {
 
 /* ── Constants ───────────────────────────────────────────────────────────── */
 
-export const RELAY_RECENTS_KEY = 'relay.recents.v1';
+export const RELAY_RECENTS_KEY = STORAGE_KEYS.recents;
+const RELAY_RECENTS_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.recents] as const;
 
 export const DEFAULT_CHAT_THREAD_TITLE = 'New chat';
 export const DEFAULT_COWORK_THREAD_TITLE = 'New task';
@@ -253,7 +255,7 @@ function normalizeStoredThread(thread: unknown): ChatThread | null {
 
 export function loadPersistedRecents(): PersistedRecents {
   try {
-    const raw = localStorage.getItem(RELAY_RECENTS_KEY);
+    const raw = readLocalStorageItem(RELAY_RECENTS_KEY, RELAY_RECENTS_LEGACY_KEYS);
     if (!raw) {
       return { chatThreads: [], coworkThreads: [] };
     }

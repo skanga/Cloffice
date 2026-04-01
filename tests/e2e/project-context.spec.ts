@@ -1,12 +1,12 @@
 import { _electron as electron, expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 
-const ONBOARDING_COMPLETE_KEY = 'relay.onboarding.complete';
-const USAGE_MODE_KEY = 'relay.usage.mode';
-const RELAY_RECENTS_KEY = 'relay.recents.v1';
-const COWORK_PROJECTS_KEY = 'relay.cowork.projects.v1';
-const COWORK_ACTIVE_PROJECT_KEY = 'relay.cowork.projects.active.v1';
-const COWORK_TASKS_KEY = 'relay.cowork.tasks.v1';
+const ONBOARDING_COMPLETE_KEY = 'cloffice.onboarding.complete';
+const USAGE_MODE_KEY = 'cloffice.usage.mode';
+const RELAY_RECENTS_KEY = 'cloffice.recents.v1';
+const COWORK_PROJECTS_KEY = 'cloffice.cowork.projects.v1';
+const COWORK_ACTIVE_PROJECT_KEY = 'cloffice.cowork.projects.active.v1';
+const COWORK_TASKS_KEY = 'cloffice.cowork.tasks.v1';
 const USE_REAL_GATEWAY = process.env.RELAY_E2E_REAL_GATEWAY === '1';
 
 test.describe.configure({ timeout: 120000 });
@@ -19,7 +19,7 @@ function pendingApprovalCards(page: Page) {
 
 async function ensureE2ESafetyPolicy(page: Page) {
   await page.evaluate(() => {
-    const raw = localStorage.getItem('relay.safety.scopes');
+    const raw = localStorage.getItem('cloffice.safety.scopes') ?? localStorage.getItem('relay.safety.scopes');
     if (!raw) return;
 
     try {
@@ -30,7 +30,7 @@ async function ensureE2ESafetyPolicy(page: Page) {
         }
         return scope;
       });
-      localStorage.setItem('relay.safety.scopes', JSON.stringify(next));
+      localStorage.setItem('cloffice.safety.scopes', JSON.stringify(next));
     } catch {
       // Ignore malformed local state.
     }
@@ -152,7 +152,7 @@ test.describe('Cowork project runtime rules', () => {
 
     await page.evaluate(async () => {
       if (!window.relay?.saveConfig) return;
-      await window.relay.saveConfig({ gatewayUrl: 'ws://127.0.0.1:18789', gatewayToken: '' });
+      await window.relay.saveConfig({ endpointUrl: 'ws://127.0.0.1:18789', accessToken: '' });
     });
 
     await page.reload();

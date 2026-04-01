@@ -1,7 +1,7 @@
 import type { AppConfig } from '@/app-types';
 import type { EngineClientInstance } from './engine-client';
 import {
-  createLegacyAppConfigFromConnection,
+  createAppConfigFromConnection,
   type DesktopBridgeEngineConfig,
   type EngineDraftConfig,
 } from './engine-config';
@@ -77,7 +77,7 @@ export async function connectEngineRuntimeShell(params: {
 
   try {
     await client.connect(connectOptions);
-    onMarkLastUsed(createLegacyAppConfigFromConnection(connectOptions.endpointUrl, connectOptions.accessToken ?? ''));
+    onMarkLastUsed(createAppConfigFromConnection(connectOptions.endpointUrl, connectOptions.accessToken ?? ''));
 
     if (shouldRestoreRecovery) {
       await onRestoreInternalApprovalRecovery();

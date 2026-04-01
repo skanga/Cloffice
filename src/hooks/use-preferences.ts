@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UserPreferences } from '@/app-types';
+import { LEGACY_STORAGE_KEYS, readLocalStorageItem, STORAGE_KEYS, writeLocalStorageItem } from '@/lib/storage-keys';
 
 const defaultPreferences: UserPreferences = {
   fullName: '',
@@ -13,12 +14,13 @@ const defaultPreferences: UserPreferences = {
   language: 'en',
 };
 
-const RELAY_PREFERENCES_KEY = 'relay.preferences';
+const RELAY_PREFERENCES_KEY = STORAGE_KEYS.preferences;
+const RELAY_PREFERENCES_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.preferences] as const;
 
 export function usePreferences() {
   const [preferences, setPreferences] = useState<UserPreferences>(() => {
     try {
-      const stored = localStorage.getItem(RELAY_PREFERENCES_KEY);
+      const stored = readLocalStorageItem(RELAY_PREFERENCES_KEY, RELAY_PREFERENCES_LEGACY_KEYS);
       if (stored) return { ...defaultPreferences, ...JSON.parse(stored) };
     } catch { /* ignore */ }
     return defaultPreferences;
@@ -27,7 +29,7 @@ export function usePreferences() {
   const updatePreferences = useCallback((patch: Partial<UserPreferences>) => {
     setPreferences((prev) => {
       const next = { ...prev, ...patch };
-      localStorage.setItem(RELAY_PREFERENCES_KEY, JSON.stringify(next));
+      writeLocalStorageItem(RELAY_PREFERENCES_KEY, JSON.stringify(next), RELAY_PREFERENCES_LEGACY_KEYS);
       return next;
     });
   }, []);

@@ -6,7 +6,7 @@
 interface Window {
   cloffice?: {
     getConfig: () => Promise<any>;
-    saveConfig: (config: { gatewayUrl: string; gatewayToken: string }) => Promise<any>;
+    saveConfig: (config: { endpointUrl: string; accessToken: string }) => Promise<any>;
     getInternalEngineStatus: () => Promise<any>;
     getInternalEngineRuntimeInfo: () => Promise<any>;
     getInternalRunHistory: (limit?: number) => Promise<any[]>;

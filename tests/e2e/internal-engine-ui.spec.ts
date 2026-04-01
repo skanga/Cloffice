@@ -1,13 +1,13 @@
 import { _electron as electron, expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 
-const ONBOARDING_COMPLETE_KEY = 'relay.onboarding.complete';
-const USAGE_MODE_KEY = 'relay.usage.mode';
-const RELAY_RECENTS_KEY = 'relay.recents.v1';
-const COWORK_PROJECTS_KEY = 'relay.cowork.projects.v1';
-const COWORK_ACTIVE_PROJECT_KEY = 'relay.cowork.projects.active.v1';
-const COWORK_TASKS_KEY = 'relay.cowork.tasks.v1';
-const LOCAL_CONFIG_KEY = 'relay.config';
+const ONBOARDING_COMPLETE_KEY = 'cloffice.onboarding.complete';
+const USAGE_MODE_KEY = 'cloffice.usage.mode';
+const RELAY_RECENTS_KEY = 'cloffice.recents.v1';
+const COWORK_PROJECTS_KEY = 'cloffice.cowork.projects.v1';
+const COWORK_ACTIVE_PROJECT_KEY = 'cloffice.cowork.projects.active.v1';
+const COWORK_TASKS_KEY = 'cloffice.cowork.tasks.v1';
+const LOCAL_CONFIG_KEY = 'cloffice.config';
 
 function pendingApprovalCards(page: Page) {
   return page.getByTestId(/^pending-approval-(?!s-card$)(?!approve-)(?!reject-)(?!reason-).+/);
@@ -26,8 +26,8 @@ async function clearStoredState(page: Page) {
 
     const bridge = window.cloffice ?? window.relay;
     await bridge?.saveConfig?.({
-      gatewayUrl: 'ws://127.0.0.1:65534',
-      gatewayToken: '',
+      endpointUrl: 'ws://127.0.0.1:65534',
+      accessToken: '',
     });
     await bridge?.saveEngineConfig?.({
       providerId: 'internal',
@@ -681,7 +681,9 @@ test.describe('Internal engine UI flow', () => {
 
     await page.evaluate(async (selectedRootPath) => {
       const bridge = window.cloffice ?? window.relay;
-      const rawProjects = localStorage.getItem('relay.cowork.projects.v1');
+      const rawProjects =
+        localStorage.getItem('cloffice.cowork.projects.v1') ??
+        localStorage.getItem('relay.cowork.projects.v1');
       const parsedProjects = rawProjects ? JSON.parse(rawProjects) : [];
       const project = Array.isArray(parsedProjects)
         ? parsedProjects.find((entry) => entry?.name === 'Internal Grouped Schedule Project')
@@ -899,7 +901,9 @@ test.describe('Internal engine UI flow', () => {
     const scheduleName = `UI scheduled cowork ${Date.now()}`;
     await page.evaluate(async ({ name, rootPath }) => {
       const bridge = window.cloffice ?? window.relay;
-      const rawProjects = localStorage.getItem('relay.cowork.projects.v1');
+      const rawProjects =
+        localStorage.getItem('cloffice.cowork.projects.v1') ??
+        localStorage.getItem('relay.cowork.projects.v1');
       const parsedProjects = rawProjects ? JSON.parse(rawProjects) : [];
       const project = Array.isArray(parsedProjects)
         ? parsedProjects.find((entry) => entry?.name === 'Internal Scheduled Project')

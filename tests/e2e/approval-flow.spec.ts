@@ -1,11 +1,11 @@
 import { _electron as electron, expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 
-const ONBOARDING_COMPLETE_KEY = 'relay.onboarding.complete';
-const USAGE_MODE_KEY = 'relay.usage.mode';
-const RELAY_RECENTS_KEY = 'relay.recents.v1';
-const COWORK_PROJECTS_KEY = 'relay.cowork.projects.v1';
-const COWORK_ACTIVE_PROJECT_KEY = 'relay.cowork.projects.active.v1';
+const ONBOARDING_COMPLETE_KEY = 'cloffice.onboarding.complete';
+const USAGE_MODE_KEY = 'cloffice.usage.mode';
+const RELAY_RECENTS_KEY = 'cloffice.recents.v1';
+const COWORK_PROJECTS_KEY = 'cloffice.cowork.projects.v1';
+const COWORK_ACTIVE_PROJECT_KEY = 'cloffice.cowork.projects.active.v1';
 const USE_REAL_GATEWAY = process.env.RELAY_E2E_REAL_GATEWAY === '1';
 
 test.describe.configure({ timeout: USE_REAL_GATEWAY ? 180000 : 120000 });
@@ -41,7 +41,7 @@ async function waitForFirstApproval(page: Page, timeout = 20000) {
 
 async function ensureE2ESafetyPolicy(page: Page) {
   await page.evaluate(() => {
-    const raw = localStorage.getItem('relay.safety.scopes');
+    const raw = localStorage.getItem('cloffice.safety.scopes') ?? localStorage.getItem('relay.safety.scopes');
     if (!raw) {
       return;
     }
@@ -64,7 +64,7 @@ async function ensureE2ESafetyPolicy(page: Page) {
         return scope;
       });
 
-      localStorage.setItem('relay.safety.scopes', JSON.stringify(next));
+      localStorage.setItem('cloffice.safety.scopes', JSON.stringify(next));
     } catch {
       // Ignore malformed stored safety policy; app defaults will apply.
     }
@@ -118,8 +118,8 @@ test.describe('Cowork approval flow', () => {
         }
 
         await window.relay.saveConfig({
-          gatewayUrl: 'ws://127.0.0.1:18789',
-          gatewayToken: '',
+          endpointUrl: 'ws://127.0.0.1:18789',
+          accessToken: '',
         });
       });
 
@@ -135,22 +135,37 @@ test.describe('Cowork approval flow', () => {
           return;
         }
 
-        const raw = localStorage.getItem('relay.config');
+        const raw = localStorage.getItem('cloffice.config') ?? localStorage.getItem('relay.config');
         if (!raw) {
           return;
         }
 
         try {
-          const parsed = JSON.parse(raw) as { gatewayUrl?: string; gatewayToken?: string };
-          const gatewayUrl = typeof parsed.gatewayUrl === 'string' ? parsed.gatewayUrl.trim() : '';
-          const gatewayToken = typeof parsed.gatewayToken === 'string' ? parsed.gatewayToken : '';
-          if (!gatewayUrl) {
+          const parsed = JSON.parse(raw) as {
+            endpointUrl?: string;
+            accessToken?: string;
+            gatewayUrl?: string;
+            gatewayToken?: string;
+          };
+          const endpointUrl =
+            typeof parsed.endpointUrl === 'string'
+              ? parsed.endpointUrl.trim()
+              : typeof parsed.gatewayUrl === 'string'
+                ? parsed.gatewayUrl.trim()
+                : '';
+          const accessToken =
+            typeof parsed.accessToken === 'string'
+              ? parsed.accessToken
+              : typeof parsed.gatewayToken === 'string'
+                ? parsed.gatewayToken
+                : '';
+          if (!endpointUrl) {
             return;
           }
 
           await window.relay.saveConfig({
-            gatewayUrl,
-            gatewayToken,
+            endpointUrl,
+            accessToken,
           });
         } catch {
           // Ignore malformed local fallback config.
@@ -242,9 +257,13 @@ test.describe('Cowork approval flow', () => {
 
     test('mock gateway: disabled file-modify policy blocks append without approval card', async () => {
       await page.evaluate(() => {
-        const activeProjectId = (localStorage.getItem('relay.cowork.projects.active.v1') || '').trim();
-        const scopedKey = activeProjectId ? `relay.safety.scopes.project.${activeProjectId}` : 'relay.safety.scopes';
-        const raw = localStorage.getItem(scopedKey) || localStorage.getItem('relay.safety.scopes');
+        const activeProjectId = (localStorage.getItem('cloffice.cowork.projects.active.v1') || '').trim();
+        const scopedKey = activeProjectId ? `cloffice.safety.scopes.project.${activeProjectId}` : 'cloffice.safety.scopes';
+        const raw =
+          localStorage.getItem(scopedKey) ||
+          localStorage.getItem('cloffice.safety.scopes') ||
+          localStorage.getItem(`relay.safety.scopes.project.${activeProjectId}`) ||
+          localStorage.getItem('relay.safety.scopes');
 
         const scopes = (raw ? JSON.parse(raw) : []) as Array<{
           id: string;
@@ -279,7 +298,7 @@ test.describe('Cowork approval flow', () => {
           ];
         }
 
-        localStorage.setItem('relay.safety.scopes', JSON.stringify(next));
+        localStorage.setItem('cloffice.safety.scopes', JSON.stringify(next));
         if (activeProjectId) {
           localStorage.setItem(scopedKey, JSON.stringify(next));
         }

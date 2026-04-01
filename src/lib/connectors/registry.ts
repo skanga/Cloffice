@@ -1,6 +1,8 @@
 import type { ConnectorDefinition } from './connector-types';
+import { LEGACY_STORAGE_KEYS, readLocalStorageItem, STORAGE_KEYS, writeLocalStorageItem } from '../storage-keys';
 
-const CONNECTOR_CONFIG_KEY = 'relay.connectors.config';
+const CONNECTOR_CONFIG_KEY = STORAGE_KEYS.connectorsConfig;
+const CONNECTOR_CONFIG_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.connectorsConfig] as const;
 
 /* ── Registry ────────────────────────────────────────────────────────────── */
 
@@ -24,7 +26,7 @@ type SavedConnectorConfigs = Record<string, { enabled: boolean; config: Record<s
 
 function loadSavedConfigs(): SavedConnectorConfigs {
   try {
-    const raw = localStorage.getItem(CONNECTOR_CONFIG_KEY);
+    const raw = readLocalStorageItem(CONNECTOR_CONFIG_KEY, CONNECTOR_CONFIG_LEGACY_KEYS);
     if (!raw) return {};
     return JSON.parse(raw) as SavedConnectorConfigs;
   } catch {
@@ -33,7 +35,7 @@ function loadSavedConfigs(): SavedConnectorConfigs {
 }
 
 function saveSavedConfigs(configs: SavedConnectorConfigs) {
-  localStorage.setItem(CONNECTOR_CONFIG_KEY, JSON.stringify(configs));
+  writeLocalStorageItem(CONNECTOR_CONFIG_KEY, JSON.stringify(configs), CONNECTOR_CONFIG_LEGACY_KEYS);
 }
 
 /** Apply stored config + status to all registered connectors. */

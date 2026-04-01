@@ -42,8 +42,8 @@ function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpoint: string
   if (!entry || typeof entry !== 'object') {
     return {
       appConfig: {
-        gatewayUrl: DEFAULT_INTERNAL_ENGINE_ENDPOINT,
-        gatewayToken: '',
+        endpointUrl: DEFAULT_INTERNAL_ENGINE_ENDPOINT,
+        accessToken: '',
       },
       engineDraft: {
         providerId: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.providerId,
@@ -73,8 +73,8 @@ function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpoint: string
         : {};
     return {
       appConfig: {
-        gatewayUrl: typeof record.endpointUrl === 'string' && record.endpointUrl.trim() ? record.endpointUrl.trim() : fallbackEndpoint,
-        gatewayToken: typeof record.accessToken === 'string' ? record.accessToken : '',
+        endpointUrl: typeof record.endpointUrl === 'string' && record.endpointUrl.trim() ? record.endpointUrl.trim() : fallbackEndpoint,
+        accessToken: typeof record.accessToken === 'string' ? record.accessToken : '',
       },
       engineDraft: {
         providerId: 'internal',
@@ -98,8 +98,8 @@ function parseDesktopBridgeEngineConfig(entry: unknown, fallbackEndpoint: string
 
   return {
     appConfig: {
-      gatewayUrl: typeof record.gatewayUrl === 'string' && record.gatewayUrl.trim() ? record.gatewayUrl.trim() : fallbackEndpoint,
-      gatewayToken: typeof record.gatewayToken === 'string' ? record.gatewayToken : '',
+      endpointUrl: typeof record.gatewayUrl === 'string' && record.gatewayUrl.trim() ? record.gatewayUrl.trim() : fallbackEndpoint,
+      accessToken: typeof record.gatewayToken === 'string' ? record.gatewayToken : '',
     },
     engineDraft: {
       providerId: INTERNAL_ENGINE_RUNTIME_DESCRIPTOR.providerId,

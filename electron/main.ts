@@ -63,8 +63,8 @@ import {
 } from '../src/lib/internal-provider-adapter.js';
 
 const defaultConfig: AppConfig = {
-  gatewayUrl: 'internal://dev-runtime',
-  gatewayToken: '',
+  endpointUrl: 'internal://dev-runtime',
+  accessToken: '',
 };
 
 const CLOFFICE_CONFIG_FILE = 'cloffice-config.json';
@@ -3156,8 +3156,8 @@ function registerWebSocketOriginRewrite() {
     urls: ['ws://*/*', 'wss://*/*'],
   };
 
-  // Electron packaged builds run from file:// and may send an origin rejected by gateway allowlists.
-  // Rewrite remote WS handshakes to the target host origin so gateway allowlist checks can pass.
+  // Electron packaged builds run from file:// and may send an origin rejected by remote runtime allowlists.
+  // Rewrite remote WS handshakes to the target host origin so remote runtime allowlist checks can pass.
   session.defaultSession.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
     try {
       const target = new URL(details.url);
@@ -3972,7 +3972,7 @@ async function writeRawConfigEntry(entry: unknown): Promise<unknown> {
 
 async function readStoredInternalProviderConfig(): Promise<InternalProviderConfig> {
   const rawEntry = await readRawConfigEntry();
-  const parsed = parseStoredEngineConfig(rawEntry, defaultConfig.gatewayUrl);
+  const parsed = parseStoredEngineConfig(rawEntry, defaultConfig.endpointUrl);
   const secureSecrets = await readStoredProviderSecrets();
   const mergedConfig = mergeStoredInternalProviderConfig(parsed?.engineDraft.internalProviderConfig, secureSecrets);
 
@@ -3988,7 +3988,7 @@ async function readStoredInternalProviderConfig(): Promise<InternalProviderConfi
 }
 
 async function readConfig(): Promise<AppConfig> {
-  const parsed = parseStoredEngineConfig(await readRawConfigEntry(), defaultConfig.gatewayUrl);
+  const parsed = parseStoredEngineConfig(await readRawConfigEntry(), defaultConfig.endpointUrl);
   return parsed?.appConfig ?? defaultConfig;
 }
 
@@ -4002,19 +4002,19 @@ async function readHydratedEngineConfigEntry(): Promise<unknown | null> {
 }
 
 async function writeConfig(config: AppConfig): Promise<AppConfig> {
-  const normalizedGatewayUrl = config.gatewayUrl.trim();
+  const normalizedEndpointUrl = config.endpointUrl.trim();
 
   const normalized = {
-    gatewayUrl: normalizedGatewayUrl,
-    gatewayToken: config.gatewayToken.trim(),
+    endpointUrl: normalizedEndpointUrl,
+    accessToken: config.accessToken.trim(),
   };
 
   await writeRawConfigEntry(normalized);
   return normalized;
 }
 
-async function runHealthCheck(gatewayUrl: string): Promise<HealthCheckResult> {
-  const normalizedBaseUrl = gatewayUrl
+async function runHealthCheck(endpointUrl: string): Promise<HealthCheckResult> {
+  const normalizedBaseUrl = endpointUrl
     .trim()
     .replace(/^wss?:\/\//, (value) => (value === 'wss://' ? 'https://' : 'http://'))
     .replace(/\/$/, '');

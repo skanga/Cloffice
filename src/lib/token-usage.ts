@@ -1,4 +1,5 @@
 import type { MessageUsage } from '@/app-types';
+import { buildDatedStorageKey, LEGACY_STORAGE_KEYS, readLocalStorageItem, STORAGE_KEYS, writeLocalStorageItem } from './storage-keys';
 
 // Approximate pricing per million tokens (USD).
 // Prices are estimates based on typical Claude/OpenRouter API pricing.
@@ -29,7 +30,7 @@ export function calcCostUsd(inputTokens: number, outputTokens: number, model?: s
   return (inputTokens / 1_000_000) * inputPer1M + (outputTokens / 1_000_000) * outputPer1M;
 }
 
-/** Parse a usage object from the raw gateway event payload (handles multiple field name conventions). */
+/** Parse a usage object from a raw runtime event payload (handles multiple field name conventions). */
 export function parseUsageFromPayload(
   payload: Record<string, unknown>,
   model?: string,
@@ -108,16 +109,20 @@ export function estimateTokens(text: string): number {
 
 // ── Daily persistence ─────────────────────────────────────────────────────────
 
-const DAILY_KEY_PREFIX = 'relay.daily-usage.';
+const DAILY_KEY_PREFIX = STORAGE_KEYS.dailyUsagePrefix;
+const LEGACY_DAILY_KEY_PREFIX = LEGACY_STORAGE_KEYS.dailyUsagePrefix;
 
 function todayKey(): string {
-  const d = new Date();
-  return `${DAILY_KEY_PREFIX}${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return buildDatedStorageKey(DAILY_KEY_PREFIX);
+}
+
+function legacyTodayKey(): string {
+  return buildDatedStorageKey(LEGACY_DAILY_KEY_PREFIX);
 }
 
 export function loadTodayUsage(): MessageUsage {
   try {
-    const raw = localStorage.getItem(todayKey());
+    const raw = readLocalStorageItem(todayKey(), [legacyTodayKey()]);
     if (!raw) return { inputTokens: 0, outputTokens: 0, costUsd: 0 };
     const parsed = JSON.parse(raw) as Partial<MessageUsage>;
     return {
@@ -138,7 +143,7 @@ export function accumulateTodayUsage(delta: MessageUsage): void {
       outputTokens: current.outputTokens + delta.outputTokens,
       costUsd: (current.costUsd ?? 0) + (delta.costUsd ?? 0),
     };
-    localStorage.setItem(todayKey(), JSON.stringify(next));
+    writeLocalStorageItem(todayKey(), JSON.stringify(next), [legacyTodayKey()]);
   } catch {
     // localStorage unavailable — non-fatal
   }

@@ -42,7 +42,7 @@ export type ParsedStoredEngineConfig = {
 export type DesktopBridgeEngineConfig = ParsedStoredEngineConfig;
 export type PreparedEngineConfigWrite = {
   activeFormat: 'app-config-v1-compat' | 'provider-aware-v2';
-  legacyAppConfig: AppConfig;
+  appConfig: AppConfig;
   providerAwareConfig: ProviderAwareStoredEngineConfigV2;
   providerAwareWriteEligible: boolean;
   providerAwareWriteEnabled: boolean;
@@ -57,23 +57,23 @@ export function normalizeEngineEndpointUrl(
 }
 
 export function endpointUrlFromAppConfig(
-  config: Pick<AppConfig, 'gatewayUrl'>,
+  config: Pick<AppConfig, 'endpointUrl'>,
   fallbackEndpointUrl: string = DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL,
 ): string {
-  return normalizeEngineEndpointUrl(config.gatewayUrl, fallbackEndpointUrl);
+  return normalizeEngineEndpointUrl(config.endpointUrl, fallbackEndpointUrl);
 }
 
-export function accessTokenFromAppConfig(config: Pick<AppConfig, 'gatewayToken'>): string {
-  return config.gatewayToken ?? '';
+export function accessTokenFromAppConfig(config: Pick<AppConfig, 'accessToken'>): string {
+  return config.accessToken ?? '';
 }
 
-export function createLegacyAppConfigFromConnection(
+export function createAppConfigFromConnection(
   endpointUrl: string,
   accessToken: string,
 ): AppConfig {
   return {
-    gatewayUrl: normalizeEngineEndpointUrl(endpointUrl),
-    gatewayToken: accessToken,
+    endpointUrl: normalizeEngineEndpointUrl(endpointUrl),
+    accessToken,
   };
 }
 
@@ -81,8 +81,8 @@ export function createDefaultAppConfig(
   fallbackEndpointUrl: string = DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL,
 ): AppConfig {
   return {
-    gatewayUrl: fallbackEndpointUrl,
-    gatewayToken: '',
+    endpointUrl: fallbackEndpointUrl,
+    accessToken: '',
   };
 }
 
@@ -122,11 +122,20 @@ export function parseStoredAppConfig(entry: unknown, fallbackEndpointUrl: string
 
   const record = entry as Record<string, unknown>;
   return {
-    gatewayUrl: normalizeEngineEndpointUrl(
-      typeof record.gatewayUrl === 'string' ? record.gatewayUrl : null,
+    endpointUrl: normalizeEngineEndpointUrl(
+      typeof record.endpointUrl === 'string'
+        ? record.endpointUrl
+        : typeof record.gatewayUrl === 'string'
+          ? record.gatewayUrl
+          : null,
       fallbackEndpointUrl,
     ),
-    gatewayToken: typeof record.gatewayToken === 'string' ? record.gatewayToken : '',
+    accessToken:
+      typeof record.accessToken === 'string'
+        ? record.accessToken
+        : typeof record.gatewayToken === 'string'
+          ? record.gatewayToken
+          : '',
   };
 }
 
@@ -178,7 +187,7 @@ export function engineDraftFromAppConfig(config: AppConfig): EngineDraftConfig {
 }
 
 export function appConfigFromEngineDraft(draft: EngineDraftConfig): AppConfig {
-  return createLegacyAppConfigFromConnection(draft.endpointUrl, draft.accessToken);
+  return createAppConfigFromConnection(draft.endpointUrl, draft.accessToken);
 }
 
 export function buildDeferredProviderAwareEngineConfig(draft: EngineDraftConfig): ProviderAwareStoredEngineConfigV2 {
@@ -209,7 +218,7 @@ export function prepareEngineConfigWrite(
 
   return {
     activeFormat: 'provider-aware-v2',
-    legacyAppConfig: appConfigFromEngineDraft(draft),
+    appConfig: appConfigFromEngineDraft(draft),
     providerAwareConfig: buildDeferredProviderAwareEngineConfig(draft),
     providerAwareWriteEligible,
     providerAwareWriteEnabled,

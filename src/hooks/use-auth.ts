@@ -5,6 +5,16 @@ import {
   signInWithPassword,
   signOutSupabase,
 } from '@/lib/supabase-auth';
+import {
+  LEGACY_STORAGE_KEYS,
+  readLocalStorageItem,
+  readSessionStorageItem,
+  removeLocalStorageItem,
+  removeSessionStorageItem,
+  STORAGE_KEYS,
+  writeLocalStorageItem,
+  writeSessionStorageItem,
+} from '@/lib/storage-keys';
 
 /* ── Types ───────────────────────────────────────────────────────────────── */
 
@@ -24,31 +34,35 @@ type LoginCredentials = {
 
 /* ── Storage constants (private) ─────────────────────────────────────────── */
 
-const AUTH_LOCAL_STORAGE_KEY = 'relay.auth.local';
-const AUTH_SESSION_STORAGE_KEY = 'relay.auth.session';
-const RELAY_USAGE_MODE_KEY = 'relay.usage.mode';
-const RELAY_ONBOARDING_KEY = 'relay.onboarding.complete';
+const AUTH_LOCAL_STORAGE_KEY = STORAGE_KEYS.authLocal;
+const AUTH_LOCAL_STORAGE_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.authLocal] as const;
+const AUTH_SESSION_STORAGE_KEY = STORAGE_KEYS.authSession;
+const AUTH_SESSION_STORAGE_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.authSession] as const;
+const RELAY_USAGE_MODE_KEY = STORAGE_KEYS.usageMode;
+const RELAY_USAGE_MODE_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.usageMode] as const;
+const RELAY_ONBOARDING_KEY = STORAGE_KEYS.onboardingComplete;
+const RELAY_ONBOARDING_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.onboardingComplete] as const;
 
 /* ── Storage helpers (private) ───────────────────────────────────────────── */
 
 function clearAuthStorage() {
-  localStorage.removeItem(AUTH_LOCAL_STORAGE_KEY);
-  sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+  removeLocalStorageItem(AUTH_LOCAL_STORAGE_KEY, AUTH_LOCAL_STORAGE_LEGACY_KEYS);
+  removeSessionStorageItem(AUTH_SESSION_STORAGE_KEY, AUTH_SESSION_STORAGE_LEGACY_KEYS);
 }
 
 function persistAuthSession(session: AuthSession) {
   clearAuthStorage();
   const serialized = JSON.stringify(session);
   if (session.rememberMe) {
-    localStorage.setItem(AUTH_LOCAL_STORAGE_KEY, serialized);
+    writeLocalStorageItem(AUTH_LOCAL_STORAGE_KEY, serialized, AUTH_LOCAL_STORAGE_LEGACY_KEYS);
     return;
   }
-  sessionStorage.setItem(AUTH_SESSION_STORAGE_KEY, serialized);
+  writeSessionStorageItem(AUTH_SESSION_STORAGE_KEY, serialized, AUTH_SESSION_STORAGE_LEGACY_KEYS);
 }
 
 function readStoredAuthSession(): AuthSession | null {
-  const localRaw = localStorage.getItem(AUTH_LOCAL_STORAGE_KEY);
-  const sessionRaw = sessionStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+  const localRaw = readLocalStorageItem(AUTH_LOCAL_STORAGE_KEY, AUTH_LOCAL_STORAGE_LEGACY_KEYS);
+  const sessionRaw = readSessionStorageItem(AUTH_SESSION_STORAGE_KEY, AUTH_SESSION_STORAGE_LEGACY_KEYS);
   const raw = localRaw ?? sessionRaw;
   if (!raw) {
     return null;
@@ -96,12 +110,12 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
   const [authError, setAuthError] = useState('');
   const [guestMode, setGuestMode] = useState(true);
   const [onboardingComplete, setOnboardingComplete] = useState(
-    () => localStorage.getItem(RELAY_ONBOARDING_KEY) === 'true',
+    () => readLocalStorageItem(RELAY_ONBOARDING_KEY, RELAY_ONBOARDING_LEGACY_KEYS) === 'true',
   );
 
   // Session recovery on mount
   useEffect(() => {
-    const storedUsageMode = localStorage.getItem(RELAY_USAGE_MODE_KEY);
+    const storedUsageMode = readLocalStorageItem(RELAY_USAGE_MODE_KEY, RELAY_USAGE_MODE_LEGACY_KEYS);
     if (storedUsageMode === 'guest') {
       setGuestMode(true);
       statusRef.current?.('Running in local mode.');
@@ -127,7 +141,7 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
         }
         setAuthSession(restored);
         setGuestMode(false);
-        localStorage.setItem(RELAY_USAGE_MODE_KEY, 'auth');
+        writeLocalStorageItem(RELAY_USAGE_MODE_KEY, 'auth', RELAY_USAGE_MODE_LEGACY_KEYS);
         persistAuthSession(restored);
         statusRef.current?.(`Signed in as ${restored.email}.`);
       } catch {
@@ -176,7 +190,7 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
       const session = await signInWithPassword(credentials.email, credentials.password, credentials.rememberMe);
       setAuthSession(session);
       setGuestMode(false);
-      localStorage.setItem(RELAY_USAGE_MODE_KEY, 'auth');
+      writeLocalStorageItem(RELAY_USAGE_MODE_KEY, 'auth', RELAY_USAGE_MODE_LEGACY_KEYS);
       persistAuthSession(session);
       statusRef.current?.(`Signed in as ${session.email}.`);
     } catch (error) {
@@ -195,7 +209,7 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
     }
     setAuthSession(null);
     setGuestMode(false);
-    localStorage.removeItem(RELAY_USAGE_MODE_KEY);
+    removeLocalStorageItem(RELAY_USAGE_MODE_KEY, RELAY_USAGE_MODE_LEGACY_KEYS);
     clearAuthStorage();
     setAuthError('');
     statusRef.current?.('Signed out.');
@@ -206,13 +220,13 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
     setAuthError('');
     setAuthSession(null);
     clearAuthStorage();
-    localStorage.setItem(RELAY_USAGE_MODE_KEY, 'guest');
+    writeLocalStorageItem(RELAY_USAGE_MODE_KEY, 'guest', RELAY_USAGE_MODE_LEGACY_KEYS);
     statusRef.current?.('Running in local mode. Sign in anytime for hosted cloud features.');
   };
 
   /** Sets onboarding as complete. Caller is responsible for navigation side-effects. */
   const completeOnboarding = () => {
-    localStorage.setItem(RELAY_ONBOARDING_KEY, 'true');
+    writeLocalStorageItem(RELAY_ONBOARDING_KEY, 'true', RELAY_ONBOARDING_LEGACY_KEYS);
     setOnboardingComplete(true);
   };
 

@@ -1,6 +1,8 @@
 import type { LocalActionType, SafetyPermissionScope, SafetyRiskLevel } from '@/app-types';
+import { LEGACY_STORAGE_KEYS, readLocalStorageItem, STORAGE_KEYS, writeLocalStorageItem } from './storage-keys';
 
-export const SAFETY_STORAGE_KEY = 'relay.safety.scopes';
+export const SAFETY_STORAGE_KEY = STORAGE_KEYS.safetyScopes;
+const LEGACY_SAFETY_STORAGE_KEY = LEGACY_STORAGE_KEYS.safetyScopes;
 
 function getSafetyStorageKey(projectId?: string): string {
   const normalizedProjectId = (projectId ?? '').trim();
@@ -8,6 +10,14 @@ function getSafetyStorageKey(projectId?: string): string {
     return SAFETY_STORAGE_KEY;
   }
   return `${SAFETY_STORAGE_KEY}.project.${normalizedProjectId}`;
+}
+
+function getLegacySafetyStorageKey(projectId?: string): string {
+  const normalizedProjectId = (projectId ?? '').trim();
+  if (!normalizedProjectId) {
+    return LEGACY_SAFETY_STORAGE_KEY;
+  }
+  return `${LEGACY_SAFETY_STORAGE_KEY}.project.${normalizedProjectId}`;
 }
 
 export const DEFAULT_SAFETY_SCOPES: SafetyPermissionScope[] = [
@@ -73,11 +83,9 @@ function normalizeScopes(input: unknown): SafetyPermissionScope[] {
 export function loadSafetyScopes(projectId?: string): SafetyPermissionScope[] {
   try {
     const scopedKey = getSafetyStorageKey(projectId);
-    const raw = localStorage.getItem(scopedKey);
+    const raw = readLocalStorageItem(scopedKey, [getLegacySafetyStorageKey(projectId)]);
     if (!raw) {
-      // Backward-compatibility: if no project-specific scopes exist,
-      // use global scopes as baseline.
-      const legacyRaw = localStorage.getItem(SAFETY_STORAGE_KEY);
+      const legacyRaw = readLocalStorageItem(SAFETY_STORAGE_KEY, [LEGACY_SAFETY_STORAGE_KEY]);
       if (!legacyRaw) {
         return DEFAULT_SAFETY_SCOPES;
       }
@@ -91,7 +99,7 @@ export function loadSafetyScopes(projectId?: string): SafetyPermissionScope[] {
 
 export function saveSafetyScopes(scopes: SafetyPermissionScope[], projectId?: string) {
   const scopedKey = getSafetyStorageKey(projectId);
-  localStorage.setItem(scopedKey, JSON.stringify(scopes));
+  writeLocalStorageItem(scopedKey, JSON.stringify(scopes), [getLegacySafetyStorageKey(projectId)]);
 }
 
 const localActionScopeMap: Record<LocalActionType, string> = {

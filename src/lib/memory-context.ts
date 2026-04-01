@@ -1,6 +1,8 @@
 import type { MemoryEntry } from '@/app-types';
+import { LEGACY_STORAGE_KEYS, readLocalStorageItem, STORAGE_KEYS } from './storage-keys';
 
-export const MEMORY_STORAGE_KEY = 'relay.memory.entries';
+export const MEMORY_STORAGE_KEY = STORAGE_KEYS.memoryEntries;
+const MEMORY_STORAGE_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.memoryEntries] as const;
 
 /** Injection priority: rules > about-me > reflection > knowledge */
 const CATEGORY_ORDER: MemoryEntry['category'][] = ['rules', 'about-me', 'reflection', 'knowledge'];
@@ -17,7 +19,7 @@ const CHAR_BUDGET = 8000;
 
 export function loadMemoryEntries(): MemoryEntry[] {
   try {
-    const raw = localStorage.getItem(MEMORY_STORAGE_KEY);
+    const raw = readLocalStorageItem(MEMORY_STORAGE_KEY, MEMORY_STORAGE_LEGACY_KEYS);
     if (!raw) return [];
     return JSON.parse(raw) as MemoryEntry[];
   } catch {

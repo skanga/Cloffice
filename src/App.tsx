@@ -15,6 +15,7 @@ import {
 } from './lib/engine-config';
 import { engineConnectionMatchesAppConfig, engineConnectionMatchesDraft, parseStoredEngineConnectionProfile, serializeEngineConnectionProfile } from './lib/engine-connection-profiles';
 import { getDesktopBridge } from './lib/desktop-bridge';
+import { LEGACY_STORAGE_KEYS, readLocalStorageItem, removeLocalStorageItem, STORAGE_KEYS, writeLocalStorageItem } from './lib/storage-keys';
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { flushSync } from 'react-dom';
@@ -274,15 +275,24 @@ const MemoryPage = lazy(() => import('./features/workspace/memory-page').then((m
 const SafetyPage = lazy(() => import('./features/workspace/safety-page').then((module) => ({ default: module.SafetyPage })));
 const ScheduledPage = lazy(() => import('./features/workspace/scheduled-page').then((module) => ({ default: module.ScheduledPage })));
 
-const LOCAL_CONFIG_KEY = 'relay.config';
-const GATEWAY_CONNECTIONS_STORAGE_KEY = 'relay.gateway.connections.v1';
-const COWORK_PROJECTS_STORAGE_KEY = 'relay.cowork.projects.v1';
-const COWORK_ACTIVE_PROJECT_STORAGE_KEY = 'relay.cowork.projects.active.v1';
-const COWORK_TASKS_STORAGE_KEY = 'relay.cowork.tasks.v1';
-const COWORK_PROJECT_KNOWLEDGE_STORAGE_KEY = 'relay.cowork.project.knowledge.v1';
-const COWORK_WEB_SEARCH_MODE_STORAGE_KEY = 'relay.cowork.websearch.v1';
-const CHAT_DRAFT_STORAGE_KEY = 'relay.chat.draft.v1';
-const COWORK_DRAFT_STORAGE_KEY = 'relay.cowork.draft.v1';
+const LOCAL_CONFIG_KEY = STORAGE_KEYS.config;
+const LOCAL_CONFIG_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.config] as const;
+const GATEWAY_CONNECTIONS_STORAGE_KEY = STORAGE_KEYS.engineConnections;
+const GATEWAY_CONNECTIONS_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.engineConnections] as const;
+const COWORK_PROJECTS_STORAGE_KEY = STORAGE_KEYS.coworkProjects;
+const COWORK_PROJECTS_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.coworkProjects] as const;
+const COWORK_ACTIVE_PROJECT_STORAGE_KEY = STORAGE_KEYS.coworkActiveProject;
+const COWORK_ACTIVE_PROJECT_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.coworkActiveProject] as const;
+const COWORK_TASKS_STORAGE_KEY = STORAGE_KEYS.coworkTasks;
+const COWORK_TASKS_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.coworkTasks] as const;
+const COWORK_PROJECT_KNOWLEDGE_STORAGE_KEY = STORAGE_KEYS.coworkProjectKnowledge;
+const COWORK_PROJECT_KNOWLEDGE_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.coworkProjectKnowledge] as const;
+const COWORK_WEB_SEARCH_MODE_STORAGE_KEY = STORAGE_KEYS.coworkWebSearchMode;
+const COWORK_WEB_SEARCH_MODE_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.coworkWebSearchMode] as const;
+const CHAT_DRAFT_STORAGE_KEY = STORAGE_KEYS.chatDraft;
+const CHAT_DRAFT_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.chatDraft] as const;
+const COWORK_DRAFT_STORAGE_KEY = STORAGE_KEYS.coworkDraft;
+const COWORK_DRAFT_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.coworkDraft] as const;
 
 type AppPage = 'chat' | 'cowork' | 'project' | 'files' | 'local-files' | 'activity' | 'memory' | 'scheduled' | 'safety' | 'settings';
 type SettingsSection = 'Profile' | 'Appearance' | 'System Prompt' | 'Gateway' | 'Connectors' | 'Account' | 'Privacy' | 'Developer';
@@ -338,7 +348,7 @@ type CoworkTaskQueueEntry = {
 
 function loadCoworkProjects(): CoworkProject[] {
   try {
-    const raw = localStorage.getItem(COWORK_PROJECTS_STORAGE_KEY);
+    const raw = readLocalStorageItem(COWORK_PROJECTS_STORAGE_KEY, COWORK_PROJECTS_LEGACY_KEYS);
     if (!raw) {
       return [];
     }
@@ -383,7 +393,7 @@ function loadCoworkProjects(): CoworkProject[] {
 
 function loadEngineConnectionProfiles(): EngineConnectionProfile[] {
   try {
-    const raw = localStorage.getItem(GATEWAY_CONNECTIONS_STORAGE_KEY);
+    const raw = readLocalStorageItem(GATEWAY_CONNECTIONS_STORAGE_KEY, GATEWAY_CONNECTIONS_LEGACY_KEYS);
     if (!raw) {
       return [];
     }
@@ -403,15 +413,16 @@ function loadEngineConnectionProfiles(): EngineConnectionProfile[] {
 }
 
 function persistEngineConnectionProfiles(profiles: EngineConnectionProfile[]) {
-  localStorage.setItem(
+  writeLocalStorageItem(
     GATEWAY_CONNECTIONS_STORAGE_KEY,
     JSON.stringify(profiles.map(serializeEngineConnectionProfile)),
+    GATEWAY_CONNECTIONS_LEGACY_KEYS,
   );
 }
 
 function loadActiveCoworkProjectId(): string {
   try {
-    const raw = localStorage.getItem(COWORK_ACTIVE_PROJECT_STORAGE_KEY);
+    const raw = readLocalStorageItem(COWORK_ACTIVE_PROJECT_STORAGE_KEY, COWORK_ACTIVE_PROJECT_LEGACY_KEYS);
     return typeof raw === 'string' ? raw.trim() : '';
   } catch {
     return '';
@@ -420,7 +431,7 @@ function loadActiveCoworkProjectId(): string {
 
 function loadCoworkTasks(): CoworkProjectTask[] {
   try {
-    const raw = localStorage.getItem(COWORK_TASKS_STORAGE_KEY);
+    const raw = readLocalStorageItem(COWORK_TASKS_STORAGE_KEY, COWORK_TASKS_LEGACY_KEYS);
     if (!raw) {
       return [];
     }
@@ -475,9 +486,9 @@ function loadCoworkTasks(): CoworkProjectTask[] {
   }
 }
 
-function loadDraft(storageKey: string): string {
+function loadDraft(storageKey: string, legacyStorageKeys: readonly string[] = []): string {
   try {
-    const raw = localStorage.getItem(storageKey);
+    const raw = readLocalStorageItem(storageKey, legacyStorageKeys);
     return typeof raw === 'string' ? raw : '';
   } catch {
     return '';
@@ -486,7 +497,7 @@ function loadDraft(storageKey: string): string {
 
 function loadProjectKnowledgeItems(): ProjectKnowledgeItem[] {
   try {
-    const raw = localStorage.getItem(COWORK_PROJECT_KNOWLEDGE_STORAGE_KEY);
+    const raw = readLocalStorageItem(COWORK_PROJECT_KNOWLEDGE_STORAGE_KEY, COWORK_PROJECT_KNOWLEDGE_LEGACY_KEYS);
     if (!raw) {
       return [];
     }
@@ -608,8 +619,8 @@ export default function App() {
   const [activePage, setActivePage] = useState<AppPage>('cowork');
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('Profile');
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [chatDraftPrompt, setChatDraftPrompt] = useState(() => loadDraft(CHAT_DRAFT_STORAGE_KEY));
-  const [coworkDraftPrompt, setCoworkDraftPrompt] = useState(() => loadDraft(COWORK_DRAFT_STORAGE_KEY));
+  const [chatDraftPrompt, setChatDraftPrompt] = useState(() => loadDraft(CHAT_DRAFT_STORAGE_KEY, CHAT_DRAFT_LEGACY_KEYS));
+  const [coworkDraftPrompt, setCoworkDraftPrompt] = useState(() => loadDraft(COWORK_DRAFT_STORAGE_KEY, COWORK_DRAFT_LEGACY_KEYS));
   const [workingFolder, setWorkingFolder] = useState('/Downloads');
   const [coworkProjects, setCoworkProjects] = useState<CoworkProject[]>(() => loadCoworkProjects());
   const [activeCoworkProjectId, setActiveCoworkProjectId] = useState(() => loadActiveCoworkProjectId());
@@ -651,7 +662,7 @@ export default function App() {
   const [coworkRunStatus, setCoworkRunStatus] = useState(buildCoworkReadyStatus());
   const [coworkWebSearchEnabled, setCoworkWebSearchEnabled] = useState<boolean>(() => {
     try {
-      return localStorage.getItem(COWORK_WEB_SEARCH_MODE_STORAGE_KEY) === 'true';
+      return readLocalStorageItem(COWORK_WEB_SEARCH_MODE_STORAGE_KEY, COWORK_WEB_SEARCH_MODE_LEGACY_KEYS) === 'true';
     } catch {
       return false;
     }
@@ -1431,7 +1442,7 @@ export default function App() {
       coworkThreads,
     };
     try {
-      localStorage.setItem(RELAY_RECENTS_KEY, JSON.stringify(payload));
+      writeLocalStorageItem(RELAY_RECENTS_KEY, JSON.stringify(payload), [LEGACY_STORAGE_KEYS.recents]);
     } catch {
       // ignore localStorage quota/privacy failures
     }
@@ -1439,7 +1450,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(COWORK_PROJECTS_STORAGE_KEY, JSON.stringify(coworkProjects));
+      writeLocalStorageItem(COWORK_PROJECTS_STORAGE_KEY, JSON.stringify(coworkProjects), COWORK_PROJECTS_LEGACY_KEYS);
     } catch {
       // ignore persistence failures
     }
@@ -1447,7 +1458,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(COWORK_TASKS_STORAGE_KEY, JSON.stringify(coworkTasks.slice(0, 250)));
+      writeLocalStorageItem(COWORK_TASKS_STORAGE_KEY, JSON.stringify(coworkTasks.slice(0, 250)), COWORK_TASKS_LEGACY_KEYS);
     } catch {
       // ignore persistence failures
     }
@@ -1455,7 +1466,11 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(COWORK_PROJECT_KNOWLEDGE_STORAGE_KEY, JSON.stringify(projectKnowledgeItems.slice(0, 500)));
+      writeLocalStorageItem(
+        COWORK_PROJECT_KNOWLEDGE_STORAGE_KEY,
+        JSON.stringify(projectKnowledgeItems.slice(0, 500)),
+        COWORK_PROJECT_KNOWLEDGE_LEGACY_KEYS,
+      );
     } catch {
       // ignore persistence failures
     }
@@ -1463,7 +1478,11 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(COWORK_WEB_SEARCH_MODE_STORAGE_KEY, coworkWebSearchEnabled ? 'true' : 'false');
+      writeLocalStorageItem(
+        COWORK_WEB_SEARCH_MODE_STORAGE_KEY,
+        coworkWebSearchEnabled ? 'true' : 'false',
+        COWORK_WEB_SEARCH_MODE_LEGACY_KEYS,
+      );
     } catch {
       // ignore persistence failures
     }
@@ -1471,7 +1490,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(CHAT_DRAFT_STORAGE_KEY, chatDraftPrompt);
+      writeLocalStorageItem(CHAT_DRAFT_STORAGE_KEY, chatDraftPrompt, CHAT_DRAFT_LEGACY_KEYS);
     } catch {
       // ignore persistence failures
     }
@@ -1479,7 +1498,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(COWORK_DRAFT_STORAGE_KEY, coworkDraftPrompt);
+      writeLocalStorageItem(COWORK_DRAFT_STORAGE_KEY, coworkDraftPrompt, COWORK_DRAFT_LEGACY_KEYS);
     } catch {
       // ignore persistence failures
     }
@@ -1488,9 +1507,9 @@ export default function App() {
   useEffect(() => {
     try {
       if (activeCoworkProjectId) {
-        localStorage.setItem(COWORK_ACTIVE_PROJECT_STORAGE_KEY, activeCoworkProjectId);
+        writeLocalStorageItem(COWORK_ACTIVE_PROJECT_STORAGE_KEY, activeCoworkProjectId, COWORK_ACTIVE_PROJECT_LEGACY_KEYS);
       } else {
-        localStorage.removeItem(COWORK_ACTIVE_PROJECT_STORAGE_KEY);
+        removeLocalStorageItem(COWORK_ACTIVE_PROJECT_STORAGE_KEY, COWORK_ACTIVE_PROJECT_LEGACY_KEYS);
       }
     } catch {
       // ignore persistence failures
@@ -1784,7 +1803,7 @@ export default function App() {
 
   const loadLocalConfig = () => {
     try {
-      const raw = localStorage.getItem(LOCAL_CONFIG_KEY);
+      const raw = readLocalStorageItem(LOCAL_CONFIG_KEY, LOCAL_CONFIG_LEGACY_KEYS);
       if (!raw) {
         return null;
       }
@@ -1796,7 +1815,7 @@ export default function App() {
   };
 
   const persistLocalConfig = (nextConfig: AppConfig) => {
-    localStorage.setItem(LOCAL_CONFIG_KEY, JSON.stringify(nextConfig));
+    writeLocalStorageItem(LOCAL_CONFIG_KEY, JSON.stringify(nextConfig), LOCAL_CONFIG_LEGACY_KEYS);
   };
 
   const updateEngineConnections = useCallback((updater: (prev: EngineConnectionProfile[]) => EngineConnectionProfile[]) => {
