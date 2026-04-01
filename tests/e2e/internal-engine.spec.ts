@@ -245,4 +245,83 @@ test.describe('Internal engine development path', () => {
     expect(result.fallback.text).toContain('Findings:');
     expect(result.fallback.text).toContain('Recommendation:');
   });
+
+  test('internal cowork prompt probes include provider-specific shaping hints', async () => {
+    const result = await app.evaluate(async ({ BrowserWindow }) => {
+      const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      let win = null as BrowserWindow | null;
+      const startedAt = Date.now();
+
+      while (!win && Date.now() - startedAt < 60_000) {
+        win = BrowserWindow.getAllWindows().find((candidate) => candidate.webContents.getURL().includes('localhost:5173')) ?? null;
+        if (!win) {
+          await sleep(500);
+        }
+      }
+
+      if (!win) {
+        throw new Error('renderer window not found');
+      }
+
+      const waitForBridge = async () => {
+        const bridgeStartedAt = Date.now();
+        while (Date.now() - bridgeStartedAt < 60_000) {
+          const hasBridge = await win!.webContents.executeJavaScript('Boolean(window.cloffice || window.relay)', true);
+          if (hasBridge) {
+            return;
+          }
+          await sleep(500);
+        }
+        throw new Error('desktop bridge did not appear in renderer main world');
+      };
+
+      await waitForBridge();
+
+      const callBridge = (expression: string) => win!.webContents.executeJavaScript(expression, true);
+
+      return {
+        openaiPlanning: await callBridge(`(async () => {
+          const bridge = window.cloffice ?? window.relay;
+          return bridge.debugBuildInternalCoworkPrompt({
+            phase: 'planning',
+            model: 'openai/gpt-4.1',
+            taskAndContext: 'Inspect the project root and choose the next migration step.'
+          });
+        })()`),
+        anthropicPlanning: await callBridge(`(async () => {
+          const bridge = window.cloffice ?? window.relay;
+          return bridge.debugBuildInternalCoworkPrompt({
+            phase: 'planning',
+            model: 'anthropic/claude-3-7-sonnet-latest',
+            taskAndContext: 'Inspect the project root and choose the next migration step.'
+          });
+        })()`),
+        geminiContinuation: await callBridge(`(async () => {
+          const bridge = window.cloffice ?? window.relay;
+          return bridge.debugBuildInternalCoworkPrompt({
+            phase: 'continuation',
+            model: 'gemini/gemini-2.5-flash',
+            sessionKey: 'internal:test-session',
+            execution: {
+              receipts: [],
+              previews: ['Listed: .\\n[file] package.json'],
+              errors: []
+            }
+          });
+        })()`),
+      };
+    });
+
+    expect(result.openaiPlanning.providerId).toBe('openai');
+    expect(result.openaiPlanning.text).toContain('OpenAI-compatible hint: start directly with Goal:');
+    expect(result.openaiPlanning.text).toContain('Use bullets only inside Plan.');
+
+    expect(result.anthropicPlanning.providerId).toBe('anthropic');
+    expect(result.anthropicPlanning.text).toContain('Anthropic hint: do not add a preamble');
+    expect(result.anthropicPlanning.text).toContain('Keep one compact paragraph per section');
+
+    expect(result.geminiContinuation.providerId).toBe('gemini');
+    expect(result.geminiContinuation.text).toContain('Gemini hint: avoid markdown variants.');
+    expect(result.geminiContinuation.text).toContain('Use the exact plain-text labels Findings:, Recommendation:, Next step:.');
+  });
 });

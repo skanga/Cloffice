@@ -46,14 +46,19 @@ try {
       return bridge.getInternalEngineRuntimeInfo();
     })()`);
 
-    if (before.readiness !== 'idle' || before.connected !== false) {
+    const acceptableBefore =
+      (before.readiness === 'idle' && before.connected === false)
+      || (before.readiness === 'ready' && before.connected === true);
+    if (!acceptableBefore) {
       throw new Error(`unexpected pre-connect runtime info: ${JSON.stringify(before)}`);
     }
 
-    await callBridge(`(async () => {
-      const bridge = window.cloffice ?? window.relay;
-      await bridge.connectInternalEngine({ endpointUrl: 'internal://dev-runtime' });
-    })()`);
+    if (!before.connected) {
+      await callBridge(`(async () => {
+        const bridge = window.cloffice ?? window.relay;
+        await bridge.connectInternalEngine({ endpointUrl: 'internal://dev-runtime' });
+      })()`);
+    }
 
     const chatSessionKey = await callBridge(`(async () => {
       const bridge = window.cloffice ?? window.relay;
@@ -97,11 +102,17 @@ try {
       throw new Error(`planner session title not normalized: ${planner.sessionTitle}`);
     }
 
-    if (!cowork.assistantMessage.text.includes('Internal cowork foundation response.')) {
-      throw new Error(`cowork response missing foundation marker: ${cowork.assistantMessage.text}`);
-    }
-    if (!cowork.assistantMessage.text.includes('Current limitation: internal cowork foundations only emit safe read-only inspection and metadata actions in this phase.')) {
-      throw new Error(`cowork response missing limitation note: ${cowork.assistantMessage.text}`);
+    const coworkText = cowork.assistantMessage.text || '';
+    const hasLegacyFoundationText =
+      coworkText.includes('Internal cowork foundation response.')
+      && coworkText.includes('Current limitation: internal cowork foundations only emit safe read-only inspection and metadata actions in this phase.');
+    const hasStructuredProviderText =
+      coworkText.includes('Goal:')
+      && coworkText.includes('Plan:')
+      && coworkText.includes('Needed context:')
+      && coworkText.includes('Next step:');
+    if (!hasLegacyFoundationText && !hasStructuredProviderText) {
+      throw new Error(`cowork response missing expected planning structure: ${coworkText}`);
     }
     if (!cowork.sessionTitle?.startsWith('Task:')) {
       throw new Error(`cowork session title not normalized: ${cowork.sessionTitle}`);

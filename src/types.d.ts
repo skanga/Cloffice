@@ -22,6 +22,7 @@ import type {
   InternalEngineCoworkContinuationRequest,
   InternalEngineCoworkContinuationResult,
   InternalEngineCoworkNormalizationProbeResult,
+  InternalEngineCoworkPromptProbeResult,
   InternalEnginePendingApprovalDecision,
   InternalEnginePendingApprovalDecisionResult,
   InternalEngineRunRecord,
@@ -107,6 +108,26 @@ type DesktopBridgeApi = {
           };
         }
   ) => Promise<InternalEngineCoworkNormalizationProbeResult>;
+  debugBuildInternalCoworkPrompt: (
+    payload:
+      | {
+          phase: 'planning';
+          model: string;
+          taskAndContext: string;
+        }
+      | {
+          phase: 'continuation';
+          model: string;
+          sessionKey?: string;
+          approvedActions?: EngineRequestedAction[];
+          rejectedActions?: InternalEngineCoworkContinuationRequest['rejectedActions'];
+          execution?: {
+            receipts?: LocalActionReceipt[];
+            previews?: string[];
+            errors?: string[];
+          };
+        }
+  ) => Promise<InternalEngineCoworkPromptProbeResult>;
   continueInternalCoworkRun: (payload: InternalEngineCoworkContinuationRequest) => Promise<InternalEngineCoworkContinuationResult>;
   listInternalPendingApprovals: () => Promise<InternalApprovalRecoveryFlow[]>;
   saveInternalPendingApproval: (flow: InternalApprovalRecoveryFlow) => Promise<void>;

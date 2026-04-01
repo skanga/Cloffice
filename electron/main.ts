@@ -29,6 +29,7 @@ import { EMPTY_INTERNAL_PROVIDER_CONFIG, parseStoredEngineConfig, type InternalP
 import type {
   InternalEngineCoworkContinuationRequest,
   InternalEngineCoworkNormalizationProbeResult,
+  InternalEngineCoworkPromptProbeResult,
   InternalEngineRuntimeInfo,
   InternalEnginePendingApprovalDecision,
   InternalEnginePendingApprovalDecisionResult,
@@ -2088,6 +2089,48 @@ function createInternalEngineMainService() {
         text: result.text,
       };
     },
+    async debugBuildCoworkPrompt(payload: {
+      phase: 'planning' | 'continuation';
+      model: string;
+      taskAndContext?: string;
+      sessionKey?: string;
+      approvedActions?: EngineRequestedAction[];
+      rejectedActions?: InternalEngineCoworkContinuationRequest['rejectedActions'];
+      execution?: {
+        receipts?: LocalActionReceipt[];
+        previews?: string[];
+        errors?: string[];
+      };
+    }): Promise<InternalEngineCoworkPromptProbeResult> {
+      const providerId = resolveProviderIdForModel(payload.model);
+      if (!providerId) {
+        throw new Error(`Unsupported provider-backed cowork model: ${payload.model}`);
+      }
+
+      if (payload.phase === 'planning') {
+        return {
+          phase: 'planning',
+          providerId,
+          text: buildProviderBackedCoworkPlanningPrompt(payload.taskAndContext ?? '', payload.model),
+        };
+      }
+
+      return {
+        phase: 'continuation',
+        providerId,
+        text: buildProviderBackedCoworkContinuationPrompt({
+          model: payload.model,
+          sessionKey: payload.sessionKey ?? 'internal:test-session',
+          approvedActions: payload.approvedActions ?? [],
+          rejectedActions: payload.rejectedActions ?? [],
+          execution: {
+            receipts: payload.execution?.receipts ?? [],
+            previews: payload.execution?.previews ?? [],
+            errors: payload.execution?.errors ?? [],
+          },
+        }),
+      };
+    },
     async createChatSession(): Promise<string> {
       requireConnected();
       const key = `internal:chat:${crypto.randomUUID()}`;
@@ -3969,6 +4012,25 @@ app.whenReady().then(async () => {
         };
       },
     ) => internalEngineService.debugNormalizeCoworkResponse(payload),
+  );
+  ipcMain.handle(
+    'internal-engine:debug-build-cowork-prompt',
+    async (
+      _event,
+      payload: {
+        phase: 'planning' | 'continuation';
+        model: string;
+        taskAndContext?: string;
+        sessionKey?: string;
+        approvedActions?: EngineRequestedAction[];
+        rejectedActions?: InternalEngineCoworkContinuationRequest['rejectedActions'];
+        execution?: {
+          receipts?: LocalActionReceipt[];
+          previews?: string[];
+          errors?: string[];
+        };
+      },
+    ) => internalEngineService.debugBuildCoworkPrompt(payload),
   );
   ipcMain.handle('internal-engine:continue-cowork-run', async (event, payload: InternalEngineCoworkContinuationRequest) =>
     internalEngineService.continueCoworkRun(payload, (frame) => {

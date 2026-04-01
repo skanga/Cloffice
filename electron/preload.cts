@@ -20,6 +20,7 @@ import type {
   InternalEngineCoworkContinuationRequest,
   InternalEngineCoworkContinuationResult,
   InternalEngineCoworkNormalizationProbeResult,
+  InternalEngineCoworkPromptProbeResult,
   InternalEnginePendingApprovalDecision,
   InternalEnginePendingApprovalDecisionResult,
   InternalEngineRunRecord,
@@ -262,6 +263,23 @@ const desktopBridgeApi = {
     };
   }) =>
     ipcRenderer.invoke('internal-engine:debug-normalize-cowork-response', payload) as Promise<InternalEngineCoworkNormalizationProbeResult>,
+  debugBuildInternalCoworkPrompt: (payload: {
+    phase: 'planning';
+    model: string;
+    taskAndContext: string;
+  } | {
+    phase: 'continuation';
+    model: string;
+    sessionKey?: string;
+    approvedActions?: import('../src/app-types.js').EngineRequestedAction[];
+    rejectedActions?: import('../src/lib/internal-engine-bridge.js').InternalEngineCoworkContinuationRequest['rejectedActions'];
+    execution?: {
+      receipts?: import('../src/app-types.js').LocalActionReceipt[];
+      previews?: string[];
+      errors?: string[];
+    };
+  }) =>
+    ipcRenderer.invoke('internal-engine:debug-build-cowork-prompt', payload) as Promise<InternalEngineCoworkPromptProbeResult>,
   continueInternalCoworkRun: (payload: InternalEngineCoworkContinuationRequest) =>
     ipcRenderer.invoke('internal-engine:continue-cowork-run', payload) as Promise<InternalEngineCoworkContinuationResult>,
   listInternalPendingApprovals: () =>
