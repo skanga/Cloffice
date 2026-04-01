@@ -750,7 +750,56 @@ function createInternalEngineMainService() {
       normalization,
     };
   };
-  const buildProviderBackedCoworkPlanningPrompt = (taskAndContext: string) => [
+  const resolveProviderIdForModel = (modelValue: string | null | undefined): InternalChatProviderId | null => {
+    const normalized = typeof modelValue === 'string' ? modelValue.trim() : '';
+    if (normalized.startsWith('openai/')) return 'openai';
+    if (normalized.startsWith('anthropic/')) return 'anthropic';
+    if (normalized.startsWith('gemini/')) return 'gemini';
+    return null;
+  };
+  const buildProviderSpecificCoworkPromptHints = (
+    providerId: InternalChatProviderId | null,
+    phase: 'planning' | 'continuation',
+  ): string[] => {
+    if (providerId === 'openai') {
+      return phase === 'planning'
+        ? [
+            'OpenAI-compatible hint: start directly with Goal: and keep all four labels exact.',
+            'Use bullets only inside Plan. Keep Goal, Needed context, and Next step as short prose.',
+          ]
+        : [
+            'OpenAI-compatible hint: start directly with Findings: and keep all three labels exact.',
+            'Use bullets only inside Findings when summarizing multiple results.',
+          ];
+    }
+
+    if (providerId === 'anthropic') {
+      return phase === 'planning'
+        ? [
+            'Anthropic hint: do not add a preamble like "Here is the plan". Start immediately with Goal:.',
+            'Keep one compact paragraph per section and avoid repeating the label text in the body.',
+          ]
+        : [
+            'Anthropic hint: do not add preambles or closing summaries. Start immediately with Findings:.',
+            'Keep Recommendation and Next step to one concise paragraph each.',
+          ];
+    }
+
+    if (providerId === 'gemini') {
+      return phase === 'planning'
+        ? [
+            'Gemini hint: avoid markdown variants. Use the exact plain-text labels Goal:, Plan:, Needed context:, Next step:.',
+            'If you use bullets, place them only under Plan and keep Next step to a single sentence.',
+          ]
+        : [
+            'Gemini hint: avoid markdown variants. Use the exact plain-text labels Findings:, Recommendation:, Next step:.',
+            'Keep Recommendation and Next step to a single sentence each unless the execution errors require more detail.',
+          ];
+    }
+
+    return [];
+  };
+  const buildProviderBackedCoworkPlanningPrompt = (taskAndContext: string, modelValue: string | null | undefined) => [
     'You are Cloffice Cowork operating in a guarded read-only planning phase.',
     'Respond with concise prose, not filler.',
     'Use plain text only. Do not use markdown headings, bold formatting, tables, or fenced code blocks.',
@@ -765,6 +814,7 @@ function createInternalEngineMainService() {
     'Do not repeat the same action unless new information justifies it.',
     'If you do not need more context, say so explicitly in Needed context.',
     'If you request engine_actions, keep the prose complete and still include all four sections.',
+    ...buildProviderSpecificCoworkPromptHints(resolveProviderIdForModel(modelValue), 'planning'),
     buildInternalEngineActionInstruction(),
     'Task and project context follows.',
     taskAndContext,
@@ -919,6 +969,7 @@ function createInternalEngineMainService() {
     ].join('\n');
   };
   const buildProviderBackedCoworkContinuationPrompt = (params: {
+    model: string | null | undefined;
     sessionKey: string;
     approvedActions: EngineRequestedAction[];
     rejectedActions: InternalEngineCoworkContinuationRequest['rejectedActions'];
@@ -940,6 +991,7 @@ function createInternalEngineMainService() {
     'Do not re-request an action if the current execution results already answered it.',
     'If the current execution results are sufficient, do not request any engine_actions.',
     'If you request engine_actions, keep the prose complete and still include all three sections.',
+    ...buildProviderSpecificCoworkPromptHints(resolveProviderIdForModel(params.model), 'continuation'),
     buildInternalEngineActionInstruction(),
     '',
     `Session key: ${params.sessionKey}`,
@@ -2349,7 +2401,7 @@ function createInternalEngineMainService() {
               ...session.messages,
               {
                 ...userMessage,
-                text: session.kind === 'cowork' ? buildProviderBackedCoworkPlanningPrompt(text) : text,
+                text: session.kind === 'cowork' ? buildProviderBackedCoworkPlanningPrompt(text, nextModel) : text,
               },
             ],
             storedInternalProviderConfig,
@@ -2584,6 +2636,7 @@ function createInternalEngineMainService() {
                 id: crypto.randomUUID(),
                 role: 'user',
                 text: buildProviderBackedCoworkContinuationPrompt({
+                  model: nextModel,
                   sessionKey: session.key,
                   approvedActions: payload.approvedActions,
                   rejectedActions: payload.rejectedActions,
