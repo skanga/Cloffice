@@ -189,6 +189,12 @@ export type InternalEngineCoworkContinuationResult = InternalEngineSendChatResul
   execution: InternalEngineActionExecutionResult;
 };
 
+export type InternalEngineCoworkNormalizationProbeResult = {
+  phase: 'planning' | 'continuation';
+  normalization: 'provider_structured' | 'normalized_sections' | 'synthetic_fallback';
+  text: string;
+};
+
 export type InternalEnginePendingApprovalDecision = {
   approved: boolean;
   reason?: string;
@@ -309,6 +315,24 @@ export type InternalEngineDesktopBridge = {
       geminiModels: string;
     }>,
   ): Promise<InternalProviderConnectionTestResult>;
+  debugNormalizeInternalCoworkResponse(payload:
+    | {
+        phase: 'planning';
+        task: string;
+        rawText: string;
+        requestedActions?: EngineRequestedAction[];
+      }
+    | {
+        phase: 'continuation';
+        rawText: string;
+        requestedActions?: EngineRequestedAction[];
+        execution?: {
+          receipts?: LocalActionReceipt[];
+          previews?: string[];
+          errors?: string[];
+        };
+      }
+  ): Promise<InternalEngineCoworkNormalizationProbeResult>;
   continueInternalCoworkRun(payload: InternalEngineCoworkContinuationRequest): Promise<InternalEngineCoworkContinuationResult>;
   listInternalPendingApprovals(): Promise<InternalApprovalRecoveryFlow[]>;
   saveInternalPendingApproval(flow: InternalApprovalRecoveryFlow): Promise<void>;

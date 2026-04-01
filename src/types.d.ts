@@ -1,6 +1,8 @@
 import type {
   AppConfig,
+  EngineRequestedAction,
   HealthCheckResult,
+  LocalActionReceipt,
   LocalFileApplyResult,
   LocalFileAppendResult,
   LocalFileCreateResult,
@@ -19,6 +21,7 @@ import type { InternalProviderConfig } from './lib/engine-config';
 import type {
   InternalEngineCoworkContinuationRequest,
   InternalEngineCoworkContinuationResult,
+  InternalEngineCoworkNormalizationProbeResult,
   InternalEnginePendingApprovalDecision,
   InternalEnginePendingApprovalDecisionResult,
   InternalEngineRunRecord,
@@ -85,6 +88,25 @@ type DesktopBridgeApi = {
     providerId: 'openai' | 'anthropic' | 'gemini',
     config?: Partial<InternalProviderConfig>,
   ) => Promise<InternalProviderConnectionTestResult>;
+  debugNormalizeInternalCoworkResponse: (
+    payload:
+      | {
+          phase: 'planning';
+          task: string;
+          rawText: string;
+          requestedActions?: EngineRequestedAction[];
+        }
+      | {
+          phase: 'continuation';
+          rawText: string;
+          requestedActions?: EngineRequestedAction[];
+          execution?: {
+            receipts?: LocalActionReceipt[];
+            previews?: string[];
+            errors?: string[];
+          };
+        }
+  ) => Promise<InternalEngineCoworkNormalizationProbeResult>;
   continueInternalCoworkRun: (payload: InternalEngineCoworkContinuationRequest) => Promise<InternalEngineCoworkContinuationResult>;
   listInternalPendingApprovals: () => Promise<InternalApprovalRecoveryFlow[]>;
   saveInternalPendingApproval: (flow: InternalApprovalRecoveryFlow) => Promise<void>;

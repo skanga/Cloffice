@@ -19,6 +19,7 @@ import type { EngineConnectOptions, EngineEventFrame, EngineRuntimeHealthResult 
 import type {
   InternalEngineCoworkContinuationRequest,
   InternalEngineCoworkContinuationResult,
+  InternalEngineCoworkNormalizationProbeResult,
   InternalEnginePendingApprovalDecision,
   InternalEnginePendingApprovalDecisionResult,
   InternalEngineRunRecord,
@@ -245,6 +246,22 @@ const desktopBridgeApi = {
   })(),
   testInternalProviderConnection: (providerId: 'openai' | 'anthropic' | 'gemini', config?: Partial<InternalProviderConfig>) =>
     ipcRenderer.invoke('internal-engine:test-provider-connection', providerId, config) as Promise<import('../src/lib/internal-provider-adapter.js').InternalProviderConnectionTestResult>,
+  debugNormalizeInternalCoworkResponse: (payload: {
+    phase: 'planning';
+    task: string;
+    rawText: string;
+    requestedActions?: import('../src/app-types.js').EngineRequestedAction[];
+  } | {
+    phase: 'continuation';
+    rawText: string;
+    requestedActions?: import('../src/app-types.js').EngineRequestedAction[];
+    execution?: {
+      receipts?: import('../src/app-types.js').LocalActionReceipt[];
+      previews?: string[];
+      errors?: string[];
+    };
+  }) =>
+    ipcRenderer.invoke('internal-engine:debug-normalize-cowork-response', payload) as Promise<InternalEngineCoworkNormalizationProbeResult>,
   continueInternalCoworkRun: (payload: InternalEngineCoworkContinuationRequest) =>
     ipcRenderer.invoke('internal-engine:continue-cowork-run', payload) as Promise<InternalEngineCoworkContinuationResult>,
   listInternalPendingApprovals: () =>

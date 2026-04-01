@@ -55,6 +55,7 @@ interface Window {
     sendInternalChat: (sessionKey: string, text: string) => Promise<any>;
     setInternalEngineEventHandler: (handler: ((frame: any) => void) | null) => void;
     testInternalProviderConnection: (providerId: 'openai' | 'anthropic' | 'gemini', config?: any) => Promise<any>;
+    debugNormalizeInternalCoworkResponse: (payload: any) => Promise<any>;
     continueInternalCoworkRun: (payload: any) => Promise<any>;
     listInternalPendingApprovals: () => Promise<any[]>;
     saveInternalPendingApproval: (flow: any) => Promise<void>;

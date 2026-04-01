@@ -142,4 +142,107 @@ test.describe('Internal engine development path', () => {
     expect(result.continuation.execution.previews.some((entry: string) => entry.includes('Listed: .'))).toBe(true);
     expect(result.continuation.execution.previews.some((entry: string) => entry.includes('Stat: .'))).toBe(true);
   });
+
+  test('internal cowork normalization probes classify structured normalized and fallback output', async () => {
+    const result = await app.evaluate(async ({ BrowserWindow }) => {
+      const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      let win = null as BrowserWindow | null;
+      const startedAt = Date.now();
+
+      while (!win && Date.now() - startedAt < 60_000) {
+        win = BrowserWindow.getAllWindows().find((candidate) => candidate.webContents.getURL().includes('localhost:5173')) ?? null;
+        if (!win) {
+          await sleep(500);
+        }
+      }
+
+      if (!win) {
+        throw new Error('renderer window not found');
+      }
+
+      const waitForBridge = async () => {
+        const bridgeStartedAt = Date.now();
+        while (Date.now() - bridgeStartedAt < 60_000) {
+          const hasBridge = await win!.webContents.executeJavaScript('Boolean(window.cloffice || window.relay)', true);
+          if (hasBridge) {
+            return;
+          }
+          await sleep(500);
+        }
+        throw new Error('desktop bridge did not appear in renderer main world');
+      };
+
+      await waitForBridge();
+
+      const callBridge = (expression: string) => win!.webContents.executeJavaScript(expression, true);
+
+      return {
+        structured: await callBridge(`(async () => {
+          const bridge = window.cloffice ?? window.relay;
+          return bridge.debugNormalizeInternalCoworkResponse({
+            phase: 'planning',
+            task: 'Inspect the project root and decide the next migration step.',
+            rawText: [
+              'Goal: Inspect the project root and decide the next migration step.',
+              '',
+              'Plan: Review the top-level layout, identify the active migration boundary, and choose the smallest next code change.',
+              '',
+              'Needed context: Read-only inspection of the project root and package entry points.',
+              '',
+              'Next step: Request a root listing and package metadata before making the recommendation.'
+            ].join('\\n'),
+            requestedActions: [{ id: 'a1', type: 'list_dir', path: '.' }],
+          });
+        })()`),
+        normalized: await callBridge(`(async () => {
+          const bridge = window.cloffice ?? window.relay;
+          return bridge.debugNormalizeInternalCoworkResponse({
+            phase: 'continuation',
+            rawText: [
+              '## Findings',
+              'The root contains Electron, renderer, and schedule-related code paths.',
+              '',
+              '**Recommendation:** Keep the next change focused on runtime-owned scheduler cleanup.',
+              '',
+              '- Next step: Review the scheduler controller and remove the next legacy branch.'
+            ].join('\\n'),
+            execution: {
+              receipts: [],
+              previews: ['Listed: .\\n[file] package.json'],
+              errors: [],
+            },
+            requestedActions: [],
+          });
+        })()`),
+        fallback: await callBridge(`(async () => {
+          const bridge = window.cloffice ?? window.relay;
+          return bridge.debugNormalizeInternalCoworkResponse({
+            phase: 'continuation',
+            rawText: 'Looks fine overall. Keep going.',
+            execution: {
+              receipts: [],
+              previews: [],
+              errors: [],
+            },
+            requestedActions: [],
+          });
+        })()`),
+      };
+    });
+
+    expect(result.structured.phase).toBe('planning');
+    expect(result.structured.normalization).toBe('provider_structured');
+    expect(result.structured.text).toContain('Goal:');
+    expect(result.structured.text).toContain('Needed context:');
+
+    expect(result.normalized.phase).toBe('continuation');
+    expect(result.normalized.normalization).toBe('normalized_sections');
+    expect(result.normalized.text).toContain('Findings:');
+    expect(result.normalized.text).toContain('Recommendation:');
+
+    expect(result.fallback.phase).toBe('continuation');
+    expect(result.fallback.normalization).toBe('synthetic_fallback');
+    expect(result.fallback.text).toContain('Findings:');
+    expect(result.fallback.text).toContain('Recommendation:');
+  });
 });

@@ -28,6 +28,7 @@ import type { EngineChatMessage, EngineConnectOptions, EngineCronJob, EngineMode
 import { EMPTY_INTERNAL_PROVIDER_CONFIG, parseStoredEngineConfig, type InternalProviderConfig } from '../src/lib/engine-config.js';
 import type {
   InternalEngineCoworkContinuationRequest,
+  InternalEngineCoworkNormalizationProbeResult,
   InternalEngineRuntimeInfo,
   InternalEnginePendingApprovalDecision,
   InternalEnginePendingApprovalDecisionResult,
@@ -1996,6 +1997,45 @@ function createInternalEngineMainService() {
         ...configOverride,
       });
     },
+    async debugNormalizeCoworkResponse(payload: {
+      phase: 'planning' | 'continuation';
+      task?: string;
+      rawText: string;
+      requestedActions?: EngineRequestedAction[];
+      execution?: {
+        receipts?: LocalActionReceipt[];
+        previews?: string[];
+        errors?: string[];
+      };
+    }): Promise<InternalEngineCoworkNormalizationProbeResult> {
+      if (payload.phase === 'planning') {
+        const result = normalizeProviderBackedCoworkPlanningText({
+          task: payload.task ?? '',
+          rawText: payload.rawText,
+          requestedActions: payload.requestedActions ?? [],
+        });
+        return {
+          phase: 'planning',
+          normalization: result.normalization,
+          text: result.text,
+        };
+      }
+
+      const result = normalizeProviderBackedCoworkContinuationText({
+        rawText: payload.rawText,
+        requestedActions: payload.requestedActions ?? [],
+        execution: {
+          receipts: payload.execution?.receipts ?? [],
+          previews: payload.execution?.previews ?? [],
+          errors: payload.execution?.errors ?? [],
+        },
+      });
+      return {
+        phase: 'continuation',
+        normalization: result.normalization,
+        text: result.text,
+      };
+    },
     async createChatSession(): Promise<string> {
       requireConnected();
       const key = `internal:chat:${crypto.randomUUID()}`;
@@ -3859,6 +3899,23 @@ app.whenReady().then(async () => {
     'internal-engine:test-provider-connection',
     async (_event, providerId: InternalChatProviderId, configOverride?: Partial<InternalProviderConfig>) =>
       internalEngineService.testProviderConnection(providerId, configOverride),
+  );
+  ipcMain.handle(
+    'internal-engine:debug-normalize-cowork-response',
+    async (
+      _event,
+      payload: {
+        phase: 'planning' | 'continuation';
+        task?: string;
+        rawText: string;
+        requestedActions?: EngineRequestedAction[];
+        execution?: {
+          receipts?: LocalActionReceipt[];
+          previews?: string[];
+          errors?: string[];
+        };
+      },
+    ) => internalEngineService.debugNormalizeCoworkResponse(payload),
   );
   ipcMain.handle('internal-engine:continue-cowork-run', async (event, payload: InternalEngineCoworkContinuationRequest) =>
     internalEngineService.continueCoworkRun(payload, (frame) => {
