@@ -158,7 +158,7 @@ export function buildCoworkOutboundMessage(params: {
   folderContext?: string;
   referencedProjectFilesContext?: string;
   webSearchEnabled: boolean;
-  relayFileInstruction: string;
+  engineFileInstruction: string;
   text: string;
 }): string {
   const webSearchInstruction = params.webSearchEnabled
@@ -176,7 +176,7 @@ export function buildCoworkOutboundMessage(params: {
     params.folderContext ? `Working folder context: ${params.folderContext}` : '',
     params.referencedProjectFilesContext ?? '',
     webSearchInstruction,
-    params.relayFileInstruction,
+    params.engineFileInstruction,
     '',
     params.text,
   ]

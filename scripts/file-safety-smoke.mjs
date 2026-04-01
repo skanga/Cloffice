@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+﻿import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const repoRoot = process.cwd();
@@ -68,8 +68,8 @@ async function run() {
     "return { ok: false, reason: 'Parent directory traversal is not allowed.' };",
   ], 'src/App.tsx');
 
-  // Parsing-side guardrails for relay file actions.
-  assertFunctionContains(chatUtils, 'parseRelayFileActions', [
+  // Parsing-side guardrails for engine file actions.
+  assertFunctionContains(chatUtils, 'parseEngineFileActions', [
     "type !== 'create_file'",
     "type !== 'append_file'",
     "type !== 'read_file'",
@@ -216,3 +216,4 @@ run().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 });
+

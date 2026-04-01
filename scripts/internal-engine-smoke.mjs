@@ -28,7 +28,7 @@ try {
     const waitForBridge = async () => {
       const bridgeStartedAt = Date.now();
       while (Date.now() - bridgeStartedAt < 60_000) {
-        const hasBridge = await win.webContents.executeJavaScript('Boolean(window.cloffice || window.relay)', true);
+        const hasBridge = await win.webContents.executeJavaScript('Boolean(window.cloffice)', true);
         if (hasBridge) {
           return;
         }
@@ -42,7 +42,7 @@ try {
     const callBridge = (expression) => win.webContents.executeJavaScript(expression, true);
 
     const before = await callBridge(`(async () => {
-      const bridge = window.cloffice ?? window.relay;
+      const bridge = window.cloffice;
       return bridge.getInternalEngineRuntimeInfo();
     })()`);
 
@@ -55,18 +55,18 @@ try {
 
     if (!before.connected) {
       await callBridge(`(async () => {
-        const bridge = window.cloffice ?? window.relay;
+        const bridge = window.cloffice;
         await bridge.connectInternalEngine({ endpointUrl: 'internal://dev-runtime' });
       })()`);
     }
 
     const chatSessionKey = await callBridge(`(async () => {
-      const bridge = window.cloffice ?? window.relay;
+      const bridge = window.cloffice;
       return bridge.createInternalChatSession();
     })()`);
 
     const coworkSessionKey = await callBridge(`(async () => {
-      const bridge = window.cloffice ?? window.relay;
+      const bridge = window.cloffice;
       return bridge.createInternalCoworkSession();
     })()`);
 
@@ -78,17 +78,17 @@ try {
     }
 
     await callBridge(`(async () => {
-      const bridge = window.cloffice ?? window.relay;
+      const bridge = window.cloffice;
       await bridge.setInternalSessionModel(${JSON.stringify(chatSessionKey)}, 'internal/dev-planner');
     })()`);
 
     const planner = await callBridge(`(async () => {
-      const bridge = window.cloffice ?? window.relay;
+      const bridge = window.cloffice;
       return bridge.sendInternalChat(${JSON.stringify(chatSessionKey)}, 'Plan a careful rollout for the internal engine development path.');
     })()`);
 
     const cowork = await callBridge(`(async () => {
-      const bridge = window.cloffice ?? window.relay;
+      const bridge = window.cloffice;
       return bridge.sendInternalChat(${JSON.stringify(coworkSessionKey)}, 'Draft an internal cowork plan for organizing the next migration task and inspect root metadata before refining the plan.');
     })()`);
 
@@ -131,7 +131,7 @@ try {
     }
 
     const continuation = await callBridge(`(async () => {
-      const bridge = window.cloffice ?? window.relay;
+      const bridge = window.cloffice;
       return bridge.continueInternalCoworkRun({
         sessionKey: ${JSON.stringify(coworkSessionKey)},
         runId: ${JSON.stringify('smoke-run-1')},
@@ -153,7 +153,7 @@ try {
     const schedulerToken = `scheduler-smoke-${Date.now()}`;
     const scheduledPrompt = `Internal scheduler smoke prompt ${schedulerToken}. Reply with a concise acknowledgement.`;
     const createdSchedule = await callBridge(`(async () => {
-      const bridge = window.cloffice ?? window.relay;
+      const bridge = window.cloffice;
       return bridge.createInternalPromptSchedule({
         prompt: ${JSON.stringify(scheduledPrompt)},
         name: ${JSON.stringify(`Scheduler smoke ${Date.now()}`)},
@@ -166,7 +166,7 @@ try {
     }
 
     const listedSchedules = await callBridge(`(async () => {
-      const bridge = window.cloffice ?? window.relay;
+      const bridge = window.cloffice;
       return bridge.listInternalCronJobs();
     })()`);
     if (!Array.isArray(listedSchedules) || !listedSchedules.some((job) => job.id === createdSchedule.id)) {
@@ -177,7 +177,7 @@ try {
     let scheduledRun = null;
     while (!scheduledRun && Date.now() - scheduleWaitStartedAt < 90_000) {
       const history = await callBridge(`(async () => {
-        const bridge = window.cloffice ?? window.relay;
+        const bridge = window.cloffice;
         return bridge.getInternalRunHistory(30);
       })()`);
       scheduledRun = Array.isArray(history)
@@ -195,7 +195,7 @@ try {
     }
 
     const after = await callBridge(`(async () => {
-      const bridge = window.cloffice ?? window.relay;
+      const bridge = window.cloffice;
       return bridge.getInternalEngineRuntimeInfo();
     })()`);
 
@@ -207,7 +207,7 @@ try {
     }
 
     await callBridge(`(async () => {
-      const bridge = window.cloffice ?? window.relay;
+      const bridge = window.cloffice;
       await bridge.disconnectInternalEngine();
     })()`);
 
@@ -234,3 +234,4 @@ try {
 } finally {
   await app.close();
 }
+

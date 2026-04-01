@@ -1,208 +1,58 @@
-# REBRAND_CHECKLIST.md — Relay → Cloffice
+﻿# REBRAND_CHECKLIST.md - Cloffice Rebrand Status
 
-## 1. Rename visible product identity first
+## 1. Current status
 
-Update the user-visible and repository-visible identity before deeper architecture work.
+The rebrand is complete.
 
-### Change these first
+Cloffice is the live product identity and the live runtime path is internal-engine-first.
 
-- GitHub repo name: `Cloffice`
-- repo description
-- README title and opening paragraph
-- app/product name shown in UI
-- package/app metadata name fields
-- window title
-- installer/app bundle names
-- app icons / assets later
+## 2. Completed items
 
-### README opening line
+- [x] Repo and product identity are Cloffice
+- [x] User-visible app flow is Cloffice-first
+- [x] README and architecture docs exist for the Cloffice product direction
+- [x] Onboarding is internal-engine-first
+- [x] Legacy compatibility discovery and plugin-install flow are removed from the product path
+- [x] Main engine setup is internal-only
+- [x] Provider-backed chat and cowork run through the built-in engine
+- [x] Cloffice-native config storage is in place
+- [x] Provider credentials are separated from plain config JSON
+- [x] Active storage and config keys use Cloffice-native naming
+- [x] Current docs describe Cloffice rather than the previous product identity
 
-Use this or a close variant:
+## 3. Product language status
 
-> Cloffice is a local-first AI coworker desktop app that unifies chat, workspace context, governed approvals, and autonomous execution in a single interface.
+Product-facing language is aligned with the Cloffice architecture.
 
----
+Preferred concepts now used in the product:
 
-## 2. Update the positioning language
+- built-in internal engine
+- provider-backed cowork
+- local-first runtime
+- governed approvals
+- internal runtime diagnostics
 
-Remove or rewrite language that frames the product as an OpenClaw client.
+No longer part of the main product story:
 
-### Replace concepts like
+- external compatibility endpoint
+- gateway URL as a required setup concept
+- gateway token as a required setup concept
+- legacy workspace compatibility plugin
+- legacy desktop compatibility client
 
-- “for OpenClaw backends”
-- “OpenClaw-compatible endpoint”
-- “gateway URL”
-- “gateway token”
-- “OpenClaw workspace plugin”
-- “OpenClaw desktop cowork client”
+## 4. Current completion bar
 
-### Replace with
+The rebrand should be treated as complete because:
 
-- “built-in local engine”
-- “provider-neutral engine”
-- “local-first runtime”
-- “workspace-aware AI coworker”
-- “governed approvals”
-- “internal engine health”
+- the repo is Cloffice
+- the visible product is Cloffice
+- the runtime is Cloffice-owned
+- no external compatibility runtime is required for core flows
+- active config, storage, and test identifiers use Cloffice-native naming
+- current docs describe only the Cloffice product architecture
 
----
+## 5. Practical completion estimate
 
-## 3. Add missing docs now
+Rebrand completion: 100 percent.
 
-These should exist immediately after the rebrand commit:
-
-- `PLAN.md`
-- `ARCHITECTURE.md`
-- `REBRAND_CHECKLIST.md`
-
-Optionally add later:
-
-- `MIGRATION_TRACKER.md`
-- `ENGINE_CONTRACT.md`
-- `CONTRIBUTING.md`
-
----
-
-## 4. Search-and-replace targets
-
-Run repo-wide searches for these terms and classify each hit as:
-
-- visible branding
-- code identifier
-- protocol/runtime contract
-- docs only
-- legacy compatibility note
-
-### Search terms
-
-- `Relay`
-- `relay`
-- `OpenClaw`
-- `openclaw`
-- `gateway`
-- `gatewayUrl`
-- `gatewayToken`
-- `openclaw-gateway-client`
-- `openclaw-config`
-- `relay_actions`
-- `openclaw-relay-workspace`
-
-Do not blindly replace all lowercase `relay` occurrences until you inspect whether they refer to app naming, historical docs, or internal code concepts.
-
----
-
-## 5. First-pass file areas to review
-
-Prioritize these categories:
-
-### Product identity
-- root `README.md`
-- root `package.json`
-- Electron app metadata
-- installer/build config
-- app title strings
-
-### Runtime coupling
-- `src/lib/openclaw-gateway-client.ts`
-- any gateway discovery/config code
-- health checks and startup wiring
-- OpenClaw plugin install logic
-
-### Settings and config
-- `AppConfig`
-- config file names
-- saved preference keys
-- environment variables
-
-### Tests
-- E2E fixtures mentioning OpenClaw
-- mock gateway files
-- approval-flow fixtures with gateway assumptions
-
-### Assets
-- icons
-- logos
-- screenshot captions
-- docs images
-
----
-
-## 6. Rename in layers
-
-### Layer 1 — product/UI naming
-Change immediately.
-
-Examples:
-- app name
-- README
-- repo description
-- visible strings
-
-### Layer 2 — internal package/module naming
-Change early, but with care.
-
-Examples:
-- package names
-- folder names tied to product identity
-- config file names
-
-### Layer 3 — runtime contract naming
-Change as part of the engine migration, not prematurely.
-
-Examples:
-- `GatewayClient` → `EngineClient`
-- `gatewayUrl` → engine transport/config shape
-- `GatewayDiscoveryResult` → engine health/startup types
-
-### Layer 4 — historical compatibility notes
-Keep temporarily where helpful.
-
-Examples:
-- migration notes
-- comments stating “formerly Relay/OpenClaw path”
-
----
-
-## 7. Recommended first commits
-
-### Commit 1 — identity rebrand
-- rename product strings to Cloffice
-- update README
-- update repo description references
-- add `ARCHITECTURE.md`
-- add `REBRAND_CHECKLIST.md`
-
-### Commit 2 — docs and positioning cleanup
-- remove OpenClaw-first language from docs
-- add architecture overview
-- document internal engine direction
-
-### Commit 3 — config naming cleanup
-- rename obvious config and settings names that are purely branding/runtime-surface related
-- keep compatibility shims if needed
-
-### Commit 4+ — engine migration
-- start replacing OpenClaw runtime coupling with the internal engine plan
-
----
-
-## 8. What not to do during rebrand
-
-- do not do a giant blind search-and-replace without review
-- do not rename every historical symbol before the architecture migration starts
-- do not break tests and startup paths just to remove old naming instantly
-- do not leave README branding out of sync with product direction
-
----
-
-## 9. Immediate “done enough” bar for the rebrand
-
-The rebrand is in a good first state when:
-
-- the repo is named `Cloffice`
-- the README consistently describes Cloffice, not Relay-for-OpenClaw
-- `PLAN.md` and `ARCHITECTURE.md` are present
-- user-visible product strings say Cloffice
-- new architectural docs describe the internal engine direction
-- OpenClaw still appears only where it is still technically present and pending migration
-
+What remains in the repo is normal product evolution work, not rebrand debt.

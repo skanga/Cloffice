@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, safeStorage, session, shell } from 'electron';
+﻿import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, safeStorage, session, shell } from 'electron';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -68,7 +68,7 @@ const defaultConfig: AppConfig = {
 };
 
 const CLOFFICE_CONFIG_FILE = 'cloffice-config.json';
-const LEGACY_ENGINE_CONFIG_FILE = 'openclaw-config.json';
+const LEGACY_ENGINE_CONFIG_FILE = CLOFFICE_CONFIG_FILE;
 const PROVIDER_SECRETS_FILE = 'cloffice-provider-secrets.json';
 
 type StoredInternalProviderSecrets = Pick<InternalProviderConfig, 'openaiApiKey' | 'anthropicApiKey' | 'geminiApiKey'>;
@@ -4403,7 +4403,7 @@ app.whenReady().then(async () => {
     return openLocalPath(targetPath);
   });
 
-  /* ── Shell exec IPC ─────────────────────────────────────────────────────── */
+  /* â”€â”€ Shell exec IPC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   ipcMain.handle('local:shell-exec', async (_event, payload: { rootPath: string; command: string; timeoutMs?: number }) => {
     if (!payload || typeof payload !== 'object') throw new Error('Invalid shell-exec payload.');
     const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath.trim() : '';
@@ -4438,7 +4438,7 @@ app.whenReady().then(async () => {
     }
   });
 
-  /* ── Web fetch IPC ──────────────────────────────────────────────────────── */
+  /* â”€â”€ Web fetch IPC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   ipcMain.handle('local:web-fetch', async (_event, payload: { url: string; options?: { method?: string; headers?: Record<string, string>; body?: string } }) => {
     if (!payload || typeof payload !== 'object') throw new Error('Invalid web-fetch payload.');
     const url = typeof payload.url === 'string' ? payload.url.trim() : '';
@@ -4473,7 +4473,7 @@ app.whenReady().then(async () => {
     };
   });
 
-  /* ── Notification IPC ───────────────────────────────────────────────────── */
+  /* â”€â”€ Notification IPC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   ipcMain.handle('notify', async (_event, payload: { title: string; body?: string }) => {
     if (!payload || typeof payload !== 'object') return { ok: false };
     const title = typeof payload.title === 'string' ? payload.title : 'Cloffice';
@@ -4501,3 +4501,4 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
+

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 import {
   getSupabaseAuthConfigError,
   restoreSupabaseSession,
@@ -16,7 +16,7 @@ import {
   writeSessionStorageItem,
 } from '@/lib/storage-keys';
 
-/* ── Types ───────────────────────────────────────────────────────────────── */
+/* â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 export type AuthSession = {
   email: string;
@@ -32,18 +32,18 @@ type LoginCredentials = {
   rememberMe: boolean;
 };
 
-/* ── Storage constants (private) ─────────────────────────────────────────── */
+/* â”€â”€ Storage constants (private) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 const AUTH_LOCAL_STORAGE_KEY = STORAGE_KEYS.authLocal;
 const AUTH_LOCAL_STORAGE_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.authLocal] as const;
 const AUTH_SESSION_STORAGE_KEY = STORAGE_KEYS.authSession;
 const AUTH_SESSION_STORAGE_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.authSession] as const;
-const RELAY_USAGE_MODE_KEY = STORAGE_KEYS.usageMode;
-const RELAY_USAGE_MODE_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.usageMode] as const;
-const RELAY_ONBOARDING_KEY = STORAGE_KEYS.onboardingComplete;
-const RELAY_ONBOARDING_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.onboardingComplete] as const;
+const CLOFFICE_USAGE_MODE_KEY = STORAGE_KEYS.usageMode;
+const CLOFFICE_USAGE_MODE_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.usageMode] as const;
+const CLOFFICE_ONBOARDING_KEY = STORAGE_KEYS.onboardingComplete;
+const CLOFFICE_ONBOARDING_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.onboardingComplete] as const;
 
-/* ── Storage helpers (private) ───────────────────────────────────────────── */
+/* â”€â”€ Storage helpers (private) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function clearAuthStorage() {
   removeLocalStorageItem(AUTH_LOCAL_STORAGE_KEY, AUTH_LOCAL_STORAGE_LEGACY_KEYS);
@@ -91,7 +91,7 @@ function readStoredAuthSession(): AuthSession | null {
   }
 }
 
-/* ── Hook ────────────────────────────────────────────────────────────────── */
+/* â”€â”€ Hook â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 type UseAuthOptions = {
   onStatusChange?: (message: string) => void;
@@ -110,12 +110,12 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
   const [authError, setAuthError] = useState('');
   const [guestMode, setGuestMode] = useState(true);
   const [onboardingComplete, setOnboardingComplete] = useState(
-    () => readLocalStorageItem(RELAY_ONBOARDING_KEY, RELAY_ONBOARDING_LEGACY_KEYS) === 'true',
+    () => readLocalStorageItem(CLOFFICE_ONBOARDING_KEY, CLOFFICE_ONBOARDING_LEGACY_KEYS) === 'true',
   );
 
   // Session recovery on mount
   useEffect(() => {
-    const storedUsageMode = readLocalStorageItem(RELAY_USAGE_MODE_KEY, RELAY_USAGE_MODE_LEGACY_KEYS);
+    const storedUsageMode = readLocalStorageItem(CLOFFICE_USAGE_MODE_KEY, CLOFFICE_USAGE_MODE_LEGACY_KEYS);
     if (storedUsageMode === 'guest') {
       setGuestMode(true);
       statusRef.current?.('Running in local mode.');
@@ -141,7 +141,7 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
         }
         setAuthSession(restored);
         setGuestMode(false);
-        writeLocalStorageItem(RELAY_USAGE_MODE_KEY, 'auth', RELAY_USAGE_MODE_LEGACY_KEYS);
+        writeLocalStorageItem(CLOFFICE_USAGE_MODE_KEY, 'auth', CLOFFICE_USAGE_MODE_LEGACY_KEYS);
         persistAuthSession(restored);
         statusRef.current?.(`Signed in as ${restored.email}.`);
       } catch {
@@ -190,7 +190,7 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
       const session = await signInWithPassword(credentials.email, credentials.password, credentials.rememberMe);
       setAuthSession(session);
       setGuestMode(false);
-      writeLocalStorageItem(RELAY_USAGE_MODE_KEY, 'auth', RELAY_USAGE_MODE_LEGACY_KEYS);
+      writeLocalStorageItem(CLOFFICE_USAGE_MODE_KEY, 'auth', CLOFFICE_USAGE_MODE_LEGACY_KEYS);
       persistAuthSession(session);
       statusRef.current?.(`Signed in as ${session.email}.`);
     } catch (error) {
@@ -209,7 +209,7 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
     }
     setAuthSession(null);
     setGuestMode(false);
-    removeLocalStorageItem(RELAY_USAGE_MODE_KEY, RELAY_USAGE_MODE_LEGACY_KEYS);
+    removeLocalStorageItem(CLOFFICE_USAGE_MODE_KEY, CLOFFICE_USAGE_MODE_LEGACY_KEYS);
     clearAuthStorage();
     setAuthError('');
     statusRef.current?.('Signed out.');
@@ -220,13 +220,13 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
     setAuthError('');
     setAuthSession(null);
     clearAuthStorage();
-    writeLocalStorageItem(RELAY_USAGE_MODE_KEY, 'guest', RELAY_USAGE_MODE_LEGACY_KEYS);
+    writeLocalStorageItem(CLOFFICE_USAGE_MODE_KEY, 'guest', CLOFFICE_USAGE_MODE_LEGACY_KEYS);
     statusRef.current?.('Running in local mode. Sign in anytime for hosted cloud features.');
   };
 
   /** Sets onboarding as complete. Caller is responsible for navigation side-effects. */
   const completeOnboarding = () => {
-    writeLocalStorageItem(RELAY_ONBOARDING_KEY, 'true', RELAY_ONBOARDING_LEGACY_KEYS);
+    writeLocalStorageItem(CLOFFICE_ONBOARDING_KEY, 'true', CLOFFICE_ONBOARDING_LEGACY_KEYS);
     setOnboardingComplete(true);
   };
 
@@ -245,3 +245,4 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
     completeOnboarding,
   };
 }
+

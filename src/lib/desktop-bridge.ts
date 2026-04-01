@@ -1,7 +1,7 @@
 ﻿export type DesktopBridge = NonNullable<Window['cloffice']>;
 
-export function getDesktopBridge(): Window['cloffice'] | Window['relay'] {
-  return window.cloffice ?? window.relay;
+export function getDesktopBridge(): Window['cloffice'] {
+  return window.cloffice;
 }
 
 export function requireDesktopBridge(): DesktopBridge {

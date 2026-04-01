@@ -1,6 +1,6 @@
 ﻿/**
  * Type augmentation for the desktop bridge inside Playwright evaluate() callbacks.
- * Keeps the legacy `window.relay` alias while treating `window.cloffice` as the
+ * Keeps the desktop bridge type surface on `window.cloffice` as the
  * primary desktop bridge surface.
  */
 interface Window {
@@ -86,5 +86,7 @@ interface Window {
     statInFolder: (rootPath: string, relativePath: string) => Promise<any>;
     openPath: (targetPath: string) => Promise<{ ok: boolean; error?: string }>;
   };
-  relay?: Window['cloffice'];
 }
+
+
+

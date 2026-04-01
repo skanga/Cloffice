@@ -1,14 +1,14 @@
-import { _electron as electron, expect, test } from '@playwright/test';
+﻿import { _electron as electron, expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 
 const ONBOARDING_COMPLETE_KEY = 'cloffice.onboarding.complete';
 const USAGE_MODE_KEY = 'cloffice.usage.mode';
-const RELAY_RECENTS_KEY = 'cloffice.recents.v1';
+const CLOFFICE_RECENTS_KEY = 'cloffice.recents.v1';
 const COWORK_PROJECTS_KEY = 'cloffice.cowork.projects.v1';
 const COWORK_ACTIVE_PROJECT_KEY = 'cloffice.cowork.projects.active.v1';
-const USE_REAL_GATEWAY = process.env.RELAY_E2E_REAL_GATEWAY === '1';
+const USE_REAL_RUNTIME = process.env.CLOFFICE_E2E_REAL_RUNTIME === '1';
 
-test.describe.configure({ timeout: USE_REAL_GATEWAY ? 180000 : 120000 });
+test.describe.configure({ timeout: USE_REAL_RUNTIME ? 180000 : 120000 });
 
 function pendingApprovalCards(page: Page) {
   return page.getByTestId(/^pending-approval-(?!s-card$)(?!approve-)(?!reject-)(?!reason-).+/);
@@ -41,7 +41,7 @@ async function waitForFirstApproval(page: Page, timeout = 20000) {
 
 async function ensureE2ESafetyPolicy(page: Page) {
   await page.evaluate(() => {
-    const raw = localStorage.getItem('cloffice.safety.scopes') ?? localStorage.getItem('relay.safety.scopes');
+    const raw = localStorage.getItem('cloffice.safety.scopes');
     if (!raw) {
       return;
     }
@@ -73,7 +73,7 @@ async function ensureE2ESafetyPolicy(page: Page) {
 
 async function seedActiveE2EProject(page: Page) {
   await page.evaluate(async ([projectsKey, activeKey]) => {
-    const bridge = window.relay;
+    const bridge = window.cloffice;
     const downloadsPath = (await bridge?.getDownloadsPath?.()) || '/Downloads';
     const now = Date.now();
     const project = {
@@ -106,18 +106,18 @@ test.describe('Cowork approval flow', () => {
       localStorage.setItem(usageModeKey, 'guest');
       localStorage.removeItem(recentsKey);
       sessionStorage.clear();
-    }, [ONBOARDING_COMPLETE_KEY, USAGE_MODE_KEY, RELAY_RECENTS_KEY]);
+    }, [ONBOARDING_COMPLETE_KEY, USAGE_MODE_KEY, CLOFFICE_RECENTS_KEY]);
 
     await page.reload();
     await page.waitForLoadState('domcontentloaded');
 
-    if (!USE_REAL_GATEWAY) {
+    if (!USE_REAL_RUNTIME) {
       await page.evaluate(async () => {
-        if (!window.relay?.saveConfig) {
+        if (!window.cloffice?.saveConfig) {
           return;
         }
 
-        await window.relay.saveConfig({
+        await window.cloffice.saveConfig({
           endpointUrl: 'ws://127.0.0.1:18789',
           accessToken: '',
         });
@@ -131,11 +131,11 @@ test.describe('Cowork approval flow', () => {
       await ensureE2ESafetyPolicy(page);
     } else {
       await page.evaluate(async () => {
-        if (!window.relay?.saveConfig) {
+        if (!window.cloffice?.saveConfig) {
           return;
         }
 
-        const raw = localStorage.getItem('cloffice.config') ?? localStorage.getItem('relay.config');
+        const raw = localStorage.getItem('cloffice.config');
         if (!raw) {
           return;
         }
@@ -151,7 +151,7 @@ test.describe('Cowork approval flow', () => {
             return;
           }
 
-          await window.relay.saveConfig({
+          await window.cloffice.saveConfig({
             endpointUrl,
             accessToken,
           });
@@ -173,10 +173,10 @@ test.describe('Cowork approval flow', () => {
     await app.close();
   });
 
-  if (USE_REAL_GATEWAY) {
-    test('real gateway: operator can approve a live relay_actions request', async () => {
+  if (USE_REAL_RUNTIME) {
+    test('real runtime: operator can approve a live engine_actions request', async () => {
       await page.getByPlaceholder('How can I help you today?').fill(
-        'Return ONLY one JSON code block with relay_actions containing exactly one append_file action for path relay-e2e/mock-approval.txt and content "line from real gateway". No prose.',
+        'Return ONLY one JSON code block with engine_actions containing exactly one append_file action for path cloffice-e2e/mock-approval.txt and content "line from real runtime". No prose.',
       );
       await page.getByLabel('Send task').click();
 
@@ -188,10 +188,10 @@ test.describe('Cowork approval flow', () => {
       await expect(page.getByText(/Done\.\s+append_file\s+.*mock-approval\.txt/i)).toBeVisible({ timeout: 45000 });
     });
   } else {
-    test('mock gateway: operator can reject then approve requests from live chat events', async () => {
+    test('mock runtime: operator can reject then approve requests from live chat events', async () => {
       await sendCoworkPrompt(
         page,
-        'Run 1: Return one relay_actions append_file action for relay-e2e/mock-approval.txt with content "line from run 1".',
+        'Run 1: Return one engine_actions append_file action for cloffice-e2e/mock-approval.txt with content "line from run 1".',
       );
 
       const { approvalCard, approvalId } = await waitForFirstApproval(page);
@@ -206,7 +206,7 @@ test.describe('Cowork approval flow', () => {
 
       await sendCoworkPrompt(
         page,
-        'Run 2: Return one relay_actions append_file action for relay-e2e/mock-approval.txt with content "line from run 2".',
+        'Run 2: Return one engine_actions append_file action for cloffice-e2e/mock-approval.txt with content "line from run 2".',
       );
 
       const { approvalCard: approvalCard2, approvalId: approvalId2 } = await waitForFirstApproval(page);
@@ -215,10 +215,10 @@ test.describe('Cowork approval flow', () => {
       await expect(page.getByText(/Done\.\s+append_file\s+.*mock-approval\.txt/i)).toBeVisible();
     });
 
-    test('mock gateway: reject stays disabled until reason is provided and approved action writes file content', async () => {
+    test('mock runtime: reject stays disabled until reason is provided and approved action writes file content', async () => {
       await sendCoworkPrompt(
         page,
-        'Run 3: Return one relay_actions append_file action for relay-e2e/mock-approval.txt with content "line from run 3".',
+        'Run 3: Return one engine_actions append_file action for cloffice-e2e/mock-approval.txt with content "line from run 3".',
       );
 
       const { approvalCard, approvalId } = await waitForFirstApproval(page);
@@ -230,28 +230,26 @@ test.describe('Cowork approval flow', () => {
       await expect(page.getByText(/Done\.\s+append_file\s+.*mock-approval\.txt/i)).toBeVisible();
 
       const fileContent = await page.evaluate(async () => {
-        const bridge = window.relay;
+        const bridge = window.cloffice;
         if (!bridge?.getDownloadsPath || !bridge.readFileInFolder) {
           return '';
         }
 
         const root = await bridge.getDownloadsPath();
-        const read = await bridge.readFileInFolder(root, 'relay-e2e/mock-approval.txt');
+        const read = await bridge.readFileInFolder(root, 'cloffice-e2e/mock-approval.txt');
         return read.content;
       });
 
       expect(fileContent).toContain('line from run 3');
     });
 
-    test('mock gateway: disabled file-modify policy blocks append without approval card', async () => {
+    test('mock runtime: disabled file-modify policy blocks append without approval card', async () => {
       await page.evaluate(() => {
         const activeProjectId = (localStorage.getItem('cloffice.cowork.projects.active.v1') || '').trim();
         const scopedKey = activeProjectId ? `cloffice.safety.scopes.project.${activeProjectId}` : 'cloffice.safety.scopes';
         const raw =
           localStorage.getItem(scopedKey) ||
-          localStorage.getItem('cloffice.safety.scopes') ||
-          localStorage.getItem(`relay.safety.scopes.project.${activeProjectId}`) ||
-          localStorage.getItem('relay.safety.scopes');
+          localStorage.getItem('cloffice.safety.scopes');
 
         const scopes = (raw ? JSON.parse(raw) : []) as Array<{
           id: string;
@@ -294,7 +292,7 @@ test.describe('Cowork approval flow', () => {
 
       await sendCoworkPrompt(
         page,
-        'Run 4: Return one relay_actions append_file action for relay-e2e/mock-approval.txt with content "line from run 4".',
+        'Run 4: Return one engine_actions append_file action for cloffice-e2e/mock-approval.txt with content "line from run 4".',
       );
 
       await expect(pendingApprovalCards(page)).toHaveCount(0, { timeout: 12000 });
@@ -302,3 +300,6 @@ test.describe('Cowork approval flow', () => {
     });
   }
 });
+
+
+

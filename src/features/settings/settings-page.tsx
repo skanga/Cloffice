@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { Code2, Folder, Globe, KeyRound, Link2, Shield, Terminal, Trash2 } from 'lucide-react';
 
@@ -95,8 +95,8 @@ const sectionDescriptions: Record<SettingsSection, { en: string; de: string }> =
 };
 
 function StylePreview({ style, dark }: { style: StyleOption; dark: boolean }) {
-  const isRelay = style === 'relay';
-  const colors = isRelay
+  const isCloffice = style === 'cloffice';
+  const colors = isCloffice
     ? dark
       ? {
           bg: '#0b0d0c',
@@ -145,7 +145,7 @@ function StylePreview({ style, dark }: { style: StyleOption; dark: boolean }) {
         };
 
   return (
-    <svg viewBox="0 0 320 140" className="block h-full w-full" preserveAspectRatio="none" role="img" aria-label={`${isRelay ? 'Relay' : 'Claude'} style preview`}>
+    <svg viewBox="0 0 320 140" className="block h-full w-full" preserveAspectRatio="none" role="img" aria-label={`${isCloffice ? 'Cloffice' : 'Claude'} style preview`}>
       <rect x="0" y="0" width="320" height="140" fill={colors.bg} />
       <rect x="10" y="10" width="98" height="120" rx="10" fill={colors.surface} stroke={colors.border} />
       <rect x="22" y="22" width="48" height="8" rx="4" fill={colors.accentStrong} opacity="0.85" />
@@ -165,8 +165,8 @@ function StylePreview({ style, dark }: { style: StyleOption; dark: boolean }) {
 
 function ThemePreview({ mode, style }: { mode: ThemeOption; style: StyleOption }) {
   const modeLabel = mode === 'light' ? 'Light' : mode === 'dark' ? 'Dark' : 'Auto';
-  const isRelay = style === 'relay';
-  const light = isRelay
+  const isCloffice = style === 'cloffice';
+  const light = isCloffice
     ? {
         bg: '#f6f8f7',
         surface: '#ffffff',
@@ -185,7 +185,7 @@ function ThemePreview({ mode, style }: { mode: ThemeOption; style: StyleOption }
         lineMuted: '#dcc9b7',
         panel: '#f0e5d7',
       };
-  const dark = isRelay
+  const dark = isCloffice
     ? {
         bg: '#0b0d0c',
         surface: '#121514',
@@ -499,7 +499,7 @@ export function SettingsPage({
                 <Input className="font-sans" placeholder="Christian Lutz" value={preferences.fullName} onChange={(e) => onUpdatePreferences({ fullName: e.target.value })} />
               </label>
               <label className="grid gap-1">
-                <span className="font-sans text-xs text-muted-foreground">{t('How should Cloffice address you?', 'Wie soll Relay dich nennen?')}</span>
+                <span className="font-sans text-xs text-muted-foreground">{t('How should Cloffice address you?', 'Wie soll Cloffice dich nennen?')}</span>
                 <Input className="font-sans" placeholder="Christian" value={preferences.displayName} onChange={(e) => onUpdatePreferences({ displayName: e.target.value })} />
               </label>
             </div>
@@ -571,7 +571,7 @@ export function SettingsPage({
             <div className="grid gap-3 md:grid-cols-2">
               {([
                 ['claude', t('Claude Cowork', 'Claude Cowork'), t('Warm editorial look', 'Warmer Editorial-Look')],
-                ['relay', t('Cloffice', 'Cloffice'), t('Crisp product look', 'Klarer Produkt-Look')],
+                ['cloffice', t('Cloffice', 'Cloffice'), t('Crisp product look', 'Klarer Produkt-Look')],
               ] as const).map(([value, label, description]) => (
                 <button
                   key={value}
@@ -771,15 +771,15 @@ export function SettingsPage({
                     <p>
                       <span className="font-medium text-foreground">Provider cowork normalization:</span>{' '}
                       {internalRuntimeInfo.providerCoworkRunCount > 0
-                        ? `${internalRuntimeInfo.providerCoworkStructuredCount} structured Â· ${internalRuntimeInfo.providerCoworkNormalizedCount} normalized Â· ${internalRuntimeInfo.providerCoworkFallbackCount} fallback`
+                        ? `${internalRuntimeInfo.providerCoworkStructuredCount} structured · ${internalRuntimeInfo.providerCoworkNormalizedCount} normalized · ${internalRuntimeInfo.providerCoworkFallbackCount} fallback`
                         : 'no retained provider-backed cowork runs'}
                     </p>
                     {internalRuntimeInfo.providerCoworkNormalizationByProvider.length > 0 ? (
                       <p className="sm:col-span-2">
                         <span className="font-medium text-foreground">By provider:</span>{' '}
                         {internalRuntimeInfo.providerCoworkNormalizationByProvider
-                          .map((provider) => `${provider.providerId} (${provider.structuredCount} structured Â· ${provider.normalizedCount} normalized Â· ${provider.fallbackCount} fallback)`)
-                          .join(' Â· ')}
+                          .map((provider) => `${provider.providerId} (${provider.structuredCount} structured · ${provider.normalizedCount} normalized · ${provider.fallbackCount} fallback)`)
+                          .join(' · ')}
                       </p>
                     ) : null}
                     {internalRuntimeInfo.providerCoworkNormalizationTrend.length > 0 ? (
@@ -787,7 +787,7 @@ export function SettingsPage({
                         <span className="font-medium text-foreground">7-day trend:</span>{' '}
                         {internalRuntimeInfo.providerCoworkNormalizationTrend
                           .map((entry) => `${entry.date} (${entry.structuredCount}/${entry.normalizedCount}/${entry.fallbackCount})`)
-                          .join(' Â· ')}
+                          .join(' · ')}
                       </p>
                     ) : null}
                     {internalRuntimeInfo.providerCoworkNormalizationByProvider.length > 0 ? (
@@ -806,7 +806,7 @@ export function SettingsPage({
                                 {trend.length > 0
                                   ? trend
                                       .map((entry) => `${entry.date} (${entry.structuredCount}/${entry.normalizedCount}/${entry.fallbackCount})`)
-                                      .join(' Â· ')
+                                      .join(' · ')
                                   : `${provider.structuredCount}/${provider.normalizedCount}/${provider.fallbackCount}`}
                               </p>
                             );
@@ -828,7 +828,7 @@ export function SettingsPage({
                         <span className="font-medium text-foreground">Chat providers:</span>{' '}
                         {internalRuntimeInfo.chatProviders
                           .map((provider) => `${provider.label} (${provider.configured ? `${provider.modelCount} models` : 'not configured'})`)
-                          .join(' Â· ')}
+                          .join(' · ')}
                       </p>
                     ) : null}
                     {internalRuntimeInfo.latestArtifactSummary ? (
@@ -854,7 +854,7 @@ export function SettingsPage({
                           return (
                             <div key={run.runId} className="rounded-md border border-border/50 bg-background/40 px-2.5 py-2">
                               <p className="text-[11px] font-medium text-foreground">
-                                {run.sessionKind} Â· {run.status} Â· {run.model}
+                                {run.sessionKind} · {run.status} · {run.model}
                               </p>
                               <p className="text-[11px] text-muted-foreground">
                                 {run.summary ?? run.promptPreview ?? run.runId}
@@ -1205,7 +1205,7 @@ export function SettingsPage({
 	                              {trend.length > 0
 	                                ? trend
 	                                    .map((entry) => `${entry.date} (${entry.structuredCount}/${entry.normalizedCount}/${entry.fallbackCount})`)
-	                                    .join(' Â· ')
+	                                    .join(' · ')
 	                                : `${provider.structuredCount}/${provider.normalizedCount}/${provider.fallbackCount}`}
 	                            </p>
 	                          );
@@ -1223,7 +1223,7 @@ export function SettingsPage({
 	                        {internalRuntimeInfo.providerCoworkNormalizationByModel.map((entry) => (
 	                          <p key={entry.model}>
 	                            <span className="font-medium text-foreground">{entry.model}</span>{' '}
-	                            ({entry.providerId ?? 'unknown'}) · {entry.structuredCount}/{entry.normalizedCount}/{entry.fallbackCount}
+	                            ({entry.providerId ?? 'unknown'}) � {entry.structuredCount}/{entry.normalizedCount}/{entry.fallbackCount}
 	                          </p>
 	                        ))}
 	                      </div>
@@ -1238,8 +1238,8 @@ export function SettingsPage({
 	                        {internalRuntimeInfo.recentProviderCoworkFallbackRuns.map((entry) => (
 	                          <p key={entry.runId}>
 	                            <span className="font-medium text-foreground">{entry.model}</span>{' '}
-	                            · {new Date(entry.updatedAt).toLocaleString()}
-	                            {entry.summary ? ` · ${entry.summary}` : ''}
+	                            � {new Date(entry.updatedAt).toLocaleString()}
+	                            {entry.summary ? ` � ${entry.summary}` : ''}
 	                          </p>
 	                        ))}
 	                      </div>
@@ -1273,7 +1273,7 @@ export function SettingsPage({
                               <div className="flex flex-wrap items-start justify-between gap-2">
                                 <div className="min-w-0">
                                   <p className="text-sm font-medium text-foreground">
-                                    {run.sessionKind} Â· {run.status} Â· {run.model}
+                                    {run.sessionKind} · {run.status} · {run.model}
                                   </p>
                                   <p className="text-xs text-muted-foreground">
                                     {run.summary ?? run.promptPreview ?? run.runId}
@@ -1360,22 +1360,22 @@ export function SettingsPage({
                                         {entry.action ? (
                                           <p className="mt-1 text-[11px] text-muted-foreground/90">
                                             <span className="font-medium text-foreground">{t('Action', 'Aktion')}:</span>{' '}
-                                            <span className="font-mono">{entry.action.actionType}</span> Â· <span className="font-mono">{entry.action.path}</span>
+                                            <span className="font-mono">{entry.action.actionType}</span> · <span className="font-mono">{entry.action.path}</span>
                                           </p>
                                         ) : null}
                                         {entry.decision ? (
                                           <p className="mt-1 text-[11px] text-muted-foreground/90">
                                             <span className="font-medium text-foreground">{t('Decision', 'Entscheidung')}:</span>{' '}
                                             {entry.decision.approved ? t('approved', 'genehmigt') : t('rejected', 'abgelehnt')}
-                                            {entry.decision.reason ? ` Â· ${entry.decision.reason}` : ''}
+                                            {entry.decision.reason ? ` · ${entry.decision.reason}` : ''}
                                           </p>
                                         ) : null}
                                         {entry.receipt ? (
                                           <p className="mt-1 text-[11px] text-muted-foreground/90">
                                             <span className="font-medium text-foreground">{t('Receipt', 'Beleg')}:</span>{' '}
                                             {entry.receipt.status}
-                                            {entry.receipt.errorCode ? ` Â· ${entry.receipt.errorCode}` : ''}
-                                            {entry.receipt.message ? ` Â· ${entry.receipt.message}` : ''}
+                                            {entry.receipt.errorCode ? ` · ${entry.receipt.errorCode}` : ''}
+                                            {entry.receipt.message ? ` · ${entry.receipt.message}` : ''}
                                           </p>
                                         ) : null}
                                       </div>
@@ -1436,8 +1436,8 @@ export function SettingsPage({
                                             className="rounded-md border border-border/40 bg-background/70 px-2 py-1.5 text-[11px] text-muted-foreground"
                                           >
                                             <p>
-                                              <span className="font-medium text-foreground">{receipt.type}</span> Â·{' '}
-                                              <span className="font-mono">{receipt.path}</span> Â· {receipt.status}
+                                              <span className="font-medium text-foreground">{receipt.type}</span> ·{' '}
+                                              <span className="font-mono">{receipt.path}</span> · {receipt.status}
                                             </p>
                                             {receipt.message ? <p className="mt-0.5">{receipt.message}</p> : null}
                                             {receipt.errorCode ? <p className="mt-0.5 font-mono">{receipt.errorCode}</p> : null}
@@ -1477,7 +1477,7 @@ export function SettingsPage({
   );
 }
 
-/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Connectors settings section ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
+/* Ã¢â€â‚¬Ã¢â€â‚¬ Connectors settings section Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
 
 const connectorIcons: Record<string, ReactNode> = {
   folder: <Folder className="size-4" />,
@@ -1595,7 +1595,7 @@ function ConnectorsSection({ language }: { language: 'en' | 'de' }) {
                       className="ml-1 text-muted-foreground hover:text-foreground"
                       onClick={() => removeDomain(domain)}
                     >
-                      ÃƒÆ’Ã¢â‚¬â€
+                      Ãƒâ€”
                     </button>
                   </Badge>
                 ))}
@@ -1622,6 +1622,8 @@ function ConnectorsSection({ language }: { language: 'en' | 'de' }) {
     </div>
   );
 }
+
+
 
 
 

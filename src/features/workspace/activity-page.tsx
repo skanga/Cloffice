@@ -44,7 +44,7 @@ type ActivityEntry = {
 type ToneFilter = 'all' | 'success' | 'danger' | 'neutral';
 
 function getDesktopBridge() {
-  return window.cloffice ?? window.relay ?? null;
+  return window.cloffice ?? null;
 }
 
 function extractActivities(msg: ChatMessage): ChatActivityItem[] {

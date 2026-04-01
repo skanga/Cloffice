@@ -165,12 +165,10 @@ type DesktopBridgeApi = {
 };
 
 type ClofficeDesktopApi = DesktopBridgeApi;
-type RelayApi = ClofficeDesktopApi;
 
 declare global {
   interface Window {
     cloffice?: ClofficeDesktopApi;
-    relay?: RelayApi;
   }
 }
 

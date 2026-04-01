@@ -15,8 +15,8 @@ html {
   --preview-panel: #f0e5d7;
   --preview-claude-accent-strong: #c47a5c;
   --preview-claude-accent-soft: #edd4c7;
-  --preview-relay-accent-strong: #7b9f2f;
-  --preview-relay-accent-soft: #dcf0b3;
+  --preview-cloffice-accent-strong: #7b9f2f;
+  --preview-cloffice-accent-soft: #dcf0b3;
 }
 
 html,
@@ -89,8 +89,8 @@ html.dark {
   --preview-panel: #302d29;
   --preview-claude-accent-strong: #df9a79;
   --preview-claude-accent-soft: #553f35;
-  --preview-relay-accent-strong: #bbf451;
-  --preview-relay-accent-soft: #3c4d1b;
+  --preview-cloffice-accent-strong: #bbf451;
+  --preview-cloffice-accent-soft: #3c4d1b;
 }
 
 html.dark .bg-background { background-color: #1c1b18; }
@@ -99,8 +99,8 @@ html.dark .bg-white { background-color: #242320; }
 html.dark .text-foreground { color: #e8e6e0; }
 html.dark .text-muted-foreground { color: #8a887e; }
 
-/* Relay style variant */
-html.relay-style body {
+/* Cloffice style variant */
+html.cloffice-style body {
   color: #070707;
   font-family: "Manrope", "Segoe UI", sans-serif;
   background:
@@ -109,7 +109,7 @@ html.relay-style body {
     #ffffff;
 }
 
-html.relay-style {
+html.cloffice-style {
   --app-primary: #bbf451;
   --app-primary-foreground: #1f2b09;
   --app-primary-muted: #f4f8f1;
@@ -124,98 +124,98 @@ html.relay-style {
   --preview-panel: #f2f6f4;
 }
 
-html.relay-style * {
+html.cloffice-style * {
   border-color: #e8e8e8;
 }
 
-html.relay-style .font-sans {
+html.cloffice-style .font-sans {
   font-family: "Manrope", "Segoe UI", sans-serif;
 }
 
-html.relay-style .bg-background {
+html.cloffice-style .bg-background {
   background-color: #ffffff;
 }
 
-html.relay-style [data-slot="sidebar"] {
+html.cloffice-style [data-slot="sidebar"] {
   background-color: #f8f8f8;
 }
 
-html.relay-style .bg-card {
+html.cloffice-style .bg-card {
   background-color: #ffffff;
 }
 
-html.relay-style .bg-muted {
+html.cloffice-style .bg-muted {
   background-color: #f6f6f6;
 }
 
-html.relay-style .bg-popover {
+html.cloffice-style .bg-popover {
   background-color: #ffffff;
 }
 
-html.relay-style .bg-primary {
+html.cloffice-style .bg-primary {
   background-color: #bbf451;
 }
 
-html.relay-style .text-primary-foreground {
+html.cloffice-style .text-primary-foreground {
   color: #1f2b09;
 }
 
-html.relay-style .text-primary {
+html.cloffice-style .text-primary {
   color: #7b9f2f;
 }
 
-html.relay-style .border-primary {
+html.cloffice-style .border-primary {
   border-color: #bbf451;
 }
 
-html.relay-style .ring-ring {
+html.cloffice-style .ring-ring {
   --tw-ring-color: rgb(187 244 81 / 0.4);
 }
 
-html.relay-style :is(button.bg-primary, a.bg-primary) {
+html.cloffice-style :is(button.bg-primary, a.bg-primary) {
   border-color: #a8df44;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(187, 244, 81, 0.2) inset;
 }
 
-html.relay-style :is(button.bg-primary:hover, a.bg-primary:hover) {
+html.cloffice-style :is(button.bg-primary:hover, a.bg-primary:hover) {
   background-color: #a8df44;
 }
 
-html.relay-style .titlebar-mode-trigger[data-active] {
+html.cloffice-style .titlebar-mode-trigger[data-active] {
   background: #bbf451 !important;
   color: #1f2b09 !important;
 }
 
-html.relay-style .titlebar-mode-trigger[data-active]:hover {
+html.cloffice-style .titlebar-mode-trigger[data-active]:hover {
   background: #a8df44 !important;
 }
 
-html.relay-style .text-foreground {
+html.cloffice-style .text-foreground {
   color: #070707;
 }
 
-html.relay-style .text-muted-foreground {
+html.cloffice-style .text-muted-foreground {
   color: #666666;
 }
 
-html.relay-style .text-destructive {
+html.cloffice-style .text-destructive {
   color: #c53737;
 }
 
-html.relay-style .border-border {
+html.cloffice-style .border-border {
   border-color: #e8e8e8;
 }
 
-html.relay-style :is(button, a, input, select, textarea) {
+html.cloffice-style :is(button, a, input, select, textarea) {
   border-radius: 10px;
 }
 
-html.relay-style :is(button, a) {
+html.cloffice-style :is(button, a) {
   font-weight: 600;
 }
 
-html.relay-style.dark body,
-html.dark.relay-style body {
+html.cloffice-style.dark body,
+html.dark.cloffice-style body {
   color: #fafafa;
   background:
     radial-gradient(circle at 14% -10%, rgba(141, 255, 194, 0.08) 0%, transparent 28%),
@@ -223,8 +223,8 @@ html.dark.relay-style body {
     #090909;
 }
 
-html.relay-style.dark,
-html.dark.relay-style {
+html.cloffice-style.dark,
+html.dark.cloffice-style {
   --app-primary: #bbf451;
   --app-primary-foreground: #1f2b09;
   --app-primary-muted: #1a1a1a;
@@ -239,94 +239,95 @@ html.dark.relay-style {
   --preview-panel: #1a1f1d;
 }
 
-html.relay-style.dark *,
-html.dark.relay-style * {
+html.cloffice-style.dark *,
+html.dark.cloffice-style * {
   border-color: #2b2b2b;
 }
 
-html.relay-style.dark .bg-background,
-html.dark.relay-style .bg-background {
+html.cloffice-style.dark .bg-background,
+html.dark.cloffice-style .bg-background {
   background-color: #090909;
 }
 
-html.relay-style.dark [data-slot="sidebar"],
-html.dark.relay-style [data-slot="sidebar"] {
+html.cloffice-style.dark [data-slot="sidebar"],
+html.dark.cloffice-style [data-slot="sidebar"] {
   background-color: #080808;
 }
 
-html.relay-style.dark .bg-card,
-html.dark.relay-style .bg-card {
+html.cloffice-style.dark .bg-card,
+html.dark.cloffice-style .bg-card {
   background-color: #121212;
 }
 
-html.relay-style.dark .bg-muted,
-html.dark.relay-style .bg-muted {
+html.cloffice-style.dark .bg-muted,
+html.dark.cloffice-style .bg-muted {
   background-color: #1a1a1a;
 }
 
-html.relay-style.dark .bg-popover,
-html.dark.relay-style .bg-popover {
+html.cloffice-style.dark .bg-popover,
+html.dark.cloffice-style .bg-popover {
   background-color: #141414;
 }
 
-html.relay-style.dark .bg-primary,
-html.dark.relay-style .bg-primary {
+html.cloffice-style.dark .bg-primary,
+html.dark.cloffice-style .bg-primary {
   background-color: #bbf451;
 }
 
-html.relay-style.dark .text-primary-foreground,
-html.dark.relay-style .text-primary-foreground {
+html.cloffice-style.dark .text-primary-foreground,
+html.dark.cloffice-style .text-primary-foreground {
   color: #1f2b09;
 }
 
-html.relay-style.dark .text-primary,
-html.dark.relay-style .text-primary {
+html.cloffice-style.dark .text-primary,
+html.dark.cloffice-style .text-primary {
   color: #bbf451;
 }
 
-html.relay-style.dark .border-primary,
-html.dark.relay-style .border-primary {
+html.cloffice-style.dark .border-primary,
+html.dark.cloffice-style .border-primary {
   border-color: #bbf451;
 }
 
-html.relay-style.dark .ring-ring,
-html.dark.relay-style .ring-ring {
+html.cloffice-style.dark .ring-ring,
+html.dark.cloffice-style .ring-ring {
   --tw-ring-color: rgb(187 244 81 / 0.42);
 }
 
-html.relay-style.dark :is(button.bg-primary, a.bg-primary),
-html.dark.relay-style :is(button.bg-primary, a.bg-primary) {
+html.cloffice-style.dark :is(button.bg-primary, a.bg-primary),
+html.dark.cloffice-style :is(button.bg-primary, a.bg-primary) {
   border-color: #a8df44;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(187, 244, 81, 0.24) inset;
 }
 
-html.relay-style.dark :is(button.bg-primary:hover, a.bg-primary:hover),
-html.dark.relay-style :is(button.bg-primary:hover, a.bg-primary:hover) {
+html.cloffice-style.dark :is(button.bg-primary:hover, a.bg-primary:hover),
+html.dark.cloffice-style :is(button.bg-primary:hover, a.bg-primary:hover) {
   background-color: #a8df44;
 }
 
-html.relay-style.dark .titlebar-mode-trigger[data-active],
-html.dark.relay-style .titlebar-mode-trigger[data-active] {
+html.cloffice-style.dark .titlebar-mode-trigger[data-active],
+html.dark.cloffice-style .titlebar-mode-trigger[data-active] {
   background: #bbf451 !important;
   color: #1f2b09 !important;
 }
 
-html.relay-style.dark .titlebar-mode-trigger[data-active]:hover,
-html.dark.relay-style .titlebar-mode-trigger[data-active]:hover {
+html.cloffice-style.dark .titlebar-mode-trigger[data-active]:hover,
+html.dark.cloffice-style .titlebar-mode-trigger[data-active]:hover {
   background: #a8df44 !important;
 }
 
-html.relay-style.dark .text-foreground,
-html.dark.relay-style .text-foreground {
+html.cloffice-style.dark .text-foreground,
+html.dark.cloffice-style .text-foreground {
   color: #fafafa;
 }
 
-html.relay-style.dark .text-muted-foreground,
-html.dark.relay-style .text-muted-foreground {
+html.cloffice-style.dark .text-muted-foreground,
+html.dark.cloffice-style .text-muted-foreground {
   color: #a6a6a6;
 }
 
-html.relay-style.dark .border-border,
-html.dark.relay-style .border-border {
+html.cloffice-style.dark .border-border,
+html.dark.cloffice-style .border-border {
   border-color: #2b2b2b;
 }
+

@@ -1,4 +1,4 @@
-import type { ChatActivityItem, CoworkProjectTaskStatus, EngineProviderId, EngineRequestedAction } from '../app-types.js';
+﻿import type { ChatActivityItem, CoworkProjectTaskStatus, EngineProviderId, EngineRequestedAction } from '../app-types.js';
 export const INTERNAL_ENGINE_ACTION_FIELD = 'engine_actions';
 
 function normalizeRequestedAction(action: unknown): EngineRequestedAction | null {
@@ -173,8 +173,7 @@ export function parseEngineActivityItems(rawInput: unknown): ChatActivityItem[] 
   return parseEngineActivityItems(
     record.activityItems
     ?? record.activity_items
-    ?? record.relay_activity
-    ?? record.relayActivity,
+    ,
   );
 }
 
@@ -285,3 +284,4 @@ export function resolveEngineApprovalTaskTransition(
     summary: `Needs approval: ${actionSummary}`,
   };
 }
+

@@ -364,7 +364,7 @@ export function AppTitlebar({
             }`}
             title={`${engineConnected ? 'Runtime connected' : 'Runtime disconnected'} - Open Engine settings`}
             onClick={onOpenEngineSettings}
-            data-testid="titlebar-gateway-badge"
+            data-testid="titlebar-runtime-badge"
           >
             <Circle className="mr-1 size-2.5 fill-current" />
             {engineConnected ? 'Connected' : 'Disconnected'}

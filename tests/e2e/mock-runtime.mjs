@@ -1,7 +1,7 @@
 import { WebSocketServer } from 'ws';
 
 const PORT = 18789;
-const challengeNonce = 'relay-e2e-challenge';
+const challengeNonce = 'cloffice-e2e-challenge';
 
 let runCounter = 0;
 
@@ -9,7 +9,7 @@ function sendFrame(socket, frame) {
   socket.send(JSON.stringify(frame));
 }
 
-function parsePromptRelayAction(promptText) {
+function parsePromptEngineAction(promptText) {
   const fallback = {
     path: 'cloffice-e2e/mock-approval.txt',
     content: 'line from mock runtime',
@@ -31,8 +31,8 @@ function parsePromptRelayAction(promptText) {
   };
 }
 
-function relayActionPayloadForRun(runId, promptText) {
-  const parsed = parsePromptRelayAction(promptText);
+function engineActionPayloadForRun(runId, promptText) {
+  const parsed = parsePromptEngineAction(promptText);
   return {
     runId,
     state: 'final',
@@ -43,7 +43,7 @@ function relayActionPayloadForRun(runId, promptText) {
         '```json',
         JSON.stringify(
           {
-            relay_actions: [
+            engine_actions: [
               {
                 id: 'mock-action-1',
                 type: 'append_file',
@@ -157,7 +157,7 @@ wss.on('connection', (socket) => {
       const promptText = typeof params.message === 'string' ? params.message : '';
       runCounter += 1;
       const runId = `mock-run-${runCounter}`;
-      const payload = relayActionPayloadForRun(runId, promptText);
+      const payload = engineActionPayloadForRun(runId, promptText);
       const finalDelayMs = promptText.includes('DELAY_LONG') ? 1200 : 120;
 
       setTimeout(() => {
@@ -210,4 +210,6 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 console.log(`[cloffice-e2e-mock-gateway] listening on ws://127.0.0.1:${PORT}`);
+
+
 

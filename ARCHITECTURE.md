@@ -1,442 +1,288 @@
-# ARCHITECTURE.md — Cloffice
+﻿# ARCHITECTURE.md - Cloffice
 
 ## 1. What Cloffice is
 
-Cloffice is a **local-first AI coworker desktop app**. It unifies chat, workspace context, governed approvals, scheduling, artifacts, and autonomous execution in a single desktop product.
+Cloffice is a local-first AI coworker desktop app. It combines chat, cowork, governed approvals, scheduling, artifacts, runtime activity, and provider-backed execution in a single desktop product.
 
-Cloffice is derived from Relay, but it is no longer architected as an Electron client for an external OpenClaw-compatible backend. Instead, Cloffice uses a **built-in internal engine** that ships with the app and runs locally.
+Cloffice is a Cloffice-owned local-first desktop product built around an internal engine.
 
----
+## 2. Current architecture decision
 
-## 2. Core architecture decision
+Cloffice currently has two real runtime layers and one UI layer:
 
-Cloffice has three primary layers:
+1. Renderer
+2. Electron main
+3. Internal engine hosted inside Electron main
 
-1. **Renderer (UI / control plane)**
-2. **Electron Main (trusted host services)**
-3. **Cloffice Engine (internal worker process)**
+This is the architecture that exists in the repo today.
 
-The renderer is where the user sees and controls work.
-The Electron main process owns privileged host integration.
-The internal engine owns orchestration, runs, provider adapters, scheduling, durable state, and structured action proposals.
+Important clarification:
 
-This means Cloffice is a **single integrated product**, but it still keeps a strict internal execution boundary.
+- The earlier migration plan discussed a separate engine worker or utility process.
+- That is not the current implementation.
+- The current implementation keeps the internal engine inside Electron main and exposes it through preload and IPC.
 
----
+That means the product already has a Cloffice-owned runtime boundary, but not a separate process boundary.
 
-## 3. High-level process model
+## 3. High-level runtime model
 
 ```text
-┌──────────────────────────────────────────────────────────────┐
-│ Renderer (React/Vite UI)                                    │
-│ chat · cowork · approvals · schedules · artifacts · files   │
-└──────────────────────────────┬───────────────────────────────┘
-                               │
-                               │ preload IPC / message port
-                               ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Electron Main (trusted host)                                │
-│ config · keychain · notifications · file/shell/web actions  │
-│ engine supervision                                           │
-└──────────────────────────────┬───────────────────────────────┘
-                               │
-                               │ internal transport
-                               ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Cloffice Engine                                              │
-│ sessions · runs · providers · approvals · scheduler · DB    │
-│ event journal · artifacts · usage normalization              │
-└──────────────────────────────┬───────────────────────────────┘
-                               │
-                               ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Provider adapters / optional workbench                      │
-│ Anthropic · OpenAI · local model adapters · future sandbox  │
-└──────────────────────────────────────────────────────────────┘
+Renderer (React/Vite UI)
+  chat · cowork · approvals · schedules · activity · settings · artifacts
+        |
+        | preload bridge / IPC
+        v
+Electron Main
+  config · secure secret storage · notifications · filesystem · shell · web fetch
+  internal engine host
+        |
+        v
+Internal Engine
+  sessions · runs · approvals · provider adapters · scheduler · artifacts · retention · diagnostics
 ```
-
----
 
 ## 4. Responsibilities by layer
 
 ### 4.1 Renderer
 
-The renderer is the **control plane**.
+The renderer is the operator-facing control plane.
 
 It owns:
 
-- chat and cowork UI
-- session lists and navigation
-- pending approvals UI
-- schedule/task UI
-- artifact browser and previews
-- settings screens
-- activity and audit views
-- local workspace browsing UX
+- chat and cowork interfaces
+- session navigation
+- pending approval UI
+- schedule management UI
+- activity and diagnostics views
+- artifact presentation
+- settings and provider setup
+- workspace and project UX
 
-The renderer does **not** own:
+It does not own:
 
-- long-running orchestration
-- provider-specific agent loops
-- durable runtime state
-- direct high-trust host execution
+- durable runtime truth
+- provider API orchestration
+- scheduler execution
+- direct high-trust host actions
 
-The renderer should treat the engine as the authoritative runtime and Electron main as the authoritative host bridge.
+### 4.2 Electron main
 
-### 4.2 Electron Main
-
-Electron main is the **trusted host services layer**.
+Electron main is the trusted host boundary.
 
 It owns:
 
-- local filesystem actions
-- shell command execution
+- filesystem access
+- shell execution
 - web fetch under host policy
 - notifications
-- OS integration
-- secure credential access / keychain integration
-- engine process launch, health supervision, and restart policy
-- IPC bridges between renderer and engine
+- desktop integration
+- config loading and saving
+- secret storage and hydration
+- the internal engine host
+- preload bridge methods exposed to the renderer
 
-Electron main should remain intentionally small. It is privileged and should not absorb agent orchestration logic.
+Electron main is also where Cloffice currently enforces the consequential host-action boundary.
 
-### 4.3 Cloffice Engine
+### 4.3 Internal engine
 
-The internal engine is the **runtime/orchestration layer**.
+The internal engine is the runtime and orchestration layer.
 
 It owns:
 
 - sessions
-- runs
-- messages and event stream state
-- provider adapters
-- action proposal generation
-- scheduler and recurring tasks
-- usage/cost normalization
-- durable persistence
-- resume/cancel logic
-- future sub-agent orchestration
-- artifact metadata and lifecycle
+- messages and streamed events
+- runs and run history
+- provider-backed chat and cowork execution
+- approval state and recovery
+- artifacts and receipts
+- scheduler state and triggers
+- runtime retention and diagnostics
+- provider normalization and cowork quality analytics
 
-The engine is not a separate product. It is shipped as an internal subsystem.
-
----
+The internal engine is currently embedded in Electron main. It is an internal subsystem, not a separate shipped service.
 
 ## 5. Governance model
 
-Cloffice is built around a strict principle:
+Cloffice follows a strict governance rule:
 
-> **The model may propose. Cloffice governs. The host executes.**
+> The model may propose. Cloffice governs. The host executes.
 
-### 5.1 Direct execution is limited
+In practice this means:
 
-The model and engine should not have broad, raw host powers by default.
+1. provider-backed runs produce text, structured state, and action proposals
+2. the engine records and exposes pending approvals
+3. the renderer presents the approval decision to the operator
+4. Electron main executes approved host actions
+5. results and receipts are recorded back into the run
 
-High-trust actions must become **structured action proposals**, such as:
+This is the core product model for consequential actions.
 
-- create file
-- append file
-- rename file
-- delete file
-- run shell command
-- send web request
-- send external message
+## 6. Provider model
 
-### 5.2 Approval flow
+Cloffice is provider-neutral at the runtime boundary.
 
-1. The engine determines that an action is needed.
-2. The engine emits a structured `pending_action` proposal.
-3. The renderer displays the proposal for approval.
-4. Electron main executes the approved action.
-5. The result is returned to the engine.
-6. The run continues with that result in context.
+Current provider support:
 
-This preserves auditability and makes approvals a first-class product behavior rather than an afterthought.
+- OpenAI-compatible providers
+- Anthropic
+- Gemini
 
----
+OpenAI-compatible flows can also target compatible base URLs such as Groq or OpenRouter through the same internal adapter path.
 
-## 6. Provider-neutral engine contract
+Provider-specific behavior is normalized inside the internal engine. The renderer does not depend on provider SDK contracts directly.
 
-The engine must be provider-neutral at its public boundary.
+## 7. Chat and cowork model
 
-The renderer should never depend directly on provider-specific runtime semantics. Instead, it should talk to the engine using a Cloffice-owned contract.
+### 7.1 Sessions
 
-### 6.1 Engine capabilities
+Sessions are the durable user-facing unit.
 
-The engine contract should cover:
+They include:
 
-- list/create/update/archive sessions
-- send user input into a session
-- stream run events
-- expose pending approvals
-- receive approval decisions
-- list and manage schedules
-- expose artifacts
-- report usage/cost and provider metadata
-- cancel/resume runs
-- expose health and diagnostics
-
-### 6.2 Provider adapters
-
-Provider-specific logic belongs inside adapters.
-
-Examples:
-
-- Anthropic adapter
-- OpenAI adapter
-- local model adapter
-- future adapter for a workbench or browser-use runtime
-
-The adapter translates provider-specific APIs and tool loops into the engine’s normalized event model.
-
----
-
-## 7. Session and run model
-
-Cloffice should distinguish clearly between **sessions** and **runs**.
-
-### 7.1 Session
-
-A session is the durable unit the user recognizes.
-
-It includes:
-
+- session kind such as `chat` or `cowork`
 - title
-- mode (`chat`, `cowork`, later others)
-- workspace context
-- provider/model preferences
-- schedule links
-- message history
-- artifact links
+- selected model
+- history
+- related runs
 
-### 7.2 Run
+### 7.2 Runs
 
-A run is one execution instance inside a session.
+Runs are execution attempts inside a session.
 
-It includes:
+They include:
 
 - run id
-- start/end timestamps
-- state (`queued`, `running`, `awaiting_approval`, `succeeded`, `failed`, `cancelled`)
-- streamed events
-- pending actions
-- usage/cost data
-- error information
+- run status
+- streamed output
+- provider metadata
+- approval state
+- receipts and artifacts
+- summary and diagnostics
 
-This distinction is important for resumability, auditability, and future background/autonomous workflows.
+### 7.3 Cowork normalization
 
----
+Provider-backed cowork runs carry normalization metadata so Cloffice can distinguish:
 
-## 8. Persistence
+- provider-structured output
+- normalized section output
+- synthetic fallback output
 
-Durable state should be engine-owned, not renderer-owned.
+That metadata is used in developer diagnostics and activity analytics.
 
-### 8.1 Store
+## 8. Approvals and host actions
 
-The default local store should be SQLite.
+Approvals are first-class runtime entities.
 
-The engine should persist:
+Supported behavior already exists for:
+
+- pending approval creation
+- approval and rejection
+- rejection reasons
+- receipt recording
+- restart-safe approval recovery
+- scheduled cowork approval visibility
+
+Host action execution remains on the trusted Electron side.
+
+## 9. Persistence model
+
+Durable runtime state is internal-engine-owned.
+
+Persisted state includes:
 
 - sessions
-- runs
 - messages
-- event journal
-- pending/completed approvals
-- schedules and task runs
-- artifacts and artifact metadata
-- provider usage and cost records
-- settings that are runtime-scoped rather than UI-scoped
+- runs
+- artifacts
+- pending approvals
+- schedules
+- schedule run history and counters
+- runtime retention policy
 
-### 8.2 Local UI state
+Cloffice also applies runtime-owned pruning for retained run and artifact history.
 
-The renderer may keep ephemeral UI preferences in local storage or a lightweight client store, but runtime truth belongs in the engine database.
+## 10. Scheduling model
 
----
+The scheduler is now a Cloffice-owned internal runtime feature.
 
-## 9. Scheduling
+Current supported capabilities include:
 
-Scheduling is an engine concern.
+- create, edit, pause, resume, delete
+- run now
+- duplicate
+- bulk actions
+- import and export
+- grouped schedule views by project and model
+- health and metrics rollups
+- retained schedule history and counters
+- scheduled cowork approval recovery
 
-The UI should manage schedules, but the engine should own:
+Schedules are internal runtime entities, not renderer-owned timers.
 
-- schedule definitions
-- next-run computation
-- run triggering
-- task run records
-- retry state
-- pause/resume/cancel behavior
+## 11. Configuration and secrets
 
-This avoids coupling schedules to a specific open window or renderer state.
+Cloffice now uses a Cloffice-native config path.
 
----
+Current behavior:
 
-## 10. Artifacts
+- main config file is `cloffice-config.json`
+- provider API keys are stripped from plain config writes
+- provider secrets are stored separately on the Electron side and rehydrated on read
 
-Artifacts are first-class outputs of the engine.
+This means provider secrets are no longer stored in plain JSON config.
 
-Examples:
+## 12. Diagnostics and observability
 
-- generated files
-- transformed documents
-- code patches
-- structured reports
-- downloaded or derived assets
+Cloffice exposes strong runtime diagnostics in-product.
 
-The engine should track artifact metadata, while Electron main handles trusted host-side file realization where needed.
+Current visibility includes:
 
----
+- runtime readiness and counts
+- recent internal runs
+- retention policy and retained counts
+- schedule metrics and health rollups
+- activity timeline for scheduled and runtime events
+- cowork normalization totals
+- per-provider normalization breakdowns
+- per-provider daily trend history
+- fallback hotspots by model
+- recent fallback runs
 
-## 11. Workspaces
+## 13. What is no longer part of the architecture
 
-Cloffice is local-first and workspace-aware.
+The following are no longer part of the live product architecture:
 
-### 11.1 Workspace role
+- external compatibility runtime paths
+- compatibility discovery and plugin-install flows
+- gateway URL or gateway token as a required core setup concept
+- compatibility-specific transport or session management in the product path
 
-A workspace gives the engine and UI context about where work is happening.
+## 14. Remaining architecture decisions
 
-Examples:
+The largest architectural decision still open is whether Cloffice should keep the internal engine embedded in Electron main or move it into a separate supervised worker or utility process.
 
-- project folder
-- selected files
-- recent file operations
-- repository metadata
+Reasons you might keep the current approach:
 
-### 11.2 Safety posture
+- simpler packaging
+- fewer supervision and transport concerns
+- current product behavior is already working
 
-Read access can be broader than write access.
+Reasons you might still move it out later:
 
-A good default posture is:
+- stronger crash isolation
+- tighter resource supervision
+- clearer trust and operational boundaries
 
-- workspace reads allowed with user awareness
-- workspace writes require explicit approval unless the user has broadened permissions
-- destructive actions require strong confirmation or policy grant
+That is now a hardening choice, not a prerequisite for the product architecture.
 
----
+## 15. Short version
 
-## 12. Optional workbench / sandbox
+Cloffice today is:
 
-The first engine version does not require a full sandbox product.
-
-However, the architecture should reserve a place for a future **workbench** for:
-
-- browser automation
-- isolated shell execution
-- containerized project operations
-- risky autonomous flows
-
-That workbench should sit below the engine as an execution substrate, not as the primary application runtime.
-
----
-
-## 13. Failure model
-
-Because the engine is a separate internal process, Cloffice can degrade gracefully.
-
-### 13.1 Renderer failure
-
-If the renderer reloads or crashes, the engine should be able to preserve session/run state.
-
-### 13.2 Engine failure
-
-If the engine fails, Electron main should be able to:
-
-- detect failure
-- show degraded-state UI
-- restart the engine
-- reconnect the renderer
-- preserve durable state via the engine database
-
-### 13.3 Host action failure
-
-If a host action fails, the result should be attached to the corresponding run and surfaced in the approval/audit trail.
-
----
-
-## 14. Security model
-
-### 14.1 Principle of least privilege
-
-Privileges should be concentrated in Electron main and narrowed by policy.
-
-### 14.2 No blind autonomy for high-trust actions
-
-The engine may reason about actions, but it should not silently perform host-destructive or externally consequential operations.
-
-### 14.3 Clear audit trail
-
-Every meaningful action should have:
-
-- initiator context
-- proposed action payload
-- approval decision
-- execution result
-- timestamps
-
----
-
-## 15. Repository shape
-
-A target repo layout could look like this:
-
-```text
-/apps
-  /desktop                # Electron + renderer app
-/packages
-  /engine-core            # sessions, runs, events, approvals, scheduler
-  /engine-client          # typed client used by renderer/main
-  /engine-provider-api    # provider-neutral interfaces
-  /provider-anthropic     # first strong provider adapter
-  /provider-openai        # later
-  /host-bridge            # host action contracts and IPC schemas
-  /shared-types           # normalized app/runtime types
-  /test-fixtures          # mock engine, scripted providers
-/docs
-  PLAN.md
-  ARCHITECTURE.md
-  REBRAND_CHECKLIST.md
-```
-
-The exact folder names may differ, but the important boundary is architectural, not cosmetic.
-
----
-
-## 16. Migration direction
-
-Cloffice should migrate in this order:
-
-1. Rebrand repo, package, app, docs, and visible product text.
-2. Introduce a provider-neutral `EngineClient` abstraction.
-3. Replace OpenClaw-specific gateway logic with an internal engine transport.
-4. Move durable runtime state into the engine.
-5. Replace text-parsed action blobs with structured pending actions.
-6. Add the first real provider adapter.
-7. Remove OpenClaw-specific setup, plugin, and discovery code.
-
----
-
-## 17. Definition of the target state
-
-Cloffice reaches the intended architecture when all of the following are true:
-
-- the app no longer depends on OpenClaw-specific runtime contracts
-- the UI talks only to a Cloffice-owned engine contract
-- the engine runs as an internal worker/utility process
-- provider adapters are replaceable behind a normalized interface
-- high-trust actions flow through structured approvals
-- sessions/runs/schedules/artifacts persist in an engine-owned store
-- the user experiences one integrated product, not two stitched-together systems
-
----
-
-## 18. Short version
-
-Cloffice is:
-
-- **one desktop product**
-- **one integrated repo**
-- **one built-in internal engine**
-- **provider-neutral at the runtime boundary**
-- **governed by approvals and host-side execution**
-- **local-first by default**
-
-That is the architecture the rest of the migration plan should serve.
+- one desktop product
+- one repo
+- one Cloffice-owned internal runtime
+- provider-backed for chat and cowork
+- governed by approvals
+- local-first by default
+- no longer dependent on any external compatibility runtime for core behavior

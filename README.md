@@ -1,10 +1,10 @@
-<p align="center">
+﻿<p align="center">
   <img src="assets/screenshots/cowork.png" alt="Cloffice cowork view" width="1100" style="border-radius: 5px;" />
 </p>
 
 <p align="center">
   <a href="#what-is-cloffice"><strong>What Is Cloffice</strong></a> &middot;
-  <a href="#architecture-direction"><strong>Architecture</strong></a> &middot;
+  <a href="#architecture"><strong>Architecture</strong></a> &middot;
   <a href="#current-runtime-status"><strong>Current Runtime Status</strong></a> &middot;
   <a href="#quickstart"><strong>Quickstart</strong></a> &middot;
   <a href="#development"><strong>Development</strong></a>
@@ -21,17 +21,17 @@
 
 Cloffice is a local-first AI coworker desktop app that unifies chat, workspace context, governed approvals, scheduling, artifacts, and autonomous execution in a single interface.
 
-This repository began as Relay and is now being rebranded and refactored into Cloffice. The long-term product direction is a built-in provider-neutral internal engine that ships with the desktop app and keeps approvals and host-governed execution at the center of the product.
+Cloffice ships as a built-in provider-neutral desktop runtime with approvals and host-governed execution at the center of the product.
 
-## Architecture direction
+## Architecture
 
-Cloffice is moving toward a three-layer local architecture:
+Cloffice currently uses a three-layer local architecture:
 
 - Renderer: chat, cowork, approvals, schedules, artifacts, and workspace UX
-- Electron main: trusted host actions, credential access, notifications, and engine supervision
+- Electron main: trusted host actions, credential access, notifications, and the internal engine host
 - Cloffice engine: sessions, runs, provider adapters, scheduling, durable state, and structured action proposals
 
-See the source-of-truth planning docs for the migration path:
+Current source-of-truth docs:
 
 - [PLAN.md](PLAN.md)
 - [ARCHITECTURE.md](ARCHITECTURE.md)
@@ -39,26 +39,21 @@ See the source-of-truth planning docs for the migration path:
 
 ## Current runtime status
 
-The product identity is now Cloffice, but this first pass does not claim the engine migration is complete.
-
-Current repo status:
-
 - User-facing product identity is Cloffice
-- The target architecture is a built-in provider-neutral internal engine
-- Existing runtime plumbing still includes transitional OpenClaw compatibility code
-- Remote `workspace.*` support and the `openclaw-relay-workspace` plugin remain compatibility surfaces for now
-
-That compatibility code is being retained deliberately until the internal engine can replace it cleanly.
+- Core product flows run through the built-in internal engine
+- No external compatibility runtime is required for chat, cowork, approvals, schedules, or artifacts
+- Provider-backed chat and cowork support OpenAI-compatible, Anthropic, and Gemini models
+- Product naming, storage keys, and runtime configuration now use Cloffice-native terminology
 
 ## Product focus
 
-Cloffice is being shaped around:
+Cloffice is built around:
 
 - local-first desktop operation
 - governed approvals for consequential actions
 - workspace-aware chat and cowork flows
 - durable sessions, runs, schedules, and artifacts
-- a provider-neutral engine boundary instead of a permanent dependency on an external runtime product
+- a provider-neutral engine boundary owned by Cloffice
 
 ## Quickstart
 
@@ -75,8 +70,6 @@ cd cloffice
 npm install
 npm run dev
 ```
-
-If you are using the current compatibility runtime path, configure the runtime endpoint from the Engine settings screen after launch.
 
 Optional cloud auth setup:
 
@@ -100,20 +93,18 @@ npm run lint                # ESLint
 npm run typecheck           # TS type checks (renderer + electron)
 npm run verify              # lint + typecheck + smoke tests
 npm run test:local-actions  # Local actions smoke tests
-npm run test:e2e            # Electron E2E tests (transitional mock gateway)
+npm run test:e2e            # Electron E2E tests
 ```
 
-## Notes on compatibility surfaces
+## Documentation
 
-The following areas are still transitional and intentionally not presented as the long-term architecture:
+This repository keeps only current Cloffice product documentation.
 
-- `src/lib/openclaw-gateway-client.ts`
-- `electron/main.ts` gateway discovery and compatibility setup
-- `tests/e2e/mock-gateway.mjs`
-- `plugins/openclaw-relay-workspace/`
-- `docs/WORKSPACE-RPC-SPEC.md`
+Current source of truth:
 
-These remain in place so the app stays structurally coherent while the provider-neutral internal engine is introduced behind cleaner seams.
+- [PLAN.md](PLAN.md)
+- [ARCHITECTURE.md](ARCHITECTURE.md)
+- [REBRAND_CHECKLIST.md](REBRAND_CHECKLIST.md)
 
 ## Open source
 

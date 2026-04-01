@@ -38,7 +38,7 @@ test.describe('Internal engine development path', () => {
       const waitForBridge = async () => {
         const bridgeStartedAt = Date.now();
         while (Date.now() - bridgeStartedAt < 60_000) {
-          const hasBridge = await win!.webContents.executeJavaScript('Boolean(window.cloffice || window.relay)', true);
+          const hasBridge = await win!.webContents.executeJavaScript('Boolean(window.cloffice)', true);
           if (hasBridge) {
             return;
           }
@@ -52,42 +52,42 @@ test.describe('Internal engine development path', () => {
       const callBridge = (expression: string) => win!.webContents.executeJavaScript(expression, true);
 
       const before = await callBridge(`(async () => {
-        const bridge = window.cloffice ?? window.relay;
+        const bridge = window.cloffice;
         return bridge.getInternalEngineRuntimeInfo();
       })()`);
 
       await callBridge(`(async () => {
-        const bridge = window.cloffice ?? window.relay;
+        const bridge = window.cloffice;
         await bridge.connectInternalEngine({ endpointUrl: 'internal://dev-runtime' });
       })()`);
 
       const chatSessionKey = await callBridge(`(async () => {
-        const bridge = window.cloffice ?? window.relay;
+        const bridge = window.cloffice;
         return bridge.createInternalChatSession();
       })()`);
 
       const coworkSessionKey = await callBridge(`(async () => {
-        const bridge = window.cloffice ?? window.relay;
+        const bridge = window.cloffice;
         return bridge.createInternalCoworkSession();
       })()`);
 
       await callBridge(`(async () => {
-        const bridge = window.cloffice ?? window.relay;
+        const bridge = window.cloffice;
         await bridge.setInternalSessionModel(${JSON.stringify(chatSessionKey)}, 'internal/dev-planner');
       })()`);
 
       const planner = await callBridge(`(async () => {
-        const bridge = window.cloffice ?? window.relay;
+        const bridge = window.cloffice;
         return bridge.sendInternalChat(${JSON.stringify(chatSessionKey)}, 'Plan a careful rollout for the internal engine development path.');
       })()`);
 
       const cowork = await callBridge(`(async () => {
-        const bridge = window.cloffice ?? window.relay;
+        const bridge = window.cloffice;
         return bridge.sendInternalChat(${JSON.stringify(coworkSessionKey)}, 'Inspect the current project and capture root metadata before planning the next migration step.');
       })()`);
 
       const continuation = await callBridge(`(async () => {
-        const bridge = window.cloffice ?? window.relay;
+        const bridge = window.cloffice;
         return bridge.continueInternalCoworkRun({
           sessionKey: ${JSON.stringify(coworkSessionKey)},
           runId: ${JSON.stringify('bridge-test-run-1')},
@@ -101,12 +101,12 @@ test.describe('Internal engine development path', () => {
       })()`);
 
       const after = await callBridge(`(async () => {
-        const bridge = window.cloffice ?? window.relay;
+        const bridge = window.cloffice;
         return bridge.getInternalEngineRuntimeInfo();
       })()`);
 
       await callBridge(`(async () => {
-        const bridge = window.cloffice ?? window.relay;
+        const bridge = window.cloffice;
         await bridge.disconnectInternalEngine();
       })()`);
 
@@ -163,7 +163,7 @@ test.describe('Internal engine development path', () => {
       const waitForBridge = async () => {
         const bridgeStartedAt = Date.now();
         while (Date.now() - bridgeStartedAt < 60_000) {
-          const hasBridge = await win!.webContents.executeJavaScript('Boolean(window.cloffice || window.relay)', true);
+          const hasBridge = await win!.webContents.executeJavaScript('Boolean(window.cloffice)', true);
           if (hasBridge) {
             return;
           }
@@ -178,7 +178,7 @@ test.describe('Internal engine development path', () => {
 
       return {
         structured: await callBridge(`(async () => {
-          const bridge = window.cloffice ?? window.relay;
+          const bridge = window.cloffice;
           return bridge.debugNormalizeInternalCoworkResponse({
             phase: 'planning',
             task: 'Inspect the project root and decide the next migration step.',
@@ -195,7 +195,7 @@ test.describe('Internal engine development path', () => {
           });
         })()`),
         normalized: await callBridge(`(async () => {
-          const bridge = window.cloffice ?? window.relay;
+          const bridge = window.cloffice;
           return bridge.debugNormalizeInternalCoworkResponse({
             phase: 'continuation',
             rawText: [
@@ -215,7 +215,7 @@ test.describe('Internal engine development path', () => {
           });
         })()`),
         fallback: await callBridge(`(async () => {
-          const bridge = window.cloffice ?? window.relay;
+          const bridge = window.cloffice;
           return bridge.debugNormalizeInternalCoworkResponse({
             phase: 'continuation',
             rawText: 'Looks fine overall. Keep going.',
@@ -266,7 +266,7 @@ test.describe('Internal engine development path', () => {
       const waitForBridge = async () => {
         const bridgeStartedAt = Date.now();
         while (Date.now() - bridgeStartedAt < 60_000) {
-          const hasBridge = await win!.webContents.executeJavaScript('Boolean(window.cloffice || window.relay)', true);
+          const hasBridge = await win!.webContents.executeJavaScript('Boolean(window.cloffice)', true);
           if (hasBridge) {
             return;
           }
@@ -281,7 +281,7 @@ test.describe('Internal engine development path', () => {
 
       return {
         openaiPlanning: await callBridge(`(async () => {
-          const bridge = window.cloffice ?? window.relay;
+          const bridge = window.cloffice;
           return bridge.debugBuildInternalCoworkPrompt({
             phase: 'planning',
             model: 'openai/gpt-4.1',
@@ -289,7 +289,7 @@ test.describe('Internal engine development path', () => {
           });
         })()`),
         anthropicPlanning: await callBridge(`(async () => {
-          const bridge = window.cloffice ?? window.relay;
+          const bridge = window.cloffice;
           return bridge.debugBuildInternalCoworkPrompt({
             phase: 'planning',
             model: 'anthropic/claude-3-7-sonnet-latest',
@@ -297,7 +297,7 @@ test.describe('Internal engine development path', () => {
           });
         })()`),
         geminiContinuation: await callBridge(`(async () => {
-          const bridge = window.cloffice ?? window.relay;
+          const bridge = window.cloffice;
           return bridge.debugBuildInternalCoworkPrompt({
             phase: 'continuation',
             model: 'gemini/gemini-2.5-flash',
@@ -325,3 +325,4 @@ test.describe('Internal engine development path', () => {
     expect(result.geminiContinuation.text).toContain('Use the exact plain-text labels Findings:, Recommendation:, Next step:.');
   });
 });
+

@@ -404,12 +404,14 @@ export type UserPreferences = {
   injectMemory: boolean;
   theme: 'light' | 'auto' | 'dark';
   /**
-   * Persisted values retained for compatibility with existing Relay installs.
-   * The UI may label the elay style as Cloffice.
+   * Persisted values retained for compatibility with existing installs.
+   * Stored style values use the Cloffice theme variant.
    */
-  style: 'claude' | 'relay';
+  style: 'claude' | 'cloffice';
   language: 'en' | 'de';
 };
+
+
 
 
 

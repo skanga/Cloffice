@@ -389,4 +389,3 @@ const desktopBridgeApi = {
 };
 
 contextBridge.exposeInMainWorld('cloffice', desktopBridgeApi);
-contextBridge.exposeInMainWorld('relay', desktopBridgeApi);

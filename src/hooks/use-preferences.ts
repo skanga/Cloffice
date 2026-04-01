@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UserPreferences } from '@/app-types';
 import { LEGACY_STORAGE_KEYS, readLocalStorageItem, STORAGE_KEYS, writeLocalStorageItem } from '@/lib/storage-keys';
 
@@ -10,18 +10,25 @@ const defaultPreferences: UserPreferences = {
   systemPrompt: '',
   injectMemory: true,
   theme: 'light',
-  style: 'relay',
+  style: 'cloffice',
   language: 'en',
 };
 
-const RELAY_PREFERENCES_KEY = STORAGE_KEYS.preferences;
-const RELAY_PREFERENCES_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.preferences] as const;
+const CLOFFICE_PREFERENCES_KEY = STORAGE_KEYS.preferences;
+const CLOFFICE_PREFERENCES_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.preferences] as const;
 
 export function usePreferences() {
   const [preferences, setPreferences] = useState<UserPreferences>(() => {
     try {
-      const stored = readLocalStorageItem(RELAY_PREFERENCES_KEY, RELAY_PREFERENCES_LEGACY_KEYS);
-      if (stored) return { ...defaultPreferences, ...JSON.parse(stored) };
+      const stored = readLocalStorageItem(CLOFFICE_PREFERENCES_KEY, CLOFFICE_PREFERENCES_LEGACY_KEYS);
+      if (stored) {
+        const parsed = JSON.parse(stored) as Partial<UserPreferences> & { style?: string };
+        return {
+          ...defaultPreferences,
+          ...parsed,
+          style: parsed.style ?? defaultPreferences.style,
+        };
+      }
     } catch { /* ignore */ }
     return defaultPreferences;
   });
@@ -29,7 +36,7 @@ export function usePreferences() {
   const updatePreferences = useCallback((patch: Partial<UserPreferences>) => {
     setPreferences((prev) => {
       const next = { ...prev, ...patch };
-      writeLocalStorageItem(RELAY_PREFERENCES_KEY, JSON.stringify(next), RELAY_PREFERENCES_LEGACY_KEYS);
+      writeLocalStorageItem(CLOFFICE_PREFERENCES_KEY, JSON.stringify(next), CLOFFICE_PREFERENCES_LEGACY_KEYS);
       return next;
     });
   }, []);
@@ -57,7 +64,7 @@ export function usePreferences() {
 
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.toggle('relay-style', preferences.style === 'relay');
+    root.classList.toggle('cloffice-style', preferences.style === 'cloffice');
   }, [preferences.style]);
 
   return { preferences, updatePreferences };
@@ -65,3 +72,6 @@ export function usePreferences() {
 
 // Re-export the type alias so callers can import it from this module if needed
 export type { UserPreferences };
+
+
+

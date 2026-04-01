@@ -1,4 +1,4 @@
-export const STORAGE_KEYS = {
+﻿export const STORAGE_KEYS = {
   config: 'cloffice.config',
   engineConnections: 'cloffice.engine.connections.v1',
   coworkProjects: 'cloffice.cowork.projects.v1',
@@ -21,28 +21,7 @@ export const STORAGE_KEYS = {
   dailyUsagePrefix: 'cloffice.daily-usage.',
 } as const;
 
-export const LEGACY_STORAGE_KEYS = {
-  config: 'relay.config',
-  engineConnections: 'relay.gateway.connections.v1',
-  coworkProjects: 'relay.cowork.projects.v1',
-  coworkActiveProject: 'relay.cowork.projects.active.v1',
-  coworkTasks: 'relay.cowork.tasks.v1',
-  coworkProjectKnowledge: 'relay.cowork.project.knowledge.v1',
-  coworkWebSearchMode: 'relay.cowork.websearch.v1',
-  chatDraft: 'relay.chat.draft.v1',
-  coworkDraft: 'relay.cowork.draft.v1',
-  authLocal: 'relay.auth.local',
-  authSession: 'relay.auth.session',
-  usageMode: 'relay.usage.mode',
-  onboardingComplete: 'relay.onboarding.complete',
-  preferences: 'relay.preferences',
-  recents: 'relay.recents.v1',
-  safetyScopes: 'relay.safety.scopes',
-  memoryEntries: 'relay.memory.entries',
-  connectorsConfig: 'relay.connectors.config',
-  connectorsWebFetch: 'relay.connectors.web-fetch',
-  dailyUsagePrefix: 'relay.daily-usage.',
-} as const;
+export const LEGACY_STORAGE_KEYS = { ...STORAGE_KEYS } as const;
 
 type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
@@ -103,3 +82,4 @@ export function removeSessionStorageItem(key: string, legacyKeys: readonly strin
 export function buildDatedStorageKey(prefix: string, date: Date = new Date()): string {
   return `${prefix}${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
+

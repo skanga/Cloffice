@@ -1,13 +1,13 @@
-import { _electron as electron, expect, test } from '@playwright/test';
+﻿import { _electron as electron, expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 
 const ONBOARDING_COMPLETE_KEY = 'cloffice.onboarding.complete';
 const USAGE_MODE_KEY = 'cloffice.usage.mode';
-const RELAY_RECENTS_KEY = 'cloffice.recents.v1';
+const CLOFFICE_RECENTS_KEY = 'cloffice.recents.v1';
 const COWORK_PROJECTS_KEY = 'cloffice.cowork.projects.v1';
 const COWORK_ACTIVE_PROJECT_KEY = 'cloffice.cowork.projects.active.v1';
 const COWORK_TASKS_KEY = 'cloffice.cowork.tasks.v1';
-const USE_REAL_GATEWAY = process.env.RELAY_E2E_REAL_GATEWAY === '1';
+const USE_REAL_RUNTIME = process.env.CLOFFICE_E2E_REAL_RUNTIME === '1';
 
 test.describe.configure({ timeout: 120000 });
 
@@ -19,7 +19,7 @@ function pendingApprovalCards(page: Page) {
 
 async function ensureE2ESafetyPolicy(page: Page) {
   await page.evaluate(() => {
-    const raw = localStorage.getItem('cloffice.safety.scopes') ?? localStorage.getItem('relay.safety.scopes');
+    const raw = localStorage.getItem('cloffice.safety.scopes');
     if (!raw) return;
 
     try {
@@ -134,7 +134,7 @@ test.describe('Cowork project runtime rules', () => {
   let page: Page;
 
   test.beforeEach(async () => {
-    test.skip(USE_REAL_GATEWAY, 'Project context suite runs against mock gateway only.');
+    test.skip(USE_REAL_RUNTIME, 'Project context suite runs against mock runtime only.');
 
     app = await electron.launch({ args: ['.'] });
     page = await app.firstWindow();
@@ -148,11 +148,11 @@ test.describe('Cowork project runtime rules', () => {
       localStorage.removeItem(activeProjectKey);
       localStorage.removeItem(tasksKey);
       sessionStorage.clear();
-    }, [ONBOARDING_COMPLETE_KEY, USAGE_MODE_KEY, RELAY_RECENTS_KEY, COWORK_PROJECTS_KEY, COWORK_ACTIVE_PROJECT_KEY, COWORK_TASKS_KEY]);
+    }, [ONBOARDING_COMPLETE_KEY, USAGE_MODE_KEY, CLOFFICE_RECENTS_KEY, COWORK_PROJECTS_KEY, COWORK_ACTIVE_PROJECT_KEY, COWORK_TASKS_KEY]);
 
     await page.evaluate(async () => {
-      if (!window.relay?.saveConfig) return;
-      await window.relay.saveConfig({ endpointUrl: 'ws://127.0.0.1:18789', accessToken: '' });
+      if (!window.cloffice?.saveConfig) return;
+      await window.cloffice.saveConfig({ endpointUrl: 'ws://127.0.0.1:18789', accessToken: '' });
     });
 
     await page.reload();
@@ -166,7 +166,7 @@ test.describe('Cowork project runtime rules', () => {
 
   test('write action is blocked when no active project context exists', async () => {
     await page.getByPlaceholder('How can I help you today?').fill(
-      'Return one relay_actions append_file action for relay-e2e/mock-approval.txt with content "no project".',
+      'Return one engine_actions append_file action for cloffice-e2e/mock-approval.txt with content "no project".',
     );
 
     await expect(page.getByLabel('Send task')).toBeDisabled();
@@ -175,36 +175,36 @@ test.describe('Cowork project runtime rules', () => {
 
   test('realistic flow: create a docs-maintenance project from sidebar and execute an approved write', async () => {
     const workspaceRoot = await page.evaluate(async () => {
-      const bridge = window.relay;
+      const bridge = window.cloffice;
       if (!bridge?.getDownloadsPath || !bridge.createFileInFolder) throw new Error('Desktop bridge unavailable.');
       const downloads = await bridge.getDownloadsPath();
-      const root = `${downloads}${downloads.endsWith('\\') ? '' : '\\'}relay-docs-maintenance`;
-      await bridge.createFileInFolder(downloads, 'relay-docs-maintenance/README.md', '# Docs Maintenance\n', true);
+      const root = `${downloads}${downloads.endsWith('\\') ? '' : '\\'}cloffice-docs-maintenance`;
+      await bridge.createFileInFolder(downloads, 'cloffice-docs-maintenance/README.md', '# Docs Maintenance\n', true);
       return root;
     });
 
     await createProjectFromSidebar(page, {
-      title: 'Relay Docs Maintenance',
-      description: 'Maintain release notes and operational docs for Relay.',
+      title: 'Cloffice Docs Maintenance',
+      description: 'Maintain release notes and operational docs for Cloffice.',
       rootFolder: workspaceRoot,
     });
 
     await sendCoworkPrompt(
       page,
-      'DOCS-RUN-1: Return one relay_actions append_file action for relay-e2e/mock-approval.txt with content "docs maintenance run".',
+      'DOCS-RUN-1: Return one engine_actions append_file action for cloffice-e2e/mock-approval.txt with content "docs maintenance run".',
     );
 
     const { approvalCard } = await waitForFirstApproval(page);
-    await expect(approvalCard.getByText('Project: Relay Docs Maintenance')).toBeVisible();
+    await expect(approvalCard.getByText('Project: Cloffice Docs Maintenance')).toBeVisible();
 
     await approveFirstPendingAction(page);
     await expect(page.getByText(/Done\.\s+append_file\s+.*mock-approval\.txt/i)).toBeVisible({ timeout: 30000 });
     await waitForPromptStatus(page, 'DOCS-RUN-1', 'completed');
 
     const result = await page.evaluate(async (root) => {
-      const bridge = window.relay;
+      const bridge = window.cloffice;
       if (!bridge?.existsInFolder || !bridge.readFileInFolder) throw new Error('Desktop bridge unavailable.');
-      const relPath = 'relay-e2e/mock-approval.txt';
+      const relPath = 'cloffice-e2e/mock-approval.txt';
       const exists = await bridge.existsInFolder(root, relPath);
       const content = exists.exists ? (await bridge.readFileInFolder(root, relPath)).content : '';
       return { exists: exists.exists, content };
@@ -216,11 +216,11 @@ test.describe('Cowork project runtime rules', () => {
 
   test('traversal path is blocked with no approval card', async () => {
     const setup = await page.evaluate(async () => {
-      const bridge = window.relay;
+      const bridge = window.cloffice;
       if (!bridge?.getDownloadsPath || !bridge.createFileInFolder) throw new Error('Desktop bridge unavailable.');
       const downloads = await bridge.getDownloadsPath();
-      const root = `${downloads}${downloads.endsWith('\\') ? '' : '\\'}relay-e2e-traversal-root`;
-      await bridge.createFileInFolder(downloads, 'relay-e2e-traversal-root/seed.txt', 'seed', true);
+      const root = `${downloads}${downloads.endsWith('\\') ? '' : '\\'}cloffice-e2e-traversal-root`;
+      await bridge.createFileInFolder(downloads, 'cloffice-e2e-traversal-root/seed.txt', 'seed', true);
       return { root, downloads };
     });
 
@@ -232,7 +232,7 @@ test.describe('Cowork project runtime rules', () => {
 
     await sendCoworkPrompt(
       page,
-      'TRAVERSAL-RUN: Return one relay_actions append_file action for ../relay-e2e-traversal-leak.txt with content "must be blocked".',
+      'TRAVERSAL-RUN: Return one engine_actions append_file action for ../cloffice-e2e-traversal-leak.txt with content "must be blocked".',
     );
 
     await expect(pendingApprovalCards(page)).toHaveCount(0, { timeout: 12000 });
@@ -240,9 +240,9 @@ test.describe('Cowork project runtime rules', () => {
     await waitForPromptStatus(page, 'TRAVERSAL-RUN', 'failed');
 
     const escapedExists = await page.evaluate(async (downloadsRoot) => {
-      const bridge = window.relay;
+      const bridge = window.cloffice;
       if (!bridge?.existsInFolder) throw new Error('Desktop bridge unavailable.');
-      return (await bridge.existsInFolder(downloadsRoot, 'relay-e2e-traversal-leak.txt')).exists;
+      return (await bridge.existsInFolder(downloadsRoot, 'cloffice-e2e-traversal-leak.txt')).exists;
     }, setup.downloads);
 
     expect(escapedExists).toBeFalsy();
@@ -250,13 +250,13 @@ test.describe('Cowork project runtime rules', () => {
 
   test('realistic flow: two projects stay isolated across approved writes', async () => {
     const roots = await page.evaluate(async () => {
-      const bridge = window.relay;
+      const bridge = window.cloffice;
       if (!bridge?.getDownloadsPath || !bridge.createFileInFolder) throw new Error('Desktop bridge unavailable.');
 
       const downloads = await bridge.getDownloadsPath();
       const runTag = Date.now();
-      const docsFolderName = `relay-client-docs-ops-${runTag}`;
-      const supportFolderName = `relay-client-support-ops-${runTag}`;
+      const docsFolderName = `cloffice-client-docs-ops-${runTag}`;
+      const supportFolderName = `cloffice-client-support-ops-${runTag}`;
       const docsRoot = `${downloads}${downloads.endsWith('\\') ? '' : '\\'}${docsFolderName}`;
       const supportRoot = `${downloads}${downloads.endsWith('\\') ? '' : '\\'}${supportFolderName}`;
 
@@ -281,7 +281,7 @@ test.describe('Cowork project runtime rules', () => {
     await selectProjectByTitle(page, 'Client Docs Ops');
     await sendCoworkPrompt(
       page,
-      'ISO-DOCS-1: Return one relay_actions append_file action for relay-e2e/mock-approval.txt with content "docs project write".',
+      'ISO-DOCS-1: Return one engine_actions append_file action for cloffice-e2e/mock-approval.txt with content "docs project write".',
     );
     await approveFirstPendingAction(page);
     await waitForPromptStatus(page, 'ISO-DOCS-1', 'completed');
@@ -289,15 +289,15 @@ test.describe('Cowork project runtime rules', () => {
     await selectProjectByTitle(page, 'Client Support Ops');
     await sendCoworkPrompt(
       page,
-      'ISO-SUPPORT-1: Return one relay_actions append_file action for relay-e2e/mock-approval.txt with content "support project write".',
+      'ISO-SUPPORT-1: Return one engine_actions append_file action for cloffice-e2e/mock-approval.txt with content "support project write".',
     );
     await approveFirstPendingAction(page);
     await waitForPromptStatus(page, 'ISO-SUPPORT-1', 'completed');
 
     const check = await page.evaluate(async ({ docsRoot, supportRoot }) => {
-      const bridge = window.relay;
+      const bridge = window.cloffice;
       if (!bridge?.existsInFolder) throw new Error('Desktop bridge unavailable.');
-      const relPath = 'relay-e2e/mock-approval.txt';
+      const relPath = 'cloffice-e2e/mock-approval.txt';
       return {
         docs: (await bridge.existsInFolder(docsRoot, relPath)).exists,
         support: (await bridge.existsInFolder(supportRoot, relPath)).exists,
@@ -310,10 +310,10 @@ test.describe('Cowork project runtime rules', () => {
 
   test('task statuses reflect approval and rejection outcomes', async () => {
     const root = await page.evaluate(async () => {
-      const bridge = window.relay;
+      const bridge = window.cloffice;
       if (!bridge?.getDownloadsPath || !bridge.createFileInFolder) throw new Error('Desktop bridge unavailable.');
       const downloads = await bridge.getDownloadsPath();
-      const folderName = `relay-task-queue-status-${Date.now()}`;
+      const folderName = `cloffice-task-queue-status-${Date.now()}`;
       const projectRoot = `${downloads}${downloads.endsWith('\\') ? '' : '\\'}${folderName}`;
       await bridge.createFileInFolder(downloads, `${folderName}/README.md`, '# Queue Status\n', true);
       return projectRoot;
@@ -325,16 +325,16 @@ test.describe('Cowork project runtime rules', () => {
       rootFolder: root,
     });
 
-    await sendCoworkPrompt(page, 'QUEUE-STATUS-APPROVED: Return one relay_actions append_file action for queue/approved.md with content "approved task".');
+    await sendCoworkPrompt(page, 'QUEUE-STATUS-APPROVED: Return one engine_actions append_file action for queue/approved.md with content "approved task".');
     await approveFirstPendingAction(page);
     await waitForPromptStatus(page, 'QUEUE-STATUS-APPROVED', 'completed');
 
-    await sendCoworkPrompt(page, 'QUEUE-STATUS-REJECTED: Return one relay_actions append_file action for queue/rejected.md with content "rejected task".');
+    await sendCoworkPrompt(page, 'QUEUE-STATUS-REJECTED: Return one engine_actions append_file action for queue/rejected.md with content "rejected task".');
     await rejectFirstPendingAction(page, 'Reject queue status task in E2E.');
     await waitForPromptStatus(page, 'QUEUE-STATUS-REJECTED', 'failed');
 
     const fileCheck = await page.evaluate(async (projectRoot) => {
-      const bridge = window.relay;
+      const bridge = window.cloffice;
       if (!bridge?.existsInFolder) throw new Error('Desktop bridge unavailable.');
       return {
         approved: (await bridge.existsInFolder(projectRoot, 'queue/approved.md')).exists,
@@ -348,12 +348,12 @@ test.describe('Cowork project runtime rules', () => {
 
   test('projects can be renamed and deleted from sidebar with persistence', async () => {
     const workspaceRoot = await page.evaluate(async () => {
-      const bridge = window.relay;
+      const bridge = window.cloffice;
       if (!bridge?.getDownloadsPath || !bridge.createFileInFolder) throw new Error('Desktop bridge unavailable.');
 
       const downloads = await bridge.getDownloadsPath();
-      const root = `${downloads}${downloads.endsWith('\\') ? '' : '\\'}relay-ops-inbox`;
-      await bridge.createFileInFolder(downloads, 'relay-ops-inbox/README.md', '# Ops Inbox\n', true);
+      const root = `${downloads}${downloads.endsWith('\\') ? '' : '\\'}cloffice-ops-inbox`;
+      await bridge.createFileInFolder(downloads, 'cloffice-ops-inbox/README.md', '# Ops Inbox\n', true);
       return root;
     });
 
@@ -406,3 +406,6 @@ test.describe('Cowork project runtime rules', () => {
     expect(persistedProjects).toHaveLength(0);
   });
 });
+
+
+

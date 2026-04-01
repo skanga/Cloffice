@@ -2,7 +2,7 @@
 /**
  * Unified file service abstraction.
  *
- * Routes file operations to either the local Electron desktop bridge (`window.cloffice`, with `window.relay` as a compatibility alias)
+ * Routes file operations to either the local Electron desktop bridge (`window.cloffice`)
  * or the runtime `workspace.*` RPC surface, depending on
  * the mode selected at construction time.
  *
@@ -58,7 +58,7 @@ export interface FileService {
 /* ═══════════════════════════════════════ Local ═══════════════════════════════════════ */
 
 /**
- * Uses the Electron desktop bridge (`window.cloffice`, with `window.relay` compatibility) for local filesystem operations.
+ * Uses the Electron desktop bridge (`window.cloffice`) for local filesystem operations.
  */
 export class LocalFileService implements FileService {
   readonly mode: FileServiceMode = 'local';
@@ -150,30 +150,30 @@ async function guardedCall<T>(method: string, fn: () => Promise<T>): Promise<T> 
 export class RemoteFileService implements FileService {
   readonly mode: FileServiceMode = 'remote';
 
-  constructor(private gateway: EngineClientInstance) {}
+  constructor(private runtimeClient: EngineClientInstance) {}
 
   async listDir(_rootPath: string, relativePath?: string): Promise<FileListResult> {
-    return guardedCall('workspace.list', () => this.gateway.listWorkspaceFiles(relativePath));
+    return guardedCall('workspace.list', () => this.runtimeClient.listWorkspaceFiles(relativePath));
   }
 
   async readFile(_rootPath: string, relativePath: string): Promise<FileReadResult> {
-    return guardedCall('workspace.read', () => this.gateway.readWorkspaceFile(relativePath));
+    return guardedCall('workspace.read', () => this.runtimeClient.readWorkspaceFile(relativePath));
   }
 
   async stat(_rootPath: string, relativePath: string): Promise<FileStatResult> {
-    return guardedCall('workspace.stat', () => this.gateway.statWorkspaceFile(relativePath));
+    return guardedCall('workspace.stat', () => this.runtimeClient.statWorkspaceFile(relativePath));
   }
 
   async rename(_rootPath: string, oldRelPath: string, newRelPath: string): Promise<void> {
-    await guardedCall('workspace.rename', () => this.gateway.renameWorkspaceFile(oldRelPath, newRelPath));
+    await guardedCall('workspace.rename', () => this.runtimeClient.renameWorkspaceFile(oldRelPath, newRelPath));
   }
 
   async deleteFile(_rootPath: string, relativePath: string): Promise<void> {
-    await guardedCall('workspace.delete', () => this.gateway.deleteWorkspaceFile(relativePath));
+    await guardedCall('workspace.delete', () => this.runtimeClient.deleteWorkspaceFile(relativePath));
   }
 
   async createFile(_rootPath: string, relativePath: string, content: string): Promise<void> {
-    await guardedCall('workspace.write', () => this.gateway.writeWorkspaceFile(relativePath, content));
+    await guardedCall('workspace.write', () => this.runtimeClient.writeWorkspaceFile(relativePath, content));
   }
 
   private _cachedTools: EngineToolEntry[] | null = null;
@@ -181,7 +181,7 @@ export class RemoteFileService implements FileService {
   async fetchToolsCatalog(): Promise<EngineToolEntry[] | null> {
     if (this._cachedTools) return this._cachedTools;
     try {
-      const catalog = await this.gateway.fetchToolsCatalog();
+      const catalog = await this.runtimeClient.fetchToolsCatalog();
       this._cachedTools = catalog.tools;
       return this._cachedTools;
     } catch {
@@ -203,9 +203,9 @@ export class RemoteFileService implements FileService {
  * Select the appropriate file service based on whether the current runtime endpoint points to
  * localhost (local mode) or a remote host.
  *
- * When the Electron bridge is available and the gateway is local (or not
- * connected), we use the local filesystem. When the gateway points to a
- * remote host, we route through the gateway's `workspace.*` RPCs.
+ * When the Electron bridge is available and the runtime endpoint is local (or not
+ * connected), we use the local filesystem. When the runtime points to a
+ * remote host, we route through the runtime `workspace.*` RPCs.
  */
 export function createFileService(
   engine: EngineClientInstance | null,

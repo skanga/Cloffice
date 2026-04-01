@@ -1,6 +1,6 @@
-# Contributing to Relay
+# Contributing to Cloffice
 
-Thanks for helping improve Relay.
+Thanks for helping improve Cloffice.
 
 ## Development Setup
 

@@ -14,4 +14,4 @@ For setup and usage help:
 - Steps to reproduce
 - Expected result and actual result
 - Relevant screenshots/logs
-- Whether you are using local, VPS, or custom gateway routing
+- Whether you are using the built-in internal runtime and which provider or model was selected
