@@ -389,6 +389,44 @@ export function ActivityPage({
         </div>
       ) : null}
 
+      {internalRuntimeInfo?.providerCoworkNormalizationByModel.length ? (
+        <div className="rounded-xl border border-border/60 bg-card px-4 py-3" data-testid="activity-provider-hotspots">
+          <div className="mb-2 flex items-center gap-2">
+            <AlertTriangle className="size-4 text-red-500" />
+            <p className="font-sans text-[12px] font-medium text-foreground">Fallback hotspots</p>
+          </div>
+          <div className="grid gap-1.5">
+            {internalRuntimeInfo.providerCoworkNormalizationByModel.map((entry) => (
+              <div key={entry.model} className="rounded-md border border-border/40 bg-background/70 px-2.5 py-2">
+                <p className="font-sans text-[12px] font-medium text-foreground">{entry.model}</p>
+                <p className="mt-0.5 font-sans text-[11px] text-muted-foreground">
+                  {entry.providerId ?? 'unknown'} · {entry.structuredCount}/{entry.normalizedCount}/{entry.fallbackCount}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {internalRuntimeInfo?.recentProviderCoworkFallbackRuns.length ? (
+        <div className="rounded-xl border border-border/60 bg-card px-4 py-3" data-testid="activity-provider-fallback-runs">
+          <div className="mb-2 flex items-center gap-2">
+            <AlertTriangle className="size-4 text-red-500" />
+            <p className="font-sans text-[12px] font-medium text-foreground">Recent fallback runs</p>
+          </div>
+          <div className="grid gap-1.5">
+            {internalRuntimeInfo.recentProviderCoworkFallbackRuns.map((entry) => (
+              <div key={entry.runId} className="rounded-md border border-border/40 bg-background/70 px-2.5 py-2">
+                <p className="font-sans text-[12px] font-medium text-foreground">{entry.model}</p>
+                <p className="mt-0.5 font-sans text-[11px] text-muted-foreground">
+                  {new Date(entry.updatedAt).toLocaleString()}
+                  {entry.summary ? ` · ${entry.summary}` : ''}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex min-h-0 flex-col rounded-xl border border-border/60 bg-card">
         <div className="flex items-center gap-2 border-b border-border/40 px-4 py-2">
           <Search className="size-3.5 text-muted-foreground/60" />

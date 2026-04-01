@@ -64,6 +64,14 @@ export type InternalEngineRuntimeInfo = {
     normalizedCount: number;
     fallbackCount: number;
   }>;
+  providerCoworkNormalizationByModel: Array<{
+    model: string;
+    providerId: InternalChatProviderId | null;
+    runCount: number;
+    structuredCount: number;
+    normalizedCount: number;
+    fallbackCount: number;
+  }>;
   providerCoworkNormalizationTrend: Array<{
     date: string;
     runCount: number;
@@ -80,6 +88,13 @@ export type InternalEngineRuntimeInfo = {
       normalizedCount: number;
       fallbackCount: number;
     }>;
+  }>;
+  recentProviderCoworkFallbackRuns: Array<{
+    runId: string;
+    model: string;
+    providerId: InternalChatProviderId | null;
+    updatedAt: number;
+    summary?: string;
   }>;
   lastProviderId: InternalChatProviderId | null;
   lastProviderError: string | null;

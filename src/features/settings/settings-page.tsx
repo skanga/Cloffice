@@ -791,7 +791,7 @@ export function SettingsPage({
                       </p>
                     ) : null}
                     {internalRuntimeInfo.providerCoworkNormalizationByProvider.length > 0 ? (
-                      <div className="sm:col-span-2 rounded-md border border-border/50 bg-card/60 p-2" data-testid="settings-provider-cowork-trends">
+                      <div className="sm:col-span-2 rounded-md border border-border/50 bg-card/60 p-2" data-testid="settings-runtime-provider-cowork-trends">
                         <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                           Provider trend
                         </p>
@@ -1190,7 +1190,7 @@ export function SettingsPage({
 	                  </div>
 	
 	                  {internalRuntimeInfo && internalRuntimeInfo.providerCoworkNormalizationByProvider.length > 0 ? (
-	                    <div className="mb-3 rounded-md border border-border/50 bg-card/60 p-2" data-testid="settings-provider-cowork-trends">
+	                    <div className="mb-3 rounded-md border border-border/50 bg-card/60 p-2" data-testid="settings-developer-provider-cowork-trends">
 	                      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
 	                        Provider trend
 	                      </p>
@@ -1210,6 +1210,38 @@ export function SettingsPage({
 	                            </p>
 	                          );
 	                        })}
+	                      </div>
+	                    </div>
+	                  ) : null}
+
+	                  {internalRuntimeInfo && internalRuntimeInfo.providerCoworkNormalizationByModel.length > 0 ? (
+	                    <div className="mb-3 rounded-md border border-border/50 bg-card/60 p-2" data-testid="settings-provider-cowork-models">
+	                      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+	                        Fallback hotspots by model
+	                      </p>
+	                      <div className="grid gap-1 text-[11px] text-muted-foreground">
+	                        {internalRuntimeInfo.providerCoworkNormalizationByModel.map((entry) => (
+	                          <p key={entry.model}>
+	                            <span className="font-medium text-foreground">{entry.model}</span>{' '}
+	                            ({entry.providerId ?? 'unknown'}) · {entry.structuredCount}/{entry.normalizedCount}/{entry.fallbackCount}
+	                          </p>
+	                        ))}
+	                      </div>
+	                    </div>
+	                  ) : null}
+	                  {internalRuntimeInfo && internalRuntimeInfo.recentProviderCoworkFallbackRuns.length > 0 ? (
+	                    <div className="mb-3 rounded-md border border-border/50 bg-card/60 p-2" data-testid="settings-provider-cowork-fallbacks">
+	                      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+	                        Recent fallback runs
+	                      </p>
+	                      <div className="grid gap-1 text-[11px] text-muted-foreground">
+	                        {internalRuntimeInfo.recentProviderCoworkFallbackRuns.map((entry) => (
+	                          <p key={entry.runId}>
+	                            <span className="font-medium text-foreground">{entry.model}</span>{' '}
+	                            · {new Date(entry.updatedAt).toLocaleString()}
+	                            {entry.summary ? ` · ${entry.summary}` : ''}
+	                          </p>
+	                        ))}
 	                      </div>
 	                    </div>
 	                  ) : null}

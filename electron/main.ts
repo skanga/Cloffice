@@ -1524,6 +1524,11 @@ function createInternalEngineMainService() {
   };
   const seedProviderCoworkTrendForE2E = async () => {
     const currentTime = now();
+    for (const [runId, run] of runs.entries()) {
+      if (run.providerBacked && (run.providerPhase === 'planning' || run.providerPhase === 'continuation')) {
+        runs.delete(runId);
+      }
+    }
     const seededRuns: PersistedInternalRunRecord[] = [
       {
         runId: crypto.randomUUID(),
@@ -1536,54 +1541,24 @@ function createInternalEngineMainService() {
         responseNormalization: 'provider_structured',
         actionMode: 'read-only',
         status: 'completed',
-        startedAt: currentTime - (24 * 60 * 60 * 1000),
-        updatedAt: currentTime - (24 * 60 * 60 * 1000),
+        startedAt: currentTime - (2 * 60 * 1000),
+        updatedAt: currentTime - (2 * 60 * 1000),
         summary: 'Seeded openai structured cowork run.',
       },
       {
         runId: crypto.randomUUID(),
-        sessionKey: 'internal:e2e:openai:normalized',
+        sessionKey: 'internal:e2e:anthropic:normalized',
         sessionKind: 'cowork',
-        model: 'openai/e2e-normalized',
+        model: 'anthropic/e2e-normalized',
         providerBacked: true,
         providerPhase: 'continuation',
         responseSchemaVersion: 1,
         responseNormalization: 'normalized_sections',
         actionMode: 'read-only',
         status: 'completed',
-        startedAt: currentTime - (2 * 24 * 60 * 60 * 1000),
-        updatedAt: currentTime - (2 * 24 * 60 * 60 * 1000),
-        summary: 'Seeded openai normalized cowork run.',
-      },
-      {
-        runId: crypto.randomUUID(),
-        sessionKey: 'internal:e2e:anthropic:fallback',
-        sessionKind: 'cowork',
-        model: 'anthropic/e2e-fallback',
-        providerBacked: true,
-        providerPhase: 'planning',
-        responseSchemaVersion: 1,
-        responseNormalization: 'synthetic_fallback',
-        actionMode: 'read-only',
-        status: 'completed',
-        startedAt: currentTime - (24 * 60 * 60 * 1000),
-        updatedAt: currentTime - (24 * 60 * 60 * 1000),
-        summary: 'Seeded anthropic fallback cowork run.',
-      },
-      {
-        runId: crypto.randomUUID(),
-        sessionKey: 'internal:e2e:gemini:structured',
-        sessionKind: 'cowork',
-        model: 'gemini/e2e-structured',
-        providerBacked: true,
-        providerPhase: 'planning',
-        responseSchemaVersion: 1,
-        responseNormalization: 'provider_structured',
-        actionMode: 'read-only',
-        status: 'completed',
-        startedAt: currentTime - (3 * 24 * 60 * 60 * 1000),
-        updatedAt: currentTime - (3 * 24 * 60 * 60 * 1000),
-        summary: 'Seeded gemini structured cowork run.',
+        startedAt: currentTime - (60 * 1000),
+        updatedAt: currentTime - (60 * 1000),
+        summary: 'Seeded anthropic normalized cowork run.',
       },
       {
         runId: crypto.randomUUID(),
@@ -1601,6 +1576,8 @@ function createInternalEngineMainService() {
         summary: 'Seeded gemini fallback cowork run.',
       },
     ];
+    const completedRunCount = Array.from(runs.values()).filter((run) => run.status === 'completed').length;
+    runHistoryRetentionLimit = Math.max(runHistoryRetentionLimit, completedRunCount + seededRuns.length, 16);
     for (const run of seededRuns) {
       runs.set(run.runId, run);
     }
@@ -2044,6 +2021,43 @@ function createInternalEngineMainService() {
           fallbackCount: providerRuns.filter((run) => run.responseNormalization === 'synthetic_fallback').length,
         };
       }).filter((entry) => entry.runCount > 0);
+      const providerCoworkNormalizationByModel = Array.from(
+        providerCoworkRuns.reduce((buckets, run) => {
+          const model = typeof run.model === 'string' && run.model.trim() ? run.model.trim() : 'unknown';
+          const providerId = resolveProviderIdForRun(run);
+          const current = buckets.get(model) ?? {
+            model,
+            providerId,
+            runCount: 0,
+            structuredCount: 0,
+            normalizedCount: 0,
+            fallbackCount: 0,
+          };
+          current.runCount += 1;
+          if (run.responseNormalization === 'provider_structured') {
+            current.structuredCount += 1;
+          } else if (run.responseNormalization === 'normalized_sections') {
+            current.normalizedCount += 1;
+          } else if (run.responseNormalization === 'synthetic_fallback') {
+            current.fallbackCount += 1;
+          }
+          buckets.set(model, current);
+          return buckets;
+        }, new Map<string, {
+          model: string;
+          providerId: InternalChatProviderId | null;
+          runCount: number;
+          structuredCount: number;
+          normalizedCount: number;
+          fallbackCount: number;
+        }>()).values(),
+      )
+        .sort((left, right) => (
+          right.fallbackCount - left.fallbackCount
+          || right.runCount - left.runCount
+          || left.model.localeCompare(right.model)
+        ))
+        .slice(0, 6);
       const buildNormalizationTrend = (targetRuns: PersistedInternalRunRecord[]) => Array.from(
         targetRuns.reduce((buckets, run) => {
           const date = formatDatePrefix(run.updatedAt || run.startedAt);
@@ -2081,6 +2095,17 @@ function createInternalEngineMainService() {
         providerId,
         trend: buildNormalizationTrend(providerCoworkRuns.filter((run) => resolveProviderIdForRun(run) === providerId)),
       })).filter((entry) => entry.trend.length > 0);
+      const recentProviderCoworkFallbackRuns = providerCoworkRuns
+        .filter((run) => run.responseNormalization === 'synthetic_fallback')
+        .sort((left, right) => right.updatedAt - left.updatedAt)
+        .slice(0, 5)
+        .map((run) => ({
+          runId: run.runId,
+          model: run.model,
+          providerId: resolveProviderIdForRun(run),
+          updatedAt: run.updatedAt,
+          summary: run.summary ?? run.resultSummary ?? run.promptPreview,
+        }));
       const providerCoworkStructuredCount = providerCoworkRuns.filter(
         (run) => run.responseNormalization === 'provider_structured',
       ).length;
@@ -2117,8 +2142,10 @@ function createInternalEngineMainService() {
         providerCoworkNormalizedCount,
         providerCoworkFallbackCount,
         providerCoworkNormalizationByProvider,
+        providerCoworkNormalizationByModel,
         providerCoworkNormalizationTrend,
         providerCoworkNormalizationTrendByProvider,
+        recentProviderCoworkFallbackRuns,
         lastProviderId,
         lastProviderError,
         lastScheduledJobName,
