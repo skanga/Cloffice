@@ -232,6 +232,8 @@ const desktopBridgeApi = {
       ipcRenderer.invoke('internal-engine:set-schedule-history-retention-limit', limit) as Promise<number>,
   setInternalRuntimeRetentionPolicy: (payload: { runHistoryRetentionLimit?: number; artifactHistoryRetentionLimit?: number }) =>
       ipcRenderer.invoke('internal-engine:set-runtime-retention-policy', payload) as Promise<InternalEngineRuntimeRetentionPolicy>,
+  seedInternalProviderCoworkTrendForE2E: () =>
+      ipcRenderer.invoke('internal-engine:seed-provider-cowork-trend-e2e') as Promise<InternalEngineRuntimeInfo>,
   seedInternalScheduleArtifactForE2E: (id: string) =>
       ipcRenderer.invoke('internal-engine:seed-schedule-artifact-e2e', id),
   sendInternalChat: (sessionKey: string, text: string) =>

@@ -51,6 +51,7 @@ interface Window {
     }) => Promise<any>;
     setInternalScheduleHistoryRetentionLimit: (limit: number) => Promise<number>;
     deleteInternalPromptSchedule: (id: string) => Promise<void>;
+    seedInternalProviderCoworkTrendForE2E?: () => Promise<any>;
     seedInternalScheduleArtifactForE2E?: (id: string) => Promise<unknown>;
     sendInternalChat: (sessionKey: string, text: string) => Promise<any>;
     setInternalEngineEventHandler: (handler: ((frame: any) => void) | null) => void;

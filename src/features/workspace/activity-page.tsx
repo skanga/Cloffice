@@ -361,6 +361,34 @@ export function ActivityPage({
         ) : null}
       </div>
 
+      {internalRuntimeInfo?.providerCoworkNormalizationByProvider.length ? (
+        <div className="rounded-xl border border-border/60 bg-card px-4 py-3" data-testid="activity-provider-trends">
+          <div className="mb-2 flex items-center gap-2">
+            <Info className="size-4 text-muted-foreground/60" />
+            <p className="font-sans text-[12px] font-medium text-foreground">Provider cowork trend</p>
+          </div>
+          <div className="grid gap-1.5">
+            {internalRuntimeInfo.providerCoworkNormalizationByProvider.map((provider) => {
+              const trend = internalRuntimeInfo.providerCoworkNormalizationTrendByProvider.find(
+                (entry) => entry.providerId === provider.providerId,
+              )?.trend ?? [];
+              return (
+                <div key={provider.providerId} className="rounded-md border border-border/40 bg-background/70 px-2.5 py-2">
+                  <p className="font-sans text-[12px] font-medium text-foreground">{provider.providerId}</p>
+                  <p className="mt-0.5 font-sans text-[11px] text-muted-foreground">
+                    {trend.length > 0
+                      ? trend
+                          .map((entry) => `${entry.date.slice(5)} ${entry.structuredCount}/${entry.normalizedCount}/${entry.fallbackCount}`)
+                          .join(' · ')
+                      : `${provider.structuredCount}/${provider.normalizedCount}/${provider.fallbackCount}`}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex min-h-0 flex-col rounded-xl border border-border/60 bg-card">
         <div className="flex items-center gap-2 border-b border-border/40 px-4 py-2">
           <Search className="size-3.5 text-muted-foreground/60" />
@@ -579,3 +607,4 @@ export function ActivityPage({
     </section>
   );
 }
+

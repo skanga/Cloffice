@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { Code2, Folder, Globe, KeyRound, Link2, Shield, Terminal, Trash2 } from 'lucide-react';
 
@@ -364,28 +364,41 @@ export function SettingsPage({
     }
 
     let cancelled = false;
-    Promise.all([
-      bridge.getInternalEngineRuntimeInfo(),
-      bridge.getInternalRuntimeRetentionPolicy?.() ?? Promise.resolve(null),
-      bridge.getInternalRunHistory?.(5) ?? Promise.resolve([]),
-    ]).then(([info, retentionPolicy, runs]) => {
-      if (!cancelled) {
-        setInternalRuntimeInfo(info);
-        setInternalRuntimeRetentionPolicy(retentionPolicy);
-        setInternalRunHistory(runs);
+    const loadInternalDiagnostics = async () => {
+      try {
+        const [info, retentionPolicy, runs] = await Promise.all([
+          bridge.getInternalEngineRuntimeInfo(),
+          bridge.getInternalRuntimeRetentionPolicy?.() ?? Promise.resolve(null),
+          bridge.getInternalRunHistory?.(5) ?? Promise.resolve([]),
+        ]);
+        if (!cancelled) {
+          setInternalRuntimeInfo(info);
+          setInternalRuntimeRetentionPolicy(retentionPolicy);
+          setInternalRunHistory(runs);
+        }
+      } catch {
+        if (!cancelled) {
+          setInternalRuntimeInfo(null);
+          setInternalRuntimeRetentionPolicy(null);
+          setInternalRunHistory([]);
+        }
       }
-    }).catch(() => {
-      if (!cancelled) {
-        setInternalRuntimeInfo(null);
-        setInternalRuntimeRetentionPolicy(null);
-        setInternalRunHistory([]);
-      }
-    });
+    };
+
+    void loadInternalDiagnostics();
+    const intervalId = activeSection === 'Developer'
+      ? window.setInterval(() => {
+          void loadInternalDiagnostics();
+        }, 5000)
+      : null;
 
     return () => {
       cancelled = true;
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
     };
-  }, []);
+  }, [activeSection]);
 
   const handleRuntimeRetentionChange = useCallback(async (
     field: 'runHistoryRetentionLimit' | 'artifactHistoryRetentionLimit',
@@ -758,15 +771,15 @@ export function SettingsPage({
                     <p>
                       <span className="font-medium text-foreground">Provider cowork normalization:</span>{' '}
                       {internalRuntimeInfo.providerCoworkRunCount > 0
-                        ? `${internalRuntimeInfo.providerCoworkStructuredCount} structured · ${internalRuntimeInfo.providerCoworkNormalizedCount} normalized · ${internalRuntimeInfo.providerCoworkFallbackCount} fallback`
+                        ? `${internalRuntimeInfo.providerCoworkStructuredCount} structured Â· ${internalRuntimeInfo.providerCoworkNormalizedCount} normalized Â· ${internalRuntimeInfo.providerCoworkFallbackCount} fallback`
                         : 'no retained provider-backed cowork runs'}
                     </p>
                     {internalRuntimeInfo.providerCoworkNormalizationByProvider.length > 0 ? (
                       <p className="sm:col-span-2">
                         <span className="font-medium text-foreground">By provider:</span>{' '}
                         {internalRuntimeInfo.providerCoworkNormalizationByProvider
-                          .map((provider) => `${provider.providerId} (${provider.structuredCount} structured · ${provider.normalizedCount} normalized · ${provider.fallbackCount} fallback)`)
-                          .join(' · ')}
+                          .map((provider) => `${provider.providerId} (${provider.structuredCount} structured Â· ${provider.normalizedCount} normalized Â· ${provider.fallbackCount} fallback)`)
+                          .join(' Â· ')}
                       </p>
                     ) : null}
                     {internalRuntimeInfo.providerCoworkNormalizationTrend.length > 0 ? (
@@ -774,8 +787,32 @@ export function SettingsPage({
                         <span className="font-medium text-foreground">7-day trend:</span>{' '}
                         {internalRuntimeInfo.providerCoworkNormalizationTrend
                           .map((entry) => `${entry.date} (${entry.structuredCount}/${entry.normalizedCount}/${entry.fallbackCount})`)
-                          .join(' · ')}
+                          .join(' Â· ')}
                       </p>
+                    ) : null}
+                    {internalRuntimeInfo.providerCoworkNormalizationByProvider.length > 0 ? (
+                      <div className="sm:col-span-2 rounded-md border border-border/50 bg-card/60 p-2" data-testid="settings-provider-cowork-trends">
+                        <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                          Provider trend
+                        </p>
+                        <div className="grid gap-1 text-[11px] text-muted-foreground">
+                          {internalRuntimeInfo.providerCoworkNormalizationByProvider.map((provider) => {
+                            const trend = internalRuntimeInfo.providerCoworkNormalizationTrendByProvider.find(
+                              (entry) => entry.providerId === provider.providerId,
+                            )?.trend ?? [];
+                            return (
+                              <p key={provider.providerId}>
+                                <span className="font-medium text-foreground">{provider.providerId}:</span>{' '}
+                                {trend.length > 0
+                                  ? trend
+                                      .map((entry) => `${entry.date} (${entry.structuredCount}/${entry.normalizedCount}/${entry.fallbackCount})`)
+                                      .join(' Â· ')
+                                  : `${provider.structuredCount}/${provider.normalizedCount}/${provider.fallbackCount}`}
+                              </p>
+                            );
+                          })}
+                        </div>
+                      </div>
                     ) : null}
                     <p><span className="font-medium text-foreground">Active session:</span> {internalRuntimeInfo.activeSessionKey ?? 'none'}</p>
                     <p><span className="font-medium text-foreground">Default model:</span> {internalRuntimeInfo.defaultModel}</p>
@@ -791,7 +828,7 @@ export function SettingsPage({
                         <span className="font-medium text-foreground">Chat providers:</span>{' '}
                         {internalRuntimeInfo.chatProviders
                           .map((provider) => `${provider.label} (${provider.configured ? `${provider.modelCount} models` : 'not configured'})`)
-                          .join(' · ')}
+                          .join(' Â· ')}
                       </p>
                     ) : null}
                     {internalRuntimeInfo.latestArtifactSummary ? (
@@ -817,7 +854,7 @@ export function SettingsPage({
                           return (
                             <div key={run.runId} className="rounded-md border border-border/50 bg-background/40 px-2.5 py-2">
                               <p className="text-[11px] font-medium text-foreground">
-                                {run.sessionKind} · {run.status} · {run.model}
+                                {run.sessionKind} Â· {run.status} Â· {run.model}
                               </p>
                               <p className="text-[11px] text-muted-foreground">
                                 {run.summary ?? run.promptPreview ?? run.runId}
@@ -1150,10 +1187,35 @@ export function SettingsPage({
                         </Button>
                       ) : null}
                     </div>
-                  </div>
+	                  </div>
+	
+	                  {internalRuntimeInfo && internalRuntimeInfo.providerCoworkNormalizationByProvider.length > 0 ? (
+	                    <div className="mb-3 rounded-md border border-border/50 bg-card/60 p-2" data-testid="settings-provider-cowork-trends">
+	                      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+	                        Provider trend
+	                      </p>
+	                      <div className="grid gap-1 text-[11px] text-muted-foreground">
+	                        {internalRuntimeInfo.providerCoworkNormalizationByProvider.map((provider) => {
+	                          const trend = internalRuntimeInfo.providerCoworkNormalizationTrendByProvider.find(
+	                            (entry) => entry.providerId === provider.providerId,
+	                          )?.trend ?? [];
+	                          return (
+	                            <p key={provider.providerId}>
+	                              <span className="font-medium text-foreground">{provider.providerId}:</span>{' '}
+	                              {trend.length > 0
+	                                ? trend
+	                                    .map((entry) => `${entry.date} (${entry.structuredCount}/${entry.normalizedCount}/${entry.fallbackCount})`)
+	                                    .join(' Â· ')
+	                                : `${provider.structuredCount}/${provider.normalizedCount}/${provider.fallbackCount}`}
+	                            </p>
+	                          );
+	                        })}
+	                      </div>
+	                    </div>
+	                  ) : null}
 
-                  {filteredInternalRunHistory.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-border/70 px-3 py-6 text-center text-xs text-muted-foreground">
+	                  {filteredInternalRunHistory.length === 0 ? (
+	                    <div className="rounded-lg border border-dashed border-border/70 px-3 py-6 text-center text-xs text-muted-foreground">
                       {focusedSchedule
                         ? t('No runs have been recorded for the selected schedule yet.', 'Fuer den gewaehlten Zeitplan wurden noch keine Laeufe aufgezeichnet.')
                         : t('No internal runs recorded yet.', 'Noch keine internen Laeufe erfasst.')}
@@ -1179,7 +1241,7 @@ export function SettingsPage({
                               <div className="flex flex-wrap items-start justify-between gap-2">
                                 <div className="min-w-0">
                                   <p className="text-sm font-medium text-foreground">
-                                    {run.sessionKind} · {run.status} · {run.model}
+                                    {run.sessionKind} Â· {run.status} Â· {run.model}
                                   </p>
                                   <p className="text-xs text-muted-foreground">
                                     {run.summary ?? run.promptPreview ?? run.runId}
@@ -1266,22 +1328,22 @@ export function SettingsPage({
                                         {entry.action ? (
                                           <p className="mt-1 text-[11px] text-muted-foreground/90">
                                             <span className="font-medium text-foreground">{t('Action', 'Aktion')}:</span>{' '}
-                                            <span className="font-mono">{entry.action.actionType}</span> · <span className="font-mono">{entry.action.path}</span>
+                                            <span className="font-mono">{entry.action.actionType}</span> Â· <span className="font-mono">{entry.action.path}</span>
                                           </p>
                                         ) : null}
                                         {entry.decision ? (
                                           <p className="mt-1 text-[11px] text-muted-foreground/90">
                                             <span className="font-medium text-foreground">{t('Decision', 'Entscheidung')}:</span>{' '}
                                             {entry.decision.approved ? t('approved', 'genehmigt') : t('rejected', 'abgelehnt')}
-                                            {entry.decision.reason ? ` · ${entry.decision.reason}` : ''}
+                                            {entry.decision.reason ? ` Â· ${entry.decision.reason}` : ''}
                                           </p>
                                         ) : null}
                                         {entry.receipt ? (
                                           <p className="mt-1 text-[11px] text-muted-foreground/90">
                                             <span className="font-medium text-foreground">{t('Receipt', 'Beleg')}:</span>{' '}
                                             {entry.receipt.status}
-                                            {entry.receipt.errorCode ? ` · ${entry.receipt.errorCode}` : ''}
-                                            {entry.receipt.message ? ` · ${entry.receipt.message}` : ''}
+                                            {entry.receipt.errorCode ? ` Â· ${entry.receipt.errorCode}` : ''}
+                                            {entry.receipt.message ? ` Â· ${entry.receipt.message}` : ''}
                                           </p>
                                         ) : null}
                                       </div>
@@ -1342,8 +1404,8 @@ export function SettingsPage({
                                             className="rounded-md border border-border/40 bg-background/70 px-2 py-1.5 text-[11px] text-muted-foreground"
                                           >
                                             <p>
-                                              <span className="font-medium text-foreground">{receipt.type}</span> ·{' '}
-                                              <span className="font-mono">{receipt.path}</span> · {receipt.status}
+                                              <span className="font-medium text-foreground">{receipt.type}</span> Â·{' '}
+                                              <span className="font-mono">{receipt.path}</span> Â· {receipt.status}
                                             </p>
                                             {receipt.message ? <p className="mt-0.5">{receipt.message}</p> : null}
                                             {receipt.errorCode ? <p className="mt-0.5 font-mono">{receipt.errorCode}</p> : null}
@@ -1383,7 +1445,7 @@ export function SettingsPage({
   );
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Connectors settings section Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Connectors settings section ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 
 const connectorIcons: Record<string, ReactNode> = {
   folder: <Folder className="size-4" />,
@@ -1501,7 +1563,7 @@ function ConnectorsSection({ language }: { language: 'en' | 'de' }) {
                       className="ml-1 text-muted-foreground hover:text-foreground"
                       onClick={() => removeDomain(domain)}
                     >
-                      Ãƒâ€”
+                      ÃƒÆ’Ã¢â‚¬â€
                     </button>
                   </Badge>
                 ))}
@@ -1528,6 +1590,7 @@ function ConnectorsSection({ language }: { language: 'en' | 'de' }) {
     </div>
   );
 }
+
 
 
 

@@ -71,6 +71,16 @@ export type InternalEngineRuntimeInfo = {
     normalizedCount: number;
     fallbackCount: number;
   }>;
+  providerCoworkNormalizationTrendByProvider: Array<{
+    providerId: InternalChatProviderId;
+    trend: Array<{
+      date: string;
+      runCount: number;
+      structuredCount: number;
+      normalizedCount: number;
+      fallbackCount: number;
+    }>;
+  }>;
   lastProviderId: InternalChatProviderId | null;
   lastProviderError: string | null;
   lastScheduledJobName: string | null;
@@ -305,6 +315,7 @@ export type InternalEngineDesktopBridge = {
     runHistoryRetentionLimit?: number;
     artifactHistoryRetentionLimit?: number;
   }): Promise<InternalEngineRuntimeRetentionPolicy>;
+  seedInternalProviderCoworkTrendForE2E?(): Promise<InternalEngineRuntimeInfo>;
   updateInternalPromptSchedule(id: string, payload: {
     enabled?: boolean;
     intervalMinutes?: number;

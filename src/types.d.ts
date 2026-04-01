@@ -71,6 +71,7 @@ type DesktopBridgeApi = {
       runHistoryRetentionLimit?: number;
       artifactHistoryRetentionLimit?: number;
     }) => Promise<InternalEngineRuntimeRetentionPolicy>;
+    seedInternalProviderCoworkTrendForE2E?: () => Promise<InternalEngineRuntimeInfo>;
     updateInternalPromptSchedule: (id: string, payload: {
       enabled?: boolean;
       intervalMinutes?: number;
@@ -78,11 +79,11 @@ type DesktopBridgeApi = {
       prompt?: string;
       model?: string | null;
       clearHistory?: boolean;
-    }) => Promise<EngineCronJob>;
-    setInternalScheduleHistoryRetentionLimit: (limit: number) => Promise<number>;
-    deleteInternalPromptSchedule: (id: string) => Promise<void>;
-    runInternalPromptScheduleNow: (id: string) => Promise<EngineCronJob>;
-    seedInternalScheduleArtifactForE2E?: (id: string) => Promise<unknown>;
+	    }) => Promise<EngineCronJob>;
+	    setInternalScheduleHistoryRetentionLimit: (limit: number) => Promise<number>;
+	    deleteInternalPromptSchedule: (id: string) => Promise<void>;
+	    runInternalPromptScheduleNow: (id: string) => Promise<EngineCronJob>;
+	    seedInternalScheduleArtifactForE2E?: (id: string) => Promise<unknown>;
   sendInternalChat: (sessionKey: string, text: string) => Promise<InternalEngineSendChatResult>;
   setInternalEngineEventHandler: (handler: ((frame: EngineEventFrame) => void) | null) => void;
   testInternalProviderConnection: (

@@ -191,14 +191,26 @@ async function resolveActivePage(page: Page): Promise<Page> {
 }
 
 async function markOnboardingComplete(page: Page): Promise<Page> {
-  const activePage = await resolveActivePage(page);
-  await activePage.evaluate(([onboardingKey, usageModeKey]) => {
-    localStorage.setItem(onboardingKey, 'true');
-    localStorage.setItem(usageModeKey, 'guest');
-  }, [ONBOARDING_COMPLETE_KEY, USAGE_MODE_KEY] as const);
-  await activePage.reload();
-  await activePage.waitForLoadState('domcontentloaded');
-  return resolveActivePage(activePage);
+  let currentPage = page;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const activePage = await resolveActivePage(currentPage);
+    try {
+      await activePage.evaluate(([onboardingKey, usageModeKey]) => {
+        localStorage.setItem(onboardingKey, 'true');
+        localStorage.setItem(usageModeKey, 'guest');
+      }, [ONBOARDING_COMPLETE_KEY, USAGE_MODE_KEY] as const);
+      await activePage.reload();
+      await activePage.waitForLoadState('domcontentloaded');
+      return resolveActivePage(activePage);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/Target page, context or browser has been closed/i.test(message) || attempt === 2) {
+        throw error;
+      }
+      currentPage = activePage.context().pages().find((candidate) => !candidate.isClosed()) ?? activePage;
+    }
+  }
+  return resolveActivePage(currentPage);
 }
 
 async function connectInternalProviderFromSettings(page: Page) {
@@ -1042,7 +1054,32 @@ test.describe('Internal engine UI flow', () => {
     await expect(page.getByText('Recent internal runs')).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId(`internal-run-card-${scheduledRunId}`)).toBeVisible({ timeout: 15000 });
   });
+
+  test('developer and activity views show per-provider cowork normalization trends', async () => {
+    page = await markOnboardingComplete(page);
+    await connectInternalProviderFromSettings(page);
+
+    await page.evaluate(async () => {
+      const bridge = window.cloffice ?? window.relay;
+      if (!bridge.seedInternalProviderCoworkTrendForE2E) {
+        throw new Error('Provider cowork trend seeding bridge unavailable.');
+      }
+      await bridge.seedInternalProviderCoworkTrendForE2E();
+    });
+
+    await openDeveloperSettings(page);
+    await expect(page.getByTestId('settings-provider-cowork-trends')).toContainText('openai');
+    await expect(page.getByTestId('settings-provider-cowork-trends')).toContainText('anthropic');
+    await expect(page.getByTestId('settings-provider-cowork-trends')).toContainText('gemini');
+
+    await expect.poll(async () => page.evaluate(async () => {
+      const bridge = window.cloffice ?? window.relay;
+      const info = await bridge.getInternalEngineRuntimeInfo();
+      return info.providerCoworkNormalizationTrendByProvider.map((entry: any) => entry.providerId).sort().join(',');
+    }), { timeout: 15000 }).toBe('anthropic,gemini,openai');
+  });
 });
+
 
 
 

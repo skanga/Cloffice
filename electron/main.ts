@@ -1522,6 +1522,92 @@ function createInternalEngineMainService() {
     await persistState();
     return toEngineCronJob(schedule);
   };
+  const seedProviderCoworkTrendForE2E = async () => {
+    const currentTime = now();
+    const seededRuns: PersistedInternalRunRecord[] = [
+      {
+        runId: crypto.randomUUID(),
+        sessionKey: 'internal:e2e:openai:structured',
+        sessionKind: 'cowork',
+        model: 'openai/e2e-structured',
+        providerBacked: true,
+        providerPhase: 'planning',
+        responseSchemaVersion: 1,
+        responseNormalization: 'provider_structured',
+        actionMode: 'read-only',
+        status: 'completed',
+        startedAt: currentTime - (24 * 60 * 60 * 1000),
+        updatedAt: currentTime - (24 * 60 * 60 * 1000),
+        summary: 'Seeded openai structured cowork run.',
+      },
+      {
+        runId: crypto.randomUUID(),
+        sessionKey: 'internal:e2e:openai:normalized',
+        sessionKind: 'cowork',
+        model: 'openai/e2e-normalized',
+        providerBacked: true,
+        providerPhase: 'continuation',
+        responseSchemaVersion: 1,
+        responseNormalization: 'normalized_sections',
+        actionMode: 'read-only',
+        status: 'completed',
+        startedAt: currentTime - (2 * 24 * 60 * 60 * 1000),
+        updatedAt: currentTime - (2 * 24 * 60 * 60 * 1000),
+        summary: 'Seeded openai normalized cowork run.',
+      },
+      {
+        runId: crypto.randomUUID(),
+        sessionKey: 'internal:e2e:anthropic:fallback',
+        sessionKind: 'cowork',
+        model: 'anthropic/e2e-fallback',
+        providerBacked: true,
+        providerPhase: 'planning',
+        responseSchemaVersion: 1,
+        responseNormalization: 'synthetic_fallback',
+        actionMode: 'read-only',
+        status: 'completed',
+        startedAt: currentTime - (24 * 60 * 60 * 1000),
+        updatedAt: currentTime - (24 * 60 * 60 * 1000),
+        summary: 'Seeded anthropic fallback cowork run.',
+      },
+      {
+        runId: crypto.randomUUID(),
+        sessionKey: 'internal:e2e:gemini:structured',
+        sessionKind: 'cowork',
+        model: 'gemini/e2e-structured',
+        providerBacked: true,
+        providerPhase: 'planning',
+        responseSchemaVersion: 1,
+        responseNormalization: 'provider_structured',
+        actionMode: 'read-only',
+        status: 'completed',
+        startedAt: currentTime - (3 * 24 * 60 * 60 * 1000),
+        updatedAt: currentTime - (3 * 24 * 60 * 60 * 1000),
+        summary: 'Seeded gemini structured cowork run.',
+      },
+      {
+        runId: crypto.randomUUID(),
+        sessionKey: 'internal:e2e:gemini:fallback',
+        sessionKind: 'cowork',
+        model: 'gemini/e2e-fallback',
+        providerBacked: true,
+        providerPhase: 'continuation',
+        responseSchemaVersion: 1,
+        responseNormalization: 'synthetic_fallback',
+        actionMode: 'read-only',
+        status: 'completed',
+        startedAt: currentTime,
+        updatedAt: currentTime,
+        summary: 'Seeded gemini fallback cowork run.',
+      },
+    ];
+    for (const run of seededRuns) {
+      runs.set(run.runId, run);
+    }
+    enforceRuntimeRetention();
+    await persistState();
+    return service.getRuntimeInfo();
+  };
   const latestArtifactSummary = () => {
     const lastArtifact = artifacts[artifacts.length - 1];
     return lastArtifact?.summary ?? null;
@@ -1958,8 +2044,8 @@ function createInternalEngineMainService() {
           fallbackCount: providerRuns.filter((run) => run.responseNormalization === 'synthetic_fallback').length,
         };
       }).filter((entry) => entry.runCount > 0);
-      const providerCoworkNormalizationTrend = Array.from(
-        providerCoworkRuns.reduce((buckets, run) => {
+      const buildNormalizationTrend = (targetRuns: PersistedInternalRunRecord[]) => Array.from(
+        targetRuns.reduce((buckets, run) => {
           const date = formatDatePrefix(run.updatedAt || run.startedAt);
           const current = buckets.get(date) ?? {
             date,
@@ -1988,6 +2074,13 @@ function createInternalEngineMainService() {
       )
         .sort((left, right) => left.date.localeCompare(right.date))
         .slice(-7);
+      const providerCoworkNormalizationTrend = buildNormalizationTrend(providerCoworkRuns);
+      const providerCoworkNormalizationTrendByProvider = (
+        ['openai', 'anthropic', 'gemini'] as const
+      ).map((providerId) => ({
+        providerId,
+        trend: buildNormalizationTrend(providerCoworkRuns.filter((run) => resolveProviderIdForRun(run) === providerId)),
+      })).filter((entry) => entry.trend.length > 0);
       const providerCoworkStructuredCount = providerCoworkRuns.filter(
         (run) => run.responseNormalization === 'provider_structured',
       ).length;
@@ -2025,6 +2118,7 @@ function createInternalEngineMainService() {
         providerCoworkFallbackCount,
         providerCoworkNormalizationByProvider,
         providerCoworkNormalizationTrend,
+        providerCoworkNormalizationTrendByProvider,
         lastProviderId,
         lastProviderError,
         lastScheduledJobName,
@@ -2360,6 +2454,10 @@ function createInternalEngineMainService() {
     async seedScheduleArtifactForE2E(id: string): Promise<EngineCronJob> {
       requireConnected();
       return seedScheduleArtifactForE2E(id);
+    },
+    async seedProviderCoworkTrendForE2E(): Promise<InternalEngineRuntimeInfo> {
+      requireConnected();
+      return seedProviderCoworkTrendForE2E();
     },
     async getSessionModel(sessionKey: string): Promise<string | null> {
       requireConnected();
@@ -4017,6 +4115,7 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle('internal-engine:set-schedule-history-retention-limit', async (_event, limit: number) =>
     internalEngineService.setScheduleHistoryRetentionLimit(limit));
+  ipcMain.handle('internal-engine:seed-provider-cowork-trend-e2e', async () => internalEngineService.seedProviderCoworkTrendForE2E());
   ipcMain.handle('internal-engine:seed-schedule-artifact-e2e', async (_event, id: string) => internalEngineService.seedScheduleArtifactForE2E(id));
   ipcMain.handle('internal-engine:send-chat', async (event, sessionKey: string, text: string) =>
     internalEngineService.sendChat(sessionKey, text, (frame) => {
