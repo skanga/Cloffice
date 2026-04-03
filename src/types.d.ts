@@ -1,12 +1,12 @@
 import type {
   AppConfig,
   EngineRequestedAction,
-  HealthCheckResult,
   LocalActionReceipt,
   LocalFileApplyResult,
   LocalFileAppendResult,
   LocalFileCreateResult,
   LocalFileDeleteResult,
+  LocalExplorerSelection,
   LocalFileExistsResult,
   LocalFileListResult,
   LocalFileReadResult,
@@ -16,7 +16,7 @@ import type {
   LocalFilePlanResult,
 } from './app-types';
 import type { DesktopBridgeEngineConfig, EngineDraftConfig } from './lib/engine-config';
-import type { EngineChatMessage, EngineConnectOptions, EngineCronJob, EngineEventFrame, EngineModelChoice, EngineRuntimeHealthResult, EngineSessionSummary } from './lib/engine-runtime-types';
+import type { EngineChatMessage, EngineConnectOptions, EngineCronJob, EngineEventFrame, EngineModelChoice, EngineSessionSummary } from './lib/engine-runtime-types';
 import type { InternalProviderConfig } from './lib/engine-config';
 import type {
   InternalEngineCoworkContinuationRequest,
@@ -34,9 +34,30 @@ import type {
 import type { InternalProviderConnectionTestResult } from './lib/internal-provider-adapter';
 import type { InternalApprovalRecoveryFlow } from './lib/internal-approval-recovery';
 
-type DesktopBridgeApi = {
+export type DesktopBridgeApi = {
   getConfig: () => Promise<AppConfig>;
-  saveConfig: (config: AppConfig) => Promise<AppConfig>;
+  saveConfig?: (config: AppConfig) => Promise<AppConfig>;
+  getAuthSession: () => Promise<{
+    email: string;
+    accessToken: string;
+    refreshToken: string;
+    rememberMe: boolean;
+    expiresAt: number;
+  } | null>;
+  saveAuthSession: (session: {
+    email: string;
+    accessToken: string;
+    refreshToken: string;
+    rememberMe: boolean;
+    expiresAt: number;
+  }) => Promise<{
+    email: string;
+    accessToken: string;
+    refreshToken: string;
+    rememberMe: boolean;
+    expiresAt: number;
+  }>;
+  clearAuthSession: () => Promise<void>;
     getInternalEngineStatus: () => Promise<InternalEngineShellStatus>;
     getInternalEngineRuntimeInfo: () => Promise<InternalEngineRuntimeInfo>;
     getInternalRunHistory: (limit?: number) => Promise<InternalEngineRunRecord[]>;
@@ -64,7 +85,7 @@ type DesktopBridgeApi = {
     intervalMinutes?: number;
     projectId?: string;
     projectTitle?: string;
-    rootPath?: string;
+    explorerId?: string;
     model?: string | null;
     }) => Promise<EngineCronJob>;
     setInternalRuntimeRetentionPolicy: (payload: {
@@ -90,7 +111,7 @@ type DesktopBridgeApi = {
     providerId: 'openai' | 'anthropic' | 'gemini',
     config?: Partial<InternalProviderConfig>,
   ) => Promise<InternalProviderConnectionTestResult>;
-  debugNormalizeInternalCoworkResponse: (
+  debugNormalizeInternalCoworkResponse?: (
     payload:
       | {
           phase: 'planning';
@@ -109,7 +130,7 @@ type DesktopBridgeApi = {
           };
         }
   ) => Promise<InternalEngineCoworkNormalizationProbeResult>;
-  debugBuildInternalCoworkPrompt: (
+  debugBuildInternalCoworkPrompt?: (
     payload:
       | {
           phase: 'planning';
@@ -139,36 +160,47 @@ type DesktopBridgeApi = {
   ) => Promise<InternalEnginePendingApprovalDecisionResult>;
   getEngineConfig: () => Promise<DesktopBridgeEngineConfig>;
   saveEngineConfig: (draft: EngineDraftConfig) => Promise<DesktopBridgeEngineConfig>;
-  healthCheck: (baseUrl: string) => Promise<HealthCheckResult>;
-  checkRuntimeHealth: (baseUrl: string) => Promise<EngineRuntimeHealthResult>;
   minimizeWindow: () => Promise<void>;
   toggleMaximizeWindow: () => Promise<boolean>;
   isWindowMaximized: () => Promise<boolean>;
   closeWindow: () => Promise<void>;
   showSystemMenu: (x: number, y: number) => Promise<void>;
   getDownloadsPath: () => Promise<string>;
-  selectFolder: (initialPath?: string) => Promise<string | null>;
-  planOrganizeFolder: (rootPath: string) => Promise<LocalFilePlanResult>;
-  applyOrganizeFolderPlan: (rootPath: string, actions: LocalFilePlanAction[]) => Promise<LocalFileApplyResult>;
-  createFileInFolder: (rootPath: string, relativePath: string, content: string, overwrite?: boolean) => Promise<LocalFileCreateResult>;
-  appendFileInFolder: (rootPath: string, relativePath: string, content: string) => Promise<LocalFileAppendResult>;
-  readFileInFolder: (rootPath: string, relativePath: string) => Promise<LocalFileReadResult>;
-  listDirInFolder: (rootPath: string, relativePath?: string) => Promise<LocalFileListResult>;
-  existsInFolder: (rootPath: string, relativePath: string) => Promise<LocalFileExistsResult>;
-  renameInFolder: (rootPath: string, oldRelative: string, newRelative: string) => Promise<LocalFileRenameResult>;
-  deleteInFolder: (rootPath: string, relativePath: string) => Promise<LocalFileDeleteResult>;
-  statInFolder: (rootPath: string, relativePath: string) => Promise<LocalFileStatResult>;
+  authorizeFolderForE2E?: (rootPath: string) => Promise<LocalExplorerSelection>;
+  selectFolder: (initialPath?: string) => Promise<LocalExplorerSelection | null>;
+  planOrganizeFolder: (explorerId: string) => Promise<LocalFilePlanResult>;
+  applyOrganizeFolderPlan: (explorerId: string, actions: LocalFilePlanAction[]) => Promise<LocalFileApplyResult>;
+  createFileInFolder: (explorerId: string, relativePath: string, content: string, overwrite?: boolean) => Promise<LocalFileCreateResult>;
+  appendFileInFolder: (explorerId: string, relativePath: string, content: string) => Promise<LocalFileAppendResult>;
+  readFileInFolder: (explorerId: string, relativePath: string) => Promise<LocalFileReadResult>;
+  listDirInFolder: (explorerId: string, relativePath?: string) => Promise<LocalFileListResult>;
+  existsInFolder: (explorerId: string, relativePath: string) => Promise<LocalFileExistsResult>;
+  renameInFolder: (explorerId: string, oldRelative: string, newRelative: string) => Promise<LocalFileRenameResult>;
+  deleteInFolder: (explorerId: string, relativePath: string) => Promise<LocalFileDeleteResult>;
+  statInFolder: (explorerId: string, relativePath: string) => Promise<LocalFileStatResult>;
   openPath: (targetPath: string) => Promise<{ ok: boolean; error?: string }>;
-  shellExec: (rootPath: string, command: string, timeoutMs?: number) => Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }>;
-  webFetch: (url: string, options?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{ status: number; statusText: string; headers: Record<string, string>; body: string; truncated: boolean }>;
+  shellExec?: (rootPath: string, command: string, timeoutMs?: number) => Promise<{
+    stdout: string;
+    stderr: string;
+    exitCode: number | null;
+    timedOut: boolean;
+  }>;
+  webFetch?: (
+    url: string,
+    options?: { method?: string; headers?: Record<string, string>; body?: string },
+  ) => Promise<{
+    status: number;
+    statusText: string;
+    headers: Record<string, string>;
+    body: string;
+    truncated: boolean;
+  }>;
   notify: (title: string, body?: string) => Promise<{ ok: boolean; message?: string }>;
 };
 
-type ClofficeDesktopApi = DesktopBridgeApi;
-
 declare global {
   interface Window {
-    cloffice?: ClofficeDesktopApi;
+    cloffice?: DesktopBridgeApi;
   }
 }
 

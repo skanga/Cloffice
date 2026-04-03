@@ -1,12 +1,22 @@
 import type { ProjectKnowledgeItem, ProjectPathReference } from '@/app-types';
 
 type CoworkPromptBridge = {
-  readFileInFolder?: (rootPath: string, relativePath: string) => Promise<{ content?: string }>;
+  readFileInFolder?: (explorerId: string, relativePath: string) => Promise<{ content?: string }>;
   listDirInFolder?: (
-    rootPath: string,
+    explorerId: string,
     relativePath: string,
   ) => Promise<{ items: Array<{ path: string; kind: 'file' | 'directory' }> }>;
 };
+
+function hasControlCharacters(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint !== undefined && codePoint <= 0x1f) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export function validateProjectRelativePath(
   inputPath: string,
@@ -18,7 +28,7 @@ export function validateProjectRelativePath(
   }
 
   const normalized = raw.replace(/\\/g, '/');
-  if (/[\u0000-\u001F]/.test(normalized)) {
+  if (hasControlCharacters(normalized)) {
     return { ok: false, reason: 'Path contains invalid control characters.' };
   }
   if (normalized.startsWith('/') || normalized.startsWith('~/') || /^[a-zA-Z]:\//.test(normalized)) {
@@ -67,11 +77,12 @@ export function extractProjectFileMentions(inputText: string): string[] {
 export async function loadCoworkReferencedProjectFilesContext(params: {
   text: string;
   folderContext: string;
+  explorerId?: string;
   bridge: CoworkPromptBridge | null | undefined;
   projectPathReferences: ProjectPathReference[];
 }): Promise<string> {
-  const { text, folderContext, bridge, projectPathReferences } = params;
-  if (!folderContext) {
+  const { text, folderContext, explorerId, bridge, projectPathReferences } = params;
+  if (!folderContext || !explorerId) {
     return '';
   }
 
@@ -102,7 +113,7 @@ export async function loadCoworkReferencedProjectFilesContext(params: {
 
     if (mentionsDirectory && bridge?.listDirInFolder) {
       try {
-        const listing = await bridge.listDirInFolder(folderContext, relPath);
+        const listing = await bridge.listDirInFolder(explorerId, relPath);
         const listed = listing.items
           .slice(0, MAX_FOLDER_LIST_ITEMS)
           .map((item) => `- ${item.kind === 'directory' ? '[dir]' : '[file]'} ${item.path}`)
@@ -122,7 +133,7 @@ export async function loadCoworkReferencedProjectFilesContext(params: {
     }
 
     try {
-      const fileResult = await bridge.readFileInFolder(folderContext, relPath);
+      const fileResult = await bridge.readFileInFolder(explorerId, relPath);
       const fullContent = fileResult.content ?? '';
       const snippet = fullContent.slice(0, MAX_FILE_CHARS);
       const truncated = fullContent.length > MAX_FILE_CHARS ? '\n[...truncated...]' : '';

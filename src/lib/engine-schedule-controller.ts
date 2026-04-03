@@ -9,7 +9,7 @@ type InternalScheduleBridge = {
     intervalMinutes?: number;
     projectId?: string;
     projectTitle?: string;
-    rootPath?: string;
+    explorerId?: string;
     model?: string | null;
   }) => Promise<unknown>;
   updateInternalPromptSchedule?: (id: string, payload: {
@@ -29,7 +29,7 @@ export type EngineScheduleCreateInput = {
   prompt: string;
   name?: string;
   intervalMinutes?: number;
-  rootPath?: string;
+  explorerId?: string;
   projectId?: string;
   projectTitle?: string;
   model?: string | null;
@@ -106,7 +106,7 @@ export async function createEngineCoworkSchedule(params: {
   bridge: InternalScheduleBridge | null | undefined;
   prompt: string;
   activeProject: CoworkProject | null;
-  rootPath?: string;
+  explorerId?: string;
   model?: string | null;
 }): Promise<{ message: string; shouldOpenScheduledPage: boolean; shouldReloadScheduledJobs: boolean }> {
   const prompt = params.prompt.trim();
@@ -115,13 +115,17 @@ export async function createEngineCoworkSchedule(params: {
   }
 
   if (params.providerId === 'internal' && params.bridge?.createInternalPromptSchedule) {
+    const explorerId = params.explorerId?.trim() || '';
+    if (!explorerId) {
+      throw new Error('Select the workspace folder again before creating a cowork schedule.');
+    }
     await params.bridge.createInternalPromptSchedule({
       kind: 'cowork',
       prompt,
       name: 'Scheduled cowork prompt',
       projectId: params.activeProject?.id ?? undefined,
       projectTitle: params.activeProject?.name ?? undefined,
-      rootPath: params.rootPath?.trim() || undefined,
+      explorerId,
       intervalMinutes: 1,
       model: params.model?.trim() || null,
     });
@@ -157,6 +161,11 @@ export async function createEngineSchedule(params: {
   const kind = params.schedule.kind;
   const intervalMinutes = params.schedule.intervalMinutes ?? 1;
   const name = params.schedule.name?.trim() || (kind === 'cowork' ? 'Scheduled cowork prompt' : 'Scheduled chat prompt');
+  const explorerId = params.schedule.explorerId?.trim() || '';
+
+  if (kind === 'cowork' && !explorerId) {
+    throw new Error('Select the workspace folder again before creating a cowork schedule.');
+  }
 
   await params.bridge.createInternalPromptSchedule({
     kind,
@@ -164,7 +173,7 @@ export async function createEngineSchedule(params: {
     name,
     projectId: kind === 'cowork' ? params.schedule.projectId ?? params.activeProject?.id ?? undefined : undefined,
     projectTitle: kind === 'cowork' ? params.schedule.projectTitle ?? params.activeProject?.name ?? undefined : undefined,
-    rootPath: kind === 'cowork' ? params.schedule.rootPath?.trim() || undefined : undefined,
+    explorerId: kind === 'cowork' ? explorerId : undefined,
     intervalMinutes,
     model: params.schedule.model?.trim() || null,
   });
@@ -196,7 +205,7 @@ export async function createEngineCoworkScheduleWithStatus(params: {
   bridge: InternalScheduleBridge | null | undefined;
   prompt: string;
   activeProject: CoworkProject | null;
-  rootPath?: string;
+  explorerId?: string;
   model?: string | null;
 }): Promise<{
   message: string;
@@ -307,7 +316,7 @@ export async function duplicateEngineScheduleWithStatus(params: {
     intervalMinutes?: number;
   };
   activeProject: CoworkProject | null;
-  rootPath?: string;
+  explorerId?: string;
 }): Promise<{ message: string; shouldReloadScheduledJobs: boolean }> {
   const result = await createEngineScheduleWithStatus({
     providerId: params.providerId,
@@ -317,7 +326,7 @@ export async function duplicateEngineScheduleWithStatus(params: {
       name: `${params.schedule.name} copy`,
       prompt: params.schedule.prompt ?? '',
       intervalMinutes: params.schedule.intervalMinutes ?? 1,
-      rootPath: params.schedule.kind === 'cowork' ? params.rootPath : undefined,
+      explorerId: params.schedule.kind === 'cowork' ? params.explorerId : undefined,
       model: params.schedule.model ?? null,
     },
     activeProject: params.activeProject,
@@ -406,6 +415,7 @@ export async function importEngineSchedulesWithStatus(params: {
   bridge: InternalScheduleBridge | null | undefined;
   schedules: EngineScheduleTransferRecord[];
   activeProject: CoworkProject | null;
+  explorerId?: string;
 }): Promise<{ message: string; shouldReloadScheduledJobs: boolean }> {
   if (!params.schedules.length) {
     return {
@@ -428,7 +438,7 @@ export async function importEngineSchedulesWithStatus(params: {
       intervalMinutes: schedule.intervalMinutes,
       projectId: schedule.kind === 'cowork' ? schedule.projectId ?? params.activeProject?.id ?? undefined : undefined,
       projectTitle: schedule.kind === 'cowork' ? schedule.projectTitle ?? params.activeProject?.name ?? undefined : undefined,
-      rootPath: schedule.kind === 'cowork' ? schedule.rootPath?.trim() || undefined : undefined,
+      explorerId: schedule.kind === 'cowork' ? params.explorerId?.trim() || undefined : undefined,
       model: schedule.model?.trim() || null,
     }) as ScheduledJob;
     if (!schedule.enabled && params.bridge.updateInternalPromptSchedule) {

@@ -1,4 +1,9 @@
-import type { ConnectorDefinition, ConnectorActionResult, ConnectorExecutionContext } from './connector-types';
+import {
+  readConnectorStringArrayConfig,
+  type ConnectorDefinition,
+  type ConnectorActionResult,
+  type ConnectorExecutionContext,
+} from './connector-types';
 
 export type ShellExecResult = {
   stdout: string;
@@ -7,20 +12,25 @@ export type ShellExecResult = {
   timedOut: boolean;
 };
 
+type ShellConnectorConfig = {
+  timeoutMs: number;
+  blockedCommands: string[];
+};
+
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
 
 export function createShellConnector(): ConnectorDefinition {
-  return {
+  const connector: ConnectorDefinition = {
     id: 'shell',
     name: 'Shell / Terminal',
     description: 'Execute commands in the working directory. Always requires approval.',
     icon: 'terminal',
-    status: 'inactive', // disabled by default — critical scope
+    status: 'inactive', // disabled by default - critical scope
     config: {
       timeoutMs: DEFAULT_TIMEOUT_MS,
       blockedCommands: ['rm -rf /', 'format', 'mkfs', 'dd if=', ':(){:|:&};:'],
-    },
+    } satisfies ShellConnectorConfig,
     actions: [
       {
         id: 'shell.exec',
@@ -35,7 +45,7 @@ export function createShellConnector(): ConnectorDefinition {
       },
     ],
     test: async () => {
-      // Shell connector is available when the Electron bridge exposes shellExec
+      // Shell connector is available when the Electron bridge exposes shellExec.
       return { ok: true, message: 'Shell connector available (commands require approval).' };
     },
     execute: async (actionId: string, params: Record<string, unknown>, ctx: ConnectorExecutionContext): Promise<ConnectorActionResult> => {
@@ -47,19 +57,23 @@ export function createShellConnector(): ConnectorDefinition {
       if (!bridge.shellExec) {
         return { ok: false, errorCode: 'UNAVAILABLE', message: 'Shell execution bridge unavailable.' };
       }
+      if (!rootPath) {
+        return { ok: false, errorCode: 'UNAVAILABLE', message: 'Shell working directory unavailable.' };
+      }
 
       const command = typeof params.command === 'string' ? params.command.trim() : '';
       if (!command) {
         return { ok: false, errorCode: 'INVALID_PARAMS', message: 'Command is required.' };
       }
 
-      // Check blocked commands — simple substring match
-      const blocked = Array.isArray(ctx.bridge) ? [] : ((ctx as unknown as { connector?: ConnectorDefinition })?.connector?.config?.blockedCommands as string[] | undefined) ?? [];
-      // Fallback: use the connector instance config if accessible, otherwise skip
-      const blockedList = Array.isArray(blocked) ? blocked : [];
+      const blockedList = readConnectorStringArrayConfig(connector.config, 'blockedCommands');
       for (const pattern of blockedList) {
         if (command.includes(pattern)) {
-          return { ok: false, errorCode: 'BLOCKED_COMMAND', message: `Command blocked by safety policy: contains "${pattern}"` };
+          return {
+            ok: false,
+            errorCode: 'BLOCKED_COMMAND',
+            message: `Command blocked by safety policy: contains "${pattern}"`,
+          };
         }
       }
 
@@ -76,4 +90,6 @@ export function createShellConnector(): ConnectorDefinition {
       };
     },
   };
+
+  return connector;
 }

@@ -1,4 +1,9 @@
-import type { ConnectorDefinition, ConnectorActionResult, ConnectorExecutionContext } from './connector-types';
+import {
+  readConnectorStringArrayConfig,
+  type ConnectorDefinition,
+  type ConnectorActionResult,
+  type ConnectorExecutionContext,
+} from './connector-types';
 import { LEGACY_STORAGE_KEYS, readLocalStorageItem, STORAGE_KEYS, writeLocalStorageItem } from '../storage-keys';
 
 export type WebFetchResult = {
@@ -117,11 +122,9 @@ export function createWebFetchConnector(): ConnectorDefinition {
       }
 
       // Domain allowlist check
-      const allowedDomains = Array.isArray(connector.config.allowedDomains)
-        ? (connector.config.allowedDomains as string[])
-        : loadAllowedDomains();
+      const allowedDomains = readConnectorStringArrayConfig(connector.config, 'allowedDomains');
 
-      if (!isDomainAllowed(url, allowedDomains)) {
+      if (!isDomainAllowed(url, allowedDomains.length > 0 ? allowedDomains : loadAllowedDomains())) {
         return {
           ok: false,
           errorCode: 'DOMAIN_NOT_ALLOWED',

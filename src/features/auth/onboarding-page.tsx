@@ -6,21 +6,16 @@ import type { FormEvent } from 'react';
 import type { EngineProviderId, HealthCheckResult } from '@/app-types';
 import type { InternalEngineRunRecord, InternalEngineRuntimeInfo } from '@/lib/internal-engine-bridge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
 type OnboardingStep = 'welcome' | 'connect' | 'ready';
 
 type OnboardingPageProps = {
   draftEngineProviderId: EngineProviderId;
-  draftEngineUrl: string;
-  draftEngineToken: string;
   health: HealthCheckResult | null;
   saving: boolean;
   pairingRequestId: string | null;
   onDraftEngineProviderIdChange: (value: EngineProviderId) => void;
-  onDraftEngineUrlChange: (value: string) => void;
-  onDraftEngineTokenChange: (value: string) => void;
   onSave: (event: FormEvent) => void;
   onComplete: () => void;
 };
@@ -103,20 +98,14 @@ function PrimaryButton({ children, disabled, className, ...props }: React.Compon
 
 export function OnboardingPage({
   draftEngineProviderId,
-  draftEngineUrl,
-  draftEngineToken,
   health,
   saving,
-  pairingRequestId: _pairingRequestId,
   onDraftEngineProviderIdChange,
-  onDraftEngineUrlChange,
-  onDraftEngineTokenChange,
   onSave,
   onComplete,
 }: OnboardingPageProps) {
   const [step, setStep] = useState<OnboardingStep>('welcome');
   const [connectAttempted, setConnectAttempted] = useState(false);
-  const [showToken, setShowToken] = useState(false);
   const [internalRuntimeInfo, setInternalRuntimeInfo] = useState<InternalEngineRuntimeInfo | null>(null);
   const [internalRunHistory, setInternalRunHistory] = useState<InternalEngineRunRecord[]>([]);
 
@@ -142,12 +131,6 @@ export function OnboardingPage({
     () => effectiveEngineProviders.find((provider) => provider.id === draftEngineProviderId) ?? selectedEngineProvider,
     [draftEngineProviderId, effectiveEngineProviders, selectedEngineProvider],
   );
-
-  const runtimeUrlHelpText =
-    'The internal engine uses the built-in desktop runtime. Leave this as internal://dev-runtime unless you are debugging a custom internal endpoint.';
-  const runtimeUrlPlaceholder = 'internal://dev-runtime';
-  const runtimeTokenHelpText = 'The internal engine does not require a runtime access token.';
-  const runtimeTokenPlaceholder = 'Not used for the internal engine';
 
   useEffect(() => {
     const bridge = getDesktopBridge();
@@ -258,7 +241,7 @@ export function OnboardingPage({
                 Connect to a runtime
               </h2>
               <p className="mt-1 font-sans text-[13px] leading-relaxed text-muted-foreground">
-                Choose the runtime model Cloffice should prepare for, then enter your runtime URL and optional access token.
+                Choose the runtime mode Cloffice should prepare for. Production builds use the built-in internal runtime path.
               </p>
             </div>
 
@@ -300,70 +283,11 @@ export function OnboardingPage({
                 </div>
               </div>
 
-              <div>
-                <label className="mb-1.5 flex items-center gap-1.5 font-sans text-[12px] font-medium text-foreground">
-                  Runtime URL
-                  <span className="relative ml-0.5 inline-flex group">
-                    <span className="flex h-4 w-4 cursor-default items-center justify-center rounded-full border border-muted-foreground/30 bg-muted text-[10px] font-semibold text-muted-foreground select-none">
-                      ?
-                    </span>
-                    <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-64 -translate-x-1/2 rounded-lg border border-border bg-popover px-3 py-2.5 font-normal text-[12px] leading-relaxed text-popover-foreground shadow-md opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-                      {runtimeUrlHelpText}
-                    </span>
-                  </span>
-                </label>
-                <Input
-                  value={draftEngineUrl}
-                  onChange={(event) => onDraftEngineUrlChange(event.target.value)}
-                  placeholder={runtimeUrlPlaceholder}
-                  className="h-10 font-mono text-[13px]"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1.5 flex items-center gap-1.5 font-sans text-[12px] font-medium text-foreground">
-                  Access token
-                  <span className="font-normal text-muted-foreground">(optional)</span>
-                  <span className="relative ml-0.5 inline-flex group">
-                    <span className="flex h-4 w-4 cursor-default items-center justify-center rounded-full border border-muted-foreground/30 bg-muted text-[10px] font-semibold text-muted-foreground select-none">
-                      ?
-                    </span>
-                    <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-64 -translate-x-1/2 rounded-lg border border-border bg-popover px-3 py-2.5 font-normal text-[12px] leading-relaxed text-popover-foreground shadow-md opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-                      {runtimeTokenHelpText}
-                    </span>
-                  </span>
-                </label>
-                <div className="relative">
-                  <Input
-                    type={showToken ? 'text' : 'password'}
-                    value={draftEngineToken}
-                    onChange={(event) => onDraftEngineTokenChange(event.target.value)}
-                    placeholder={runtimeTokenPlaceholder}
-                    disabled
-                    className="h-10 pr-10 font-mono text-[13px]"
-                  />
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    onClick={() => setShowToken((v) => !v)}
-                    disabled
-                    className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
-                    aria-label={showToken ? 'Hide token' : 'Show token'}
-                  >
-                    {showToken ? (
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-                        <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-                        <line x1="1" y1="1" x2="23" y2="23" />
-                      </svg>
-                    ) : (
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                        <circle cx="12" cy="12" r="3" />
-                      </svg>
-                    )}
-                  </button>
-                </div>
+              <div className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3">
+                <p className="font-sans text-[13px] font-semibold text-foreground">Built-in internal runtime</p>
+                <p className="mt-1 font-sans text-[12px] leading-relaxed text-muted-foreground">
+                  Cloffice connects through the built-in internal runtime in production. Runtime URL and token overrides are only available in the development bridge.
+                </p>
               </div>
 
               {connectAttempted && !saving && health && !health.ok && (
@@ -468,7 +392,7 @@ export function OnboardingPage({
                       <span className="font-medium text-foreground">Chat providers:</span>{' '}
                       {internalRuntimeInfo.chatProviders
                         .map((provider) => `${provider.label} (${provider.configured ? `${provider.modelCount} models` : 'not configured'})`)
-                        .join(' · ')}
+                        .join(' | ')}
                     </p>
                   ) : null}
                   {internalRuntimeInfo.latestArtifactSummary ? (
@@ -494,7 +418,7 @@ export function OnboardingPage({
                         return (
                           <div key={run.runId} className="rounded-md border border-border/50 bg-background/40 px-2.5 py-2">
                             <p className="font-sans text-[11px] font-medium text-foreground">
-                              {run.sessionKind} · {run.status} · {run.model}
+                              {run.sessionKind} | {run.status} | {run.model}
                             </p>
                             <p className="font-sans text-[11px] text-muted-foreground">
                               {run.summary ?? run.promptPreview ?? run.runId}

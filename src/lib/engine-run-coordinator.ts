@@ -362,6 +362,7 @@ export async function executeEngineCoworkActionExecution(params: {
     projectId: string;
     projectTitle: string;
     rootFolder: string;
+    explorerId?: string;
   };
   continueCoworkRun?: (payload: {
     sessionKey: string;
@@ -405,6 +406,7 @@ export async function executeEngineCoworkActionExecution(params: {
   }
 
   const rootPath = params.runContext.rootFolder.trim();
+  const explorerId = params.runContext.explorerId?.trim() ?? '';
   if (!rootPath) {
     return {
       kind: 'completed',
@@ -491,10 +493,24 @@ export async function executeEngineCoworkActionExecution(params: {
 
   params.onRunStatus('Applying AI file actions...');
   params.onProgress('Applying local actions in scoped workspace.');
+  if (!explorerId) {
+    return {
+      kind: 'completed',
+      result: buildEngineActionExecutionResult({
+        runId: params.runId,
+        receipts: [],
+        previews: [],
+        errors: ['AI requested local file actions, but the project folder must be re-selected in this session before host execution is allowed.'],
+        projectTitle: params.runContext.projectTitle,
+        rootPath,
+      }),
+    };
+  }
   const result = await executeEngineLocalActionPlan({
     actions: params.requestedActions,
     maxActionsPerRun: params.maxActionsPerRun,
     bridge: params.bridge,
+    explorerId,
     rootPath,
     runId: params.runId,
     projectId: params.runContext.projectId || undefined,

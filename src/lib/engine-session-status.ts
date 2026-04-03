@@ -73,7 +73,6 @@ export function buildStartedNewChatStatus(sessionKey: string): string {
 
 export function buildOpenedRecentSessionStatus(scope: EngineSessionScope, title?: string): string {
   const label = labelForScope(scope);
-  const capitalized = titleForScope(scope);
   return title ? `Opened ${label}: ${title}` : `Opened ${label}.`;
 }
 

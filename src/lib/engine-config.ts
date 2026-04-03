@@ -57,33 +57,45 @@ export function normalizeEngineEndpointUrl(
 }
 
 export function endpointUrlFromAppConfig(
-  config: Pick<AppConfig, 'endpointUrl'>,
+  config: Pick<AppConfig, 'internalRuntimeDebug'>,
   fallbackEndpointUrl: string = DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL,
 ): string {
-  return normalizeEngineEndpointUrl(config.endpointUrl, fallbackEndpointUrl);
+  const debugEndpointUrl = config.internalRuntimeDebug?.endpointUrl;
+  return normalizeEngineEndpointUrl(debugEndpointUrl, fallbackEndpointUrl);
 }
 
-export function accessTokenFromAppConfig(config: Pick<AppConfig, 'accessToken'>): string {
-  return config.accessToken ?? '';
+export function accessTokenFromAppConfig(config: Pick<AppConfig, 'internalRuntimeDebug'>): string {
+  const debugAccessToken = config.internalRuntimeDebug?.accessToken;
+  if (typeof debugAccessToken === 'string') {
+    return debugAccessToken;
+  }
+  return '';
 }
 
 export function createAppConfigFromConnection(
   endpointUrl: string,
   accessToken: string,
 ): AppConfig {
+  const normalizedEndpointUrl = normalizeEngineEndpointUrl(endpointUrl);
+  const normalizedAccessToken = accessToken.trim();
+
+  if (normalizedEndpointUrl === DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL && !normalizedAccessToken) {
+    return {};
+  }
+
   return {
-    endpointUrl: normalizeEngineEndpointUrl(endpointUrl),
-    accessToken,
+    internalRuntimeDebug: {
+      endpointUrl: normalizedEndpointUrl,
+      ...(normalizedAccessToken ? { accessToken: normalizedAccessToken } : {}),
+    },
   };
 }
 
 export function createDefaultAppConfig(
   fallbackEndpointUrl: string = DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL,
 ): AppConfig {
-  return {
-    endpointUrl: fallbackEndpointUrl,
-    accessToken: '',
-  };
+  void fallbackEndpointUrl;
+  return {};
 }
 
 export function createDefaultEngineDraft(
@@ -121,13 +133,26 @@ export function parseStoredAppConfig(entry: unknown, fallbackEndpointUrl: string
   }
 
   const record = entry as Record<string, unknown>;
-  return {
-    endpointUrl: normalizeEngineEndpointUrl(
-      typeof record.endpointUrl === 'string' ? record.endpointUrl : null,
+  const nestedDebug =
+    record.internalRuntimeDebug && typeof record.internalRuntimeDebug === 'object'
+      ? record.internalRuntimeDebug as Record<string, unknown>
+      : null;
+
+  return createAppConfigFromConnection(
+    normalizeEngineEndpointUrl(
+      typeof nestedDebug?.endpointUrl === 'string'
+        ? nestedDebug.endpointUrl
+        : typeof record.endpointUrl === 'string'
+          ? record.endpointUrl
+          : null,
       fallbackEndpointUrl,
     ),
-    accessToken: typeof record.accessToken === 'string' ? record.accessToken : '',
-  };
+    typeof nestedDebug?.accessToken === 'string'
+      ? nestedDebug.accessToken
+      : typeof record.accessToken === 'string'
+        ? record.accessToken
+        : '',
+  );
 }
 
 export function parseStoredEngineConfig(entry: unknown, fallbackEndpointUrl: string): ParsedStoredEngineConfig | null {

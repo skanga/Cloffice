@@ -48,6 +48,7 @@ type CoworkRunContext = {
   projectId: string;
   projectTitle: string;
   rootFolder: string;
+  explorerId?: string;
 };
 
 type CoworkTaskRef = {

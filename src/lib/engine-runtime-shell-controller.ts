@@ -16,7 +16,6 @@ import {
 
 type ConfigPersistenceBridge = {
   saveEngineConfig?: (draft: EngineDraftConfig) => Promise<DesktopBridgeEngineConfig>;
-  saveConfig?: (config: AppConfig) => Promise<AppConfig>;
 };
 
 export async function persistEngineRuntimeConfig(params: {
@@ -31,7 +30,7 @@ export async function persistEngineRuntimeConfig(params: {
     ? bridge.saveEngineConfig
       ? await bridge.saveEngineConfig(nextEngineDraft)
       : {
-          appConfig: await bridge.saveConfig!(nextConfig),
+          appConfig: nextConfig,
           engineDraft: nextEngineDraft,
           storageVersion: 1 as const,
         }

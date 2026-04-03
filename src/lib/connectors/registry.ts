@@ -4,7 +4,7 @@ import { LEGACY_STORAGE_KEYS, readLocalStorageItem, STORAGE_KEYS, writeLocalStor
 const CONNECTOR_CONFIG_KEY = STORAGE_KEYS.connectorsConfig;
 const CONNECTOR_CONFIG_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.connectorsConfig] as const;
 
-/* ── Registry ────────────────────────────────────────────────────────────── */
+/* Registry */
 
 const connectors = new Map<string, ConnectorDefinition>();
 
@@ -18,6 +18,24 @@ export function getConnector(id: string): ConnectorDefinition | undefined {
 
 export function listConnectors(): ConnectorDefinition[] {
   return Array.from(connectors.values());
+}
+
+function getDesktopBridgeSupport() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  return window.cloffice ?? null;
+}
+
+export function isConnectorSupportedInCurrentBuild(connector: ConnectorDefinition): boolean {
+  const bridge = getDesktopBridgeSupport();
+  if (connector.id === 'shell') {
+    return Boolean(bridge?.shellExec);
+  }
+  if (connector.id === 'web-fetch') {
+    return Boolean(bridge?.webFetch);
+  }
+  return true;
 }
 
 /* ── Persisted config ────────────────────────────────────────────────────── */
@@ -47,6 +65,9 @@ export function hydrateConnectors() {
       connector.config = { ...connector.config, ...entry.config };
       connector.status = entry.enabled ? 'active' : 'inactive';
     }
+    if (!isConnectorSupportedInCurrentBuild(connector)) {
+      connector.status = 'inactive';
+    }
   }
 }
 
@@ -61,7 +82,7 @@ export function persistConnectorConfig(id: string) {
 
 /** Build a system prompt fragment listing available connector actions. */
 export function buildConnectorPromptFragment(): string {
-  const active = listConnectors().filter((c) => c.status === 'active');
+  const active = listConnectors().filter((c) => c.status === 'active' && isConnectorSupportedInCurrentBuild(c));
   if (active.length === 0) return '';
 
   const lines = ['## Available connector actions', ''];

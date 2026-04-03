@@ -322,7 +322,7 @@ export type InternalEngineDesktopBridge = {
     intervalMinutes?: number;
     projectId?: string;
     projectTitle?: string;
-    rootPath?: string;
+    explorerId?: string;
     model?: string | null;
   }): Promise<EngineCronJob>;
   setInternalScheduleHistoryRetentionLimit(limit: number): Promise<number>;
@@ -354,7 +354,7 @@ export type InternalEngineDesktopBridge = {
       geminiModels: string;
     }>,
   ): Promise<InternalProviderConnectionTestResult>;
-  debugNormalizeInternalCoworkResponse(payload:
+  debugNormalizeInternalCoworkResponse?(payload:
     | {
         phase: 'planning';
         task: string;
@@ -372,7 +372,7 @@ export type InternalEngineDesktopBridge = {
         };
       }
   ): Promise<InternalEngineCoworkNormalizationProbeResult>;
-  debugBuildInternalCoworkPrompt(payload:
+  debugBuildInternalCoworkPrompt?(payload:
     | {
         phase: 'planning';
         model: string;
@@ -411,7 +411,7 @@ export function createUnavailableInternalEngineBridge(status: InternalEngineShel
   return {
     status,
     lifecycle: {
-      connect: (_options) => fail<void>(),
+      connect: () => fail<void>(),
       disconnect: () => undefined,
       isConnected: () => false,
     },
@@ -419,19 +419,19 @@ export function createUnavailableInternalEngineBridge(status: InternalEngineShel
       getActiveSessionKey: () => fail<string>(),
       createChatSession: () => fail<string>(),
       createCoworkSession: () => fail<string>(),
-      sendChat: (_sessionKey, _text) => fail<{ sessionKey: string }>(),
-      resolveSessionKey: (_preferredKey) => fail<string>(),
-      getHistory: (_sessionKey, _limit) => fail<EngineChatMessage[]>(),
-      continueCoworkRun: (_payload) => fail<InternalEngineCoworkContinuationResult>(),
+      sendChat: () => fail<{ sessionKey: string }>(),
+      resolveSessionKey: () => fail<string>(),
+      getHistory: () => fail<EngineChatMessage[]>(),
+      continueCoworkRun: () => fail<InternalEngineCoworkContinuationResult>(),
       listModels: () => fail<EngineModelChoice[]>(),
-      getSessionModel: (_sessionKey) => fail<string | null>(),
-      listSessions: (_limit) => fail<EngineSessionSummary[]>(),
-      setSessionModel: (_sessionKey, _modelValue) => fail<void>(),
-      setSessionTitle: (_sessionKey, _title) => fail<void>(),
-      deleteSession: (_sessionKey) => fail<void>(),
+      getSessionModel: () => fail<string | null>(),
+      listSessions: () => fail<EngineSessionSummary[]>(),
+      setSessionModel: () => fail<void>(),
+      setSessionTitle: () => fail<void>(),
+      deleteSession: () => fail<void>(),
     },
     events: {
-      setEventHandler: (_handler) => undefined,
+      setEventHandler: () => undefined,
     },
     scheduling: {
       listCronJobs: () => fail<EngineCronJob[]>(),
@@ -440,12 +440,12 @@ export function createUnavailableInternalEngineBridge(status: InternalEngineShel
       fetchToolsCatalog: () => fail<EngineToolsCatalog>(),
     },
     workspace: {
-      listWorkspaceFiles: (_relativePath) => fail<EngineWorkspaceListResult>(),
-      readWorkspaceFile: (_relativePath) => fail<EngineWorkspaceReadResult>(),
-      statWorkspaceFile: (_relativePath) => fail<EngineWorkspaceStatResult>(),
-      renameWorkspaceFile: (_oldPath, _newPath) => fail<void>(),
-      deleteWorkspaceFile: (_path) => fail<void>(),
-      writeWorkspaceFile: (_path, _content) => fail<void>(),
+      listWorkspaceFiles: () => fail<EngineWorkspaceListResult>(),
+      readWorkspaceFile: () => fail<EngineWorkspaceReadResult>(),
+      statWorkspaceFile: () => fail<EngineWorkspaceStatResult>(),
+      renameWorkspaceFile: () => fail<void>(),
+      deleteWorkspaceFile: () => fail<void>(),
+      writeWorkspaceFile: () => fail<void>(),
     },
   };
 }
@@ -495,12 +495,12 @@ export function createDesktopBackedInternalEngineBridge(
       fetchToolsCatalog: () => fail<EngineToolsCatalog>(),
     },
     workspace: {
-      listWorkspaceFiles: (_relativePath) => fail<EngineWorkspaceListResult>(),
-      readWorkspaceFile: (_relativePath) => fail<EngineWorkspaceReadResult>(),
-      statWorkspaceFile: (_relativePath) => fail<EngineWorkspaceStatResult>(),
-      renameWorkspaceFile: (_oldPath, _newPath) => fail<void>(),
-      deleteWorkspaceFile: (_path) => fail<void>(),
-      writeWorkspaceFile: (_path, _content) => fail<void>(),
+      listWorkspaceFiles: () => fail<EngineWorkspaceListResult>(),
+      readWorkspaceFile: () => fail<EngineWorkspaceReadResult>(),
+      statWorkspaceFile: () => fail<EngineWorkspaceStatResult>(),
+      renameWorkspaceFile: () => fail<void>(),
+      deleteWorkspaceFile: () => fail<void>(),
+      writeWorkspaceFile: () => fail<void>(),
     },
   };
 }

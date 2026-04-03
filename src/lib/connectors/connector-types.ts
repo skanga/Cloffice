@@ -44,7 +44,8 @@ export type ConnectorDefinition = {
 };
 
 export type ConnectorExecutionContext = {
-  rootPath: string;
+  explorerId?: string;
+  rootPath?: string;
   bridge: DesktopBridgeApi;
 };
 
@@ -57,16 +58,23 @@ export type ConnectorActionResult = {
 
 /** Minimal desktop bridge API surface connectors need. */
 export type DesktopBridgeApi = {
-  createFileInFolder?: (root: string, rel: string, content: string, overwrite?: boolean) => Promise<unknown>;
-  appendFileInFolder?: (root: string, rel: string, content: string) => Promise<unknown>;
-  readFileInFolder?: (root: string, rel: string) => Promise<unknown>;
-  listDirInFolder?: (root: string, rel?: string) => Promise<unknown>;
-  existsInFolder?: (root: string, rel: string) => Promise<unknown>;
-  renameInFolder?: (root: string, old: string, newRel: string) => Promise<unknown>;
-  deleteInFolder?: (root: string, rel: string) => Promise<unknown>;
-  statInFolder?: (root: string, rel: string) => Promise<unknown>;
+  createFileInFolder?: (explorerId: string, rel: string, content: string, overwrite?: boolean) => Promise<unknown>;
+  appendFileInFolder?: (explorerId: string, rel: string, content: string) => Promise<unknown>;
+  readFileInFolder?: (explorerId: string, rel: string) => Promise<unknown>;
+  listDirInFolder?: (explorerId: string, rel?: string) => Promise<unknown>;
+  existsInFolder?: (explorerId: string, rel: string) => Promise<unknown>;
+  renameInFolder?: (explorerId: string, old: string, newRel: string) => Promise<unknown>;
+  deleteInFolder?: (explorerId: string, rel: string) => Promise<unknown>;
+  statInFolder?: (explorerId: string, rel: string) => Promise<unknown>;
   shellExec?: (root: string, command: string, timeoutMs?: number) => Promise<unknown>;
   webFetch?: (url: string, options?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<unknown>;
 };
 
 export type BridgeApi = DesktopBridgeApi;
+
+export function readConnectorStringArrayConfig(config: ConnectorConfig, key: string): string[] {
+  const value = config[key];
+  return Array.isArray(value) && value.every((item) => typeof item === 'string')
+    ? value
+    : [];
+}

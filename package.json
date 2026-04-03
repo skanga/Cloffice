@@ -13,6 +13,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "verify": "npm run lint && npm run typecheck && npm run test:file-safety && npm run test:local-actions",
+    "verify:release": "npm run verify && npm run test:e2e:internal-engine-ui",
     "build": "npm run build:renderer && npm run build:electron",
     "build:renderer": "vite build",
     "build:electron": "tsc -p tsconfig.electron.json",

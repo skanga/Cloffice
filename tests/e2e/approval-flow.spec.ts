@@ -118,8 +118,9 @@ test.describe('Cowork approval flow', () => {
         }
 
         await window.cloffice.saveConfig({
-          endpointUrl: 'ws://127.0.0.1:18789',
-          accessToken: '',
+          internalRuntimeDebug: {
+            endpointUrl: 'ws://127.0.0.1:18789',
+          },
         });
       });
 
@@ -142,18 +143,26 @@ test.describe('Cowork approval flow', () => {
 
         try {
           const parsed = JSON.parse(raw) as {
-            endpointUrl?: string;
-            accessToken?: string;
+            internalRuntimeDebug?: {
+              endpointUrl?: string;
+              accessToken?: string;
+            };
           };
-          const endpointUrl = typeof parsed.endpointUrl === 'string' ? parsed.endpointUrl.trim() : '';
-          const accessToken = typeof parsed.accessToken === 'string' ? parsed.accessToken : '';
+          const endpointUrl = typeof parsed.internalRuntimeDebug?.endpointUrl === 'string'
+            ? parsed.internalRuntimeDebug.endpointUrl.trim()
+            : '';
+          const accessToken = typeof parsed.internalRuntimeDebug?.accessToken === 'string'
+            ? parsed.internalRuntimeDebug.accessToken
+            : '';
           if (!endpointUrl) {
             return;
           }
 
           await window.cloffice.saveConfig({
-            endpointUrl,
-            accessToken,
+            internalRuntimeDebug: {
+              endpointUrl,
+              ...(accessToken ? { accessToken } : {}),
+            },
           });
         } catch {
           // Ignore malformed local fallback config.

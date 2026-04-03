@@ -1,31 +1,28 @@
-﻿import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, safeStorage, session, shell } from 'electron';
+﻿import { app, BrowserWindow, ipcMain, Menu, Notification, safeStorage, session } from 'electron';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
 import crypto from 'node:crypto';
-
-const execAsync = promisify(exec);
 import type {
   AppConfig,
-  HealthCheckResult,
   LocalActionReceipt,
-  LocalFileApplyResult,
-  LocalFileAppendResult,
-  LocalFileCreateResult,
-  LocalFileDeleteResult,
-  LocalFileExistsResult,
-  LocalFileListResult,
-  LocalFilePlanAction,
-  LocalFilePlanResult,
-  LocalFileReadResult,
-  LocalFileRenameResult,
-  LocalFileStatResult,
 } from '../src/app-types.js';
 import { describeInternalEngineShell } from '../src/lib/internal-engine-placeholder.js';
 import type { EngineChatMessage, EngineConnectOptions, EngineCronJob, EngineModelChoice, EngineSessionSummary } from '../src/lib/engine-runtime-types.js';
-import { EMPTY_INTERNAL_PROVIDER_CONFIG, parseStoredEngineConfig, type InternalProviderConfig } from '../src/lib/engine-config.js';
+import {
+  buildEngineDraftConfig,
+  createAppConfigFromConnection,
+  createDefaultAppConfig,
+  DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL,
+  EMPTY_INTERNAL_PROVIDER_CONFIG,
+  endpointUrlFromAppConfig,
+  accessTokenFromAppConfig,
+  parseDesktopBridgeEngineConfig,
+  parseStoredEngineConfig,
+  prepareEngineConfigWrite,
+  type DesktopBridgeEngineConfig,
+  type EngineDraftConfig,
+  type InternalProviderConfig,
+} from '../src/lib/engine-config.js';
 import type {
   InternalEngineCoworkContinuationRequest,
   InternalEngineCoworkNormalizationProbeResult,
@@ -45,7 +42,20 @@ import {
 import {
   createPendingEngineApprovalAction,
   type EngineApprovalLoopContext,
+  type EngineRejectedApprovalAction,
 } from '../src/lib/engine-approval-orchestrator.js';
+import {
+  existsInFolder,
+  formatDatePrefix,
+  isPathWithinRegisteredExplorerRoots as hasRegisteredExplorerPath,
+  listDirInFolder,
+  readFileInFolder,
+  registerLocalFileIpcHandlers as registerScopedLocalFileIpcHandlers,
+  requireLocalExplorerRoot as resolveLocalExplorerRoot,
+  statInFolder,
+} from './local-files.js';
+import { registerConnectorHostIpcHandlers } from './connector-host.js';
+import { createAppWindow, registerWindowIpcHandlers } from './window-management.js';
 import {
   buildInternalEngineActionInstruction,
   parseEngineActivityItems,
@@ -62,20 +72,25 @@ import {
   type InternalProviderStatus,
 } from '../src/lib/internal-provider-adapter.js';
 
-const defaultConfig: AppConfig = {
-  endpointUrl: 'internal://dev-runtime',
-  accessToken: '',
-};
+const defaultConfig: AppConfig = createDefaultAppConfig();
 
 const CLOFFICE_CONFIG_FILE = 'cloffice-config.json';
 const LEGACY_ENGINE_CONFIG_FILE = CLOFFICE_CONFIG_FILE;
 const PROVIDER_SECRETS_FILE = 'cloffice-provider-secrets.json';
+const AUTH_SESSION_FILE = 'cloffice-auth-session.json';
 
 type StoredInternalProviderSecrets = Pick<InternalProviderConfig, 'openaiApiKey' | 'anthropicApiKey' | 'geminiApiKey'>;
 type StoredProviderSecretsEnvelope = {
   version: 1;
   mode: 'safeStorage' | 'plaintext-fallback';
   payload: string;
+};
+type StoredAuthSession = {
+  email: string;
+  accessToken: string;
+  refreshToken: string;
+  rememberMe: boolean;
+  expiresAt: number;
 };
 
 const EMPTY_INTERNAL_PROVIDER_SECRETS: StoredInternalProviderSecrets = {
@@ -410,6 +425,148 @@ function createInternalEngineMainService() {
   const normalizeSessionTitle = (title: string) => {
     const compact = title.replace(/\s+/g, ' ').trim();
     return compact.length > 48 ? `${compact.slice(0, 45).trimEnd()}...` : compact;
+  };
+  const validatePendingApprovalFlow = async (flow: unknown): Promise<InternalApprovalRecoveryFlow> => {
+    if (!flow || typeof flow !== 'object') {
+      throw new Error('Invalid pending approval flow payload.');
+    }
+
+    const record = flow as Record<string, unknown>;
+    assertAllowedKeys(
+      record,
+      ['runId', 'sessionKey', 'rootPath', 'context', 'requestedActions', 'currentIndex', 'approvedActions', 'rejectedActions', 'currentApproval'],
+      'pending approval flow payload',
+    );
+
+    const runId = normalizeRequiredString(record.runId, 'pending approval flow runId', 256);
+    const sessionKey = normalizeRequiredString(record.sessionKey, 'pending approval flow sessionKey', 256);
+    const rootPath = await ensurePathAllowed(normalizeRequiredString(record.rootPath, 'pending approval flow rootPath', 4096));
+    if (!hasRegisteredExplorerPath(rootPath)) {
+      throw new Error('Pending approval flow root path must be inside a currently selected local folder.');
+    }
+
+    const run = runs.get(runId);
+    if (!run || run.sessionKey !== sessionKey) {
+      throw new Error('Pending approval flow must reference an existing run for the current session.');
+    }
+
+    if (!record.context || typeof record.context !== 'object') {
+      throw new Error('Pending approval flow context is invalid.');
+    }
+    const contextRecord = record.context as Record<string, unknown>;
+    assertAllowedKeys(
+      contextRecord,
+      ['runId', 'projectId', 'projectTitle', 'projectRootFolder', 'scopeId', 'scopeName', 'riskLevel', 'maxActionsPerRun'],
+      'pending approval flow context',
+    );
+    const context: EngineApprovalLoopContext = {
+      runId,
+      ...(normalizeOptionalString(contextRecord.projectId, 'pending approval flow context projectId', 256)
+        ? { projectId: normalizeOptionalString(contextRecord.projectId, 'pending approval flow context projectId', 256) }
+        : {}),
+      ...(normalizeOptionalString(contextRecord.projectTitle, 'pending approval flow context projectTitle', 256)
+        ? { projectTitle: normalizeOptionalString(contextRecord.projectTitle, 'pending approval flow context projectTitle', 256) }
+        : {}),
+      projectRootFolder: rootPath,
+      scopeId: normalizeRequiredString(contextRecord.scopeId, 'pending approval flow context scopeId', 256),
+      scopeName: normalizeRequiredString(contextRecord.scopeName, 'pending approval flow context scopeName', 256),
+      riskLevel: (() => {
+        const riskLevel = normalizeRequiredString(contextRecord.riskLevel, 'pending approval flow context riskLevel', 32);
+        if (riskLevel !== 'low' && riskLevel !== 'medium' && riskLevel !== 'high') {
+          throw new Error('Pending approval flow context riskLevel is invalid.');
+        }
+        return riskLevel;
+      })(),
+      maxActionsPerRun: normalizePositiveInteger(contextRecord.maxActionsPerRun, 'pending approval flow context maxActionsPerRun', 1000),
+    };
+
+    const requestedActions = normalizeReadOnlyRequestedActions(record.requestedActions, 'pending approval flow requestedActions');
+    const currentIndex = normalizePositiveInteger((record.currentIndex as number) + 1, 'pending approval flow currentIndex', requestedActions.length) - 1;
+    const approvedActions = normalizeReadOnlyRequestedActions(record.approvedActions, 'pending approval flow approvedActions');
+    const rejectedActions = Array.isArray(record.rejectedActions)
+      ? record.rejectedActions.map((action, index) => normalizeRejectedApprovalAction(action, index))
+      : (() => { throw new Error('pending approval flow rejectedActions must be an array.'); })();
+
+    const expectedCurrentApproval = createPendingEngineApprovalAction({
+      action: requestedActions[currentIndex],
+      index: currentIndex,
+      context,
+    });
+    if (!record.currentApproval || typeof record.currentApproval !== 'object') {
+      throw new Error('Pending approval flow currentApproval is invalid.');
+    }
+    const currentApprovalRecord = record.currentApproval as Record<string, unknown>;
+    if (
+      normalizeRequiredString(currentApprovalRecord.id, 'pending approval flow currentApproval id', 512) !== expectedCurrentApproval.id
+      || normalizeRequiredString(currentApprovalRecord.actionId, 'pending approval flow currentApproval actionId', 256) !== expectedCurrentApproval.actionId
+      || normalizeRequiredString(currentApprovalRecord.actionType, 'pending approval flow currentApproval actionType', 32) !== expectedCurrentApproval.actionType
+      || normalizeRequiredString(currentApprovalRecord.path, 'pending approval flow currentApproval path', 4096) !== expectedCurrentApproval.path
+    ) {
+      throw new Error('Pending approval flow currentApproval does not match the expected action.');
+    }
+
+    return {
+      runId,
+      sessionKey,
+      rootPath,
+      context,
+      requestedActions,
+      currentIndex,
+      approvedActions,
+      rejectedActions,
+      currentApproval: expectedCurrentApproval,
+    };
+  };
+  const canonicalizeContinuationPayload = async (payload: unknown): Promise<InternalEngineCoworkContinuationRequest> => {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('Invalid cowork continuation payload.');
+    }
+
+    const record = payload as Record<string, unknown>;
+    assertAllowedKeys(record, ['sessionKey', 'runId', 'rootPath', 'approvedActions', 'rejectedActions'], 'cowork continuation payload');
+    const runId = normalizeRequiredString(record.runId, 'cowork continuation runId', 256);
+    const sessionKey = normalizeRequiredString(record.sessionKey, 'cowork continuation sessionKey', 256);
+    const rootPath = await ensurePathAllowed(normalizeRequiredString(record.rootPath, 'cowork continuation rootPath', 4096));
+    if (!hasRegisteredExplorerPath(rootPath)) {
+      throw new Error('Cowork continuation root path must be inside a currently selected local folder.');
+    }
+
+    const pendingFlow = pendingApprovalFlows.find((entry) => entry.runId === runId);
+    if (!pendingFlow) {
+      throw new Error('Pending approval flow is missing for this cowork continuation.');
+    }
+
+    if (pendingFlow.sessionKey !== sessionKey || path.resolve(pendingFlow.rootPath) !== path.resolve(rootPath)) {
+      throw new Error('Cowork continuation does not match the pending approval flow.');
+    }
+
+    const approvedActions = normalizeReadOnlyRequestedActions(record.approvedActions, 'cowork continuation approvedActions');
+    const rejectedActions = Array.isArray(record.rejectedActions)
+      ? record.rejectedActions.map((action, index) => normalizeRejectedApprovalAction(action, index))
+      : (() => { throw new Error('cowork continuation rejectedActions must be an array.'); })();
+
+    const approvedCandidate = applyInternalApprovalRecoveryDecision(pendingFlow, { approved: true });
+    const rejectedReason = rejectedActions[rejectedActions.length - 1]?.reason;
+    const rejectedCandidate = applyInternalApprovalRecoveryDecision(pendingFlow, { approved: false, reason: rejectedReason });
+    if (approvedCandidate.kind !== 'complete' || rejectedCandidate.kind !== 'complete') {
+      throw new Error('Pending approval flow is not ready for cowork continuation.');
+    }
+
+    const payloadMatches = (candidate: InternalEngineCoworkContinuationRequest) => (
+      candidate.sessionKey === sessionKey
+      && path.resolve(candidate.rootPath) === path.resolve(rootPath)
+      && JSON.stringify(candidate.approvedActions) === JSON.stringify(approvedActions)
+      && JSON.stringify(candidate.rejectedActions) === JSON.stringify(rejectedActions)
+    );
+
+    if (payloadMatches(approvedCandidate.payload)) {
+      return approvedCandidate.payload;
+    }
+    if (payloadMatches(rejectedCandidate.payload)) {
+      return rejectedCandidate.payload;
+    }
+
+    throw new Error('Cowork continuation payload does not match the saved approval flow.');
   };
   const inferSessionTitle = (sessionKey: string, text: string, model: string) => {
     if (sessionKey === mainSessionKey) {
@@ -1972,7 +2129,8 @@ function createInternalEngineMainService() {
     getStatus() {
       return shellStatus;
     },
-    async connect(_options: EngineConnectOptions): Promise<void> {
+    async connect(options: EngineConnectOptions): Promise<void> {
+      void options;
       if (!shellStatus.availableInBuild) {
         connected = false;
         throw unavailable();
@@ -2741,7 +2899,7 @@ function createInternalEngineMainService() {
       };
     },
     async continueCoworkRun(
-      payload: InternalEngineCoworkContinuationRequest,
+      rawPayload: unknown,
       emitEvent?: (frame: {
         type: 'event';
         event: 'chat';
@@ -2755,6 +2913,7 @@ function createInternalEngineMainService() {
       };
     }> {
       requireConnected();
+      const payload = await canonicalizeContinuationPayload(rawPayload);
       const session = ensureSession(
         payload.sessionKey,
         payload.sessionKey === mainSessionKey ? 'main' : payload.sessionKey.startsWith('internal:cowork:') ? 'cowork' : 'chat',
@@ -3027,11 +3186,12 @@ function createInternalEngineMainService() {
       requireConnected();
       return pendingApprovalFlows;
     },
-    async savePendingApproval(flow: InternalApprovalRecoveryFlow): Promise<void> {
+    async savePendingApproval(flow: unknown): Promise<void> {
       requireConnected();
+      const validatedFlow = await validatePendingApprovalFlow(flow);
       pendingApprovalFlows = [
-        ...pendingApprovalFlows.filter((entry) => entry.runId !== flow.runId),
-        flow,
+        ...pendingApprovalFlows.filter((entry) => entry.runId !== validatedFlow.runId),
+        validatedFlow,
       ];
       await persistState();
     },
@@ -3091,63 +3251,13 @@ function createInternalEngineMainService() {
   return service;
 }
 
-const extensionCategories: Record<string, string> = {
-  '.pdf': 'Documents',
-  '.doc': 'Documents',
-  '.docx': 'Documents',
-  '.txt': 'Documents',
-  '.rtf': 'Documents',
-  '.md': 'Documents',
-  '.xls': 'Spreadsheets',
-  '.xlsx': 'Spreadsheets',
-  '.csv': 'Spreadsheets',
-  '.ppt': 'Presentations',
-  '.pptx': 'Presentations',
-  '.key': 'Presentations',
-  '.png': 'Images',
-  '.jpg': 'Images',
-  '.jpeg': 'Images',
-  '.gif': 'Images',
-  '.webp': 'Images',
-  '.svg': 'Images',
-  '.bmp': 'Images',
-  '.zip': 'Archives',
-  '.rar': 'Archives',
-  '.7z': 'Archives',
-  '.tar': 'Archives',
-  '.gz': 'Archives',
-  '.mp3': 'Audio',
-  '.wav': 'Audio',
-  '.m4a': 'Audio',
-  '.aac': 'Audio',
-  '.flac': 'Audio',
-  '.mp4': 'Video',
-  '.mov': 'Video',
-  '.mkv': 'Video',
-  '.avi': 'Video',
-  '.wmv': 'Video',
-  '.js': 'Code',
-  '.ts': 'Code',
-  '.tsx': 'Code',
-  '.jsx': 'Code',
-  '.json': 'Code',
-  '.py': 'Code',
-  '.java': 'Code',
-  '.cs': 'Code',
-  '.cpp': 'Code',
-  '.c': 'Code',
-};
-
 const configPath = () => path.join(app.getPath('userData'), CLOFFICE_CONFIG_FILE);
 const legacyConfigPath = () => path.join(app.getPath('userData'), LEGACY_ENGINE_CONFIG_FILE);
 const providerSecretsPath = () => path.join(app.getPath('userData'), PROVIDER_SECRETS_FILE);
+const authSessionPath = () => path.join(app.getPath('userData'), AUTH_SESSION_FILE);
 
 const isDev = !app.isPackaged;
-const MAX_READ_FILE_BYTES = 256 * 1024;
-const MAX_LIST_DIR_ITEMS = 200;
-const BLOCKED_BASENAMES = new Set(['desktop.ini', 'thumbs.db']);
-
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 const isLoopbackHost = (host: string) => host === 'localhost' || host === '127.0.0.1' || host === '::1';
 
@@ -3230,44 +3340,6 @@ function registerProdContentSecurityPolicy() {
   });
 }
 
-function isPathInside(rootPath: string, targetPath: string): boolean {
-  const root = path.resolve(rootPath);
-  const target = path.resolve(targetPath);
-  const relative = path.relative(root, target);
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-}
-
-function isHiddenOrBlockedPath(targetPath: string): boolean {
-  const parts = targetPath.split(/[\\/]+/).filter((part) => part.length > 0);
-  return parts.some((part) => part.startsWith('.') || BLOCKED_BASENAMES.has(part.toLowerCase()));
-}
-
-function normalizeRelativePath(relativePath: string): string {
-  const normalized = relativePath.replaceAll('\\', '/').trim();
-  if (!normalized || normalized === '.' || normalized === './') {
-    return '';
-  }
-  return normalized;
-}
-
-function slugifyName(value: string): string {
-  const collapsed = value.trim().replace(/[\s_]+/g, '-').replace(/[^a-zA-Z0-9-]/g, '').replace(/-+/g, '-');
-  return collapsed.replace(/^-|-$/g, '').toLowerCase() || 'file';
-}
-
-function formatDatePrefix(timestampMs: number): string {
-  const date = new Date(timestampMs);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function resolveCategory(fileName: string): string {
-  const extension = path.extname(fileName).toLowerCase();
-  return extensionCategories[extension] ?? 'Other';
-}
-
 async function ensurePathAllowed(rootPath: string): Promise<string> {
   const resolved = path.resolve(rootPath);
   const stats = await fs.stat(resolved);
@@ -3277,520 +3349,6 @@ async function ensurePathAllowed(rootPath: string): Promise<string> {
 
   return resolved;
 }
-
-async function assertRealPathInsideRoot(rootRealPath: string, candidatePath: string, message: string): Promise<void> {
-  const candidateRealPath = await fs.realpath(candidatePath);
-  if (!isPathInside(rootRealPath, candidateRealPath)) {
-    throw new Error(message);
-  }
-}
-
-async function resolveNearestExistingAncestorPath(startPath: string): Promise<string> {
-  let current = path.resolve(startPath);
-
-  while (true) {
-    try {
-      await fs.access(current);
-      return current;
-    } catch {
-      const parent = path.dirname(current);
-      if (parent === current) {
-        return current;
-      }
-      current = parent;
-    }
-  }
-}
-
-async function assertTargetPathAllowed(rootPath: string, targetPath: string, message: string): Promise<void> {
-  const rootRealPath = await fs.realpath(rootPath);
-  const normalizedTargetPath = path.resolve(targetPath);
-  const parentDir = path.dirname(normalizedTargetPath);
-  const nearestExistingParent =
-    normalizedTargetPath === path.resolve(rootPath)
-      ? rootRealPath
-      : await resolveNearestExistingAncestorPath(parentDir);
-  await assertRealPathInsideRoot(rootRealPath, nearestExistingParent, message);
-
-  try {
-    const stat = await fs.lstat(normalizedTargetPath);
-    if (stat.isSymbolicLink()) {
-      throw new Error('Symbolic links are blocked for local file actions.');
-    }
-    await assertRealPathInsideRoot(rootRealPath, normalizedTargetPath, message);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException)?.code;
-    if (code === 'ENOENT') {
-      return;
-    }
-    throw error;
-  }
-}
-
-async function planFolderOrganization(rootPath: string): Promise<LocalFilePlanResult> {
-  const root = await ensurePathAllowed(rootPath);
-  const entries = await fs.readdir(root, { withFileTypes: true });
-  const actions: LocalFilePlanAction[] = [];
-
-  for (const entry of entries) {
-    if (!entry.isFile()) {
-      continue;
-    }
-
-    const currentPath = path.join(root, entry.name);
-    const stat = await fs.stat(currentPath);
-    const extension = path.extname(entry.name);
-    const baseName = path.basename(entry.name, extension);
-    const datePrefix = formatDatePrefix(stat.mtimeMs);
-    const slug = slugifyName(baseName);
-    const normalizedFileName = `${datePrefix}_${slug}${extension.toLowerCase()}`;
-    const category = resolveCategory(entry.name);
-    const targetPath = path.join(root, category, normalizedFileName);
-
-    if (path.resolve(currentPath) === path.resolve(targetPath)) {
-      continue;
-    }
-
-    actions.push({
-      id: `${entry.name}-${actions.length + 1}`,
-      fromPath: currentPath,
-      toPath: targetPath,
-      category,
-      operation: 'move',
-    });
-  }
-
-  return {
-    rootPath: root,
-    actions,
-  };
-}
-
-async function uniqueDestinationPath(destinationPath: string): Promise<string> {
-  let candidate = destinationPath;
-  let counter = 1;
-
-  while (true) {
-    try {
-      await fs.access(candidate);
-      const parsed = path.parse(destinationPath);
-      counter += 1;
-      candidate = path.join(parsed.dir, `${parsed.name}-${counter}${parsed.ext}`);
-    } catch {
-      return candidate;
-    }
-  }
-}
-
-async function applyFolderOrganizationPlan(rootPath: string, actions: LocalFilePlanAction[]): Promise<LocalFileApplyResult> {
-  const root = await ensurePathAllowed(rootPath);
-  const result: LocalFileApplyResult = {
-    applied: 0,
-    skipped: 0,
-    errors: [],
-  };
-
-  for (const action of actions) {
-    const fromPath = path.resolve(action.fromPath);
-    const toPath = path.resolve(action.toPath);
-
-    if (!isPathInside(root, fromPath) || !isPathInside(root, toPath)) {
-      result.skipped += 1;
-      result.errors.push(`Skipped out-of-scope action: ${action.fromPath}`);
-      continue;
-    }
-
-    try {
-      await fs.access(fromPath);
-    } catch {
-      result.skipped += 1;
-      continue;
-    }
-
-    try {
-      await fs.mkdir(path.dirname(toPath), { recursive: true });
-      const finalToPath = await uniqueDestinationPath(toPath);
-      await fs.rename(fromPath, finalToPath);
-      result.applied += 1;
-    } catch (error) {
-      result.errors.push(error instanceof Error ? error.message : 'Unknown file operation error.');
-      result.skipped += 1;
-    }
-  }
-
-  return result;
-}
-
-async function writeFileInFolder(
-  rootPath: string,
-  relativePath: string,
-  content: string,
-  options?: { overwrite?: boolean },
-): Promise<LocalFileCreateResult> {
-  const root = await ensurePathAllowed(rootPath);
-
-  const normalizedRelative = normalizeRelativePath(relativePath);
-  if (!normalizedRelative) {
-    throw new Error('A file path is required.');
-  }
-
-  if (path.isAbsolute(normalizedRelative)) {
-    throw new Error('Use a path relative to the working folder.');
-  }
-
-  if (isHiddenOrBlockedPath(normalizedRelative)) {
-    throw new Error('Target path is blocked by local safety rules.');
-  }
-
-  const resolvedTargetPath = path.resolve(root, normalizedRelative);
-  if (!isPathInside(root, resolvedTargetPath)) {
-    throw new Error('Target file must remain inside the working folder.');
-  }
-
-  await assertTargetPathAllowed(root, resolvedTargetPath, 'Target file must remain inside the working folder.');
-
-  await fs.mkdir(path.dirname(resolvedTargetPath), { recursive: true });
-
-  const overwrite = Boolean(options?.overwrite);
-  if (!overwrite) {
-    try {
-      await fs.writeFile(resolvedTargetPath, content, { encoding: 'utf8', flag: 'wx' });
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException)?.code;
-      if (code === 'EEXIST') {
-        throw new Error('A file already exists at that path.');
-      }
-      throw error;
-    }
-  } else {
-    await fs.writeFile(resolvedTargetPath, content, 'utf8');
-  }
-
-  return {
-    filePath: resolvedTargetPath,
-    created: true,
-  };
-}
-
-async function readFileInFolder(rootPath: string, relativePath: string): Promise<LocalFileReadResult> {
-  const root = await ensurePathAllowed(rootPath);
-
-  const normalizedRelative = normalizeRelativePath(relativePath);
-  if (!normalizedRelative) {
-    throw new Error('A file path is required.');
-  }
-
-  if (path.isAbsolute(normalizedRelative)) {
-    throw new Error('Use a path relative to the working folder.');
-  }
-
-  const resolvedTargetPath = path.resolve(root, normalizedRelative);
-  if (!isPathInside(root, resolvedTargetPath)) {
-    throw new Error('Target file must remain inside the working folder.');
-  }
-
-  await assertTargetPathAllowed(root, resolvedTargetPath, 'Target file must remain inside the working folder.');
-
-  if (isHiddenOrBlockedPath(normalizedRelative)) {
-    throw new Error('Target path is blocked by local safety rules.');
-  }
-
-  let stats;
-  try {
-    stats = await fs.stat(resolvedTargetPath);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException)?.code;
-    if (code === 'ENOENT') {
-      throw new Error(`File not found: ${resolvedTargetPath}`);
-    }
-    throw error;
-  }
-  if (!stats.isFile()) {
-    throw new Error('Target path is not a file.');
-  }
-
-  if (stats.size > MAX_READ_FILE_BYTES) {
-    throw new Error(`File exceeds ${MAX_READ_FILE_BYTES} byte safety limit.`);
-  }
-
-  const content = await fs.readFile(resolvedTargetPath, 'utf8');
-  return {
-    filePath: resolvedTargetPath,
-    content,
-  };
-}
-
-async function appendFileInFolder(rootPath: string, relativePath: string, content: string): Promise<LocalFileAppendResult> {
-  const root = await ensurePathAllowed(rootPath);
-
-  const normalizedRelative = normalizeRelativePath(relativePath);
-  if (!normalizedRelative) {
-    throw new Error('A file path is required.');
-  }
-
-  if (path.isAbsolute(normalizedRelative)) {
-    throw new Error('Use a path relative to the working folder.');
-  }
-
-  if (isHiddenOrBlockedPath(normalizedRelative)) {
-    throw new Error('Target path is blocked by local safety rules.');
-  }
-
-  const resolvedTargetPath = path.resolve(root, normalizedRelative);
-  if (!isPathInside(root, resolvedTargetPath)) {
-    throw new Error('Target file must remain inside the working folder.');
-  }
-
-  await assertTargetPathAllowed(root, resolvedTargetPath, 'Target file must remain inside the working folder.');
-
-  await fs.mkdir(path.dirname(resolvedTargetPath), { recursive: true });
-  await fs.appendFile(resolvedTargetPath, content, 'utf8');
-  return {
-    filePath: resolvedTargetPath,
-    appended: true,
-    bytesAppended: Buffer.byteLength(content, 'utf8'),
-  };
-}
-
-async function resolveExistingPathWithOptionalExtension(requestedPath: string): Promise<string | null> {
-  try {
-    await fs.access(requestedPath);
-    return requestedPath;
-  } catch {
-    // continue with extension-based lookup
-  }
-
-  if (path.extname(requestedPath)) {
-    return null;
-  }
-
-  const parentDir = path.dirname(requestedPath);
-  const requestedBase = path.basename(requestedPath);
-
-  let entries;
-  try {
-    entries = await fs.readdir(parentDir, { withFileTypes: true });
-  } catch {
-    return null;
-  }
-
-  const candidates = entries
-    .filter((entry) => entry.isFile() && path.parse(entry.name).name === requestedBase)
-    .map((entry) => path.join(parentDir, entry.name));
-
-  if (candidates.length === 1) {
-    return candidates[0];
-  }
-
-  if (candidates.length > 1) {
-    throw new Error(
-      `Ambiguous path "${requestedPath}". Multiple files match this base name: ${candidates
-        .map((candidate) => path.basename(candidate))
-        .join(', ')}`,
-    );
-  }
-
-  return null;
-}
-
-async function listDirInFolder(rootPath: string, relativePath?: string): Promise<LocalFileListResult> {
-  const root = await ensurePathAllowed(rootPath);
-  const rootRealPath = await fs.realpath(root);
-  const normalizedRelative = normalizeRelativePath(relativePath ?? '');
-  if (normalizedRelative && path.isAbsolute(normalizedRelative)) {
-    throw new Error('Use a path relative to the working folder.');
-  }
-
-  if (normalizedRelative && isHiddenOrBlockedPath(normalizedRelative)) {
-    return {
-      rootPath: root,
-      items: [],
-      truncated: false,
-    };
-  }
-
-  const targetPath = normalizedRelative ? path.resolve(root, normalizedRelative) : root;
-  if (!isPathInside(root, targetPath)) {
-    throw new Error('Target directory must remain inside the working folder.');
-  }
-
-  await assertRealPathInsideRoot(rootRealPath, targetPath, 'Target directory must remain inside the working folder.');
-
-  const stat = await fs.stat(targetPath);
-  if (!stat.isDirectory()) {
-    throw new Error('Target path is not a directory.');
-  }
-
-  const entries = await fs.readdir(targetPath, { withFileTypes: true });
-  const items: LocalFileListResult['items'] = [];
-
-  for (const entry of entries) {
-    const entryRelative = normalizeRelativePath(path.relative(root, path.join(targetPath, entry.name)));
-    if (isHiddenOrBlockedPath(entryRelative)) {
-      continue;
-    }
-
-    if (items.length >= MAX_LIST_DIR_ITEMS) {
-      break;
-    }
-
-    const absolute = path.join(targetPath, entry.name);
-    if (entry.isDirectory()) {
-      items.push({
-        path: entryRelative,
-        kind: 'directory',
-      });
-      continue;
-    }
-
-    if (entry.isFile()) {
-      const fileStat = await fs.stat(absolute);
-      items.push({
-        path: entryRelative,
-        kind: 'file',
-        size: fileStat.size,
-        modifiedMs: fileStat.mtimeMs,
-      });
-    }
-  }
-
-  return {
-    rootPath: root,
-    items,
-    truncated: entries.length > items.length,
-  };
-}
-
-async function existsInFolder(rootPath: string, relativePath: string): Promise<LocalFileExistsResult> {
-  const root = await ensurePathAllowed(rootPath);
-  const rootRealPath = await fs.realpath(root);
-  const normalizedRelative = normalizeRelativePath(relativePath);
-  if (!normalizedRelative) {
-    throw new Error('A file path is required.');
-  }
-
-  if (path.isAbsolute(normalizedRelative)) {
-    throw new Error('Use a path relative to the working folder.');
-  }
-
-  if (isHiddenOrBlockedPath(normalizedRelative)) {
-    throw new Error('Target path is blocked by local safety rules.');
-  }
-
-  const resolvedTargetPath = path.resolve(root, normalizedRelative);
-  if (!isPathInside(root, resolvedTargetPath)) {
-    throw new Error('Target path must remain inside the working folder.');
-  }
-
-  await assertTargetPathAllowed(root, resolvedTargetPath, 'Target path must remain inside the working folder.');
-
-  try {
-    const stat = await fs.stat(resolvedTargetPath);
-    await assertRealPathInsideRoot(rootRealPath, resolvedTargetPath, 'Target path must remain inside the working folder.');
-    return {
-      path: resolvedTargetPath,
-      exists: true,
-      kind: stat.isDirectory() ? 'directory' : 'file',
-    };
-  } catch {
-    return {
-      path: resolvedTargetPath,
-      exists: false,
-      kind: 'none',
-    };
-  }
-}
-
-async function renameInFolder(rootPath: string, oldRelative: string, newRelative: string): Promise<LocalFileRenameResult> {
-  const root = await ensurePathAllowed(rootPath);
-  const rootRealPath = await fs.realpath(root);
-  const normalizedOld = normalizeRelativePath(oldRelative);
-  const normalizedNew = normalizeRelativePath(newRelative);
-  if (!normalizedOld || !normalizedNew) throw new Error('Both old and new paths are required.');
-  if (path.isAbsolute(normalizedOld) || path.isAbsolute(normalizedNew)) throw new Error('Use relative paths.');
-  if (isHiddenOrBlockedPath(normalizedOld) || isHiddenOrBlockedPath(normalizedNew)) throw new Error('Path blocked by safety rules.');
-  const resolvedOld = path.resolve(root, normalizedOld);
-  const resolvedNew = path.resolve(root, normalizedNew);
-  if (!isPathInside(root, resolvedOld) || !isPathInside(root, resolvedNew)) throw new Error('Paths must remain inside working folder.');
-  await assertTargetPathAllowed(root, resolvedOld, 'Paths must remain inside working folder.');
-  await assertRealPathInsideRoot(rootRealPath, path.dirname(resolvedNew), 'Paths must remain inside working folder.');
-  await fs.access(resolvedOld);
-
-  // Prevent silent destination clobber; overwrite must be an explicit delete/create sequence.
-  if (path.resolve(resolvedOld) !== path.resolve(resolvedNew)) {
-    try {
-      await fs.access(resolvedNew);
-      throw new Error('A file or directory already exists at the destination path.');
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException)?.code;
-      if (code !== 'ENOENT') {
-        throw error;
-      }
-    }
-  }
-
-  await fs.mkdir(path.dirname(resolvedNew), { recursive: true });
-  await fs.rename(resolvedOld, resolvedNew);
-  return { oldPath: resolvedOld, newPath: resolvedNew, renamed: true };
-}
-
-async function deleteInFolder(rootPath: string, relativePath: string): Promise<LocalFileDeleteResult> {
-  const root = await ensurePathAllowed(rootPath);
-  const normalized = normalizeRelativePath(relativePath);
-  if (!normalized) throw new Error('A path is required.');
-  if (path.isAbsolute(normalized)) throw new Error('Use a relative path.');
-  if (isHiddenOrBlockedPath(normalized)) throw new Error('Path blocked by safety rules.');
-  const resolved = path.resolve(root, normalized);
-  if (!isPathInside(root, resolved)) throw new Error('Path must remain inside working folder.');
-  await assertTargetPathAllowed(root, resolved, 'Path must remain inside working folder.');
-  if (resolved === root) throw new Error('Cannot delete the root folder.');
-  const stat = await fs.stat(resolved);
-  if (stat.isDirectory()) {
-    await fs.rm(resolved, { recursive: true });
-  } else {
-    await fs.unlink(resolved);
-  }
-  return { path: resolved, deleted: true };
-}
-
-async function statInFolder(rootPath: string, relativePath: string): Promise<LocalFileStatResult> {
-  const root = await ensurePathAllowed(rootPath);
-  const requestedPath = typeof relativePath === 'string' ? relativePath.trim() : '';
-  const normalized = normalizeRelativePath(relativePath);
-  const rootMetadataRequested = requestedPath === '.' || requestedPath === './' || requestedPath === '';
-  if (!normalized && !rootMetadataRequested) throw new Error('A path is required.');
-  if (path.isAbsolute(normalized)) throw new Error('Use a relative path.');
-  if (normalized && isHiddenOrBlockedPath(normalized)) throw new Error('Path blocked by safety rules.');
-  const resolved = rootMetadataRequested ? root : path.resolve(root, normalized);
-  if (resolved !== root && !isPathInside(root, resolved)) throw new Error('Path must remain inside working folder.');
-  await assertTargetPathAllowed(root, resolved, 'Path must remain inside working folder.');
-  const stat = await fs.stat(resolved);
-  return {
-    path: rootMetadataRequested ? '.' : resolved,
-    kind: stat.isDirectory() ? 'directory' : 'file',
-    size: stat.size,
-    createdMs: stat.birthtimeMs,
-    modifiedMs: stat.mtimeMs,
-  };
-}
-
-async function openLocalPath(targetPath: string): Promise<{ ok: boolean; error?: string }> {
-  const normalized = typeof targetPath === 'string' ? targetPath.trim() : '';
-  if (!normalized) {
-    throw new Error('A path is required.');
-  }
-
-  const resolved = path.resolve(normalized);
-  await fs.access(resolved);
-
-  const openError = await shell.openPath(resolved);
-  if (openError) {
-    return { ok: false, error: openError };
-  }
-
-  return { ok: true };
-}
-
 function normalizeStoredInternalProviderSecrets(entry: Partial<StoredInternalProviderSecrets> | null | undefined): StoredInternalProviderSecrets {
   return {
     openaiApiKey: typeof entry?.openaiApiKey === 'string' ? entry.openaiApiKey : '',
@@ -3896,22 +3454,44 @@ async function readJsonFile(targetPath: string): Promise<unknown | null> {
   }
 }
 
-async function readStoredProviderSecrets(): Promise<StoredInternalProviderSecrets> {
-  const entry = await readJsonFile(providerSecretsPath());
+function encodeProtectedPayload(plaintext: string): StoredProviderSecretsEnvelope {
+  const encryptionAvailable = safeStorage.isEncryptionAvailable();
+  const payload = encryptionAvailable
+    ? safeStorage.encryptString(plaintext).toString('base64')
+    : Buffer.from(plaintext, 'utf8').toString('base64');
+  return {
+    version: 1,
+    mode: encryptionAvailable ? 'safeStorage' : 'plaintext-fallback',
+    payload,
+  };
+}
+
+function decodeProtectedPayload(entry: unknown): string | null {
   if (!entry || typeof entry !== 'object') {
-    return { ...EMPTY_INTERNAL_PROVIDER_SECRETS };
+    return null;
   }
 
   const envelope = entry as Partial<StoredProviderSecretsEnvelope>;
   if (envelope.version !== 1 || typeof envelope.payload !== 'string') {
+    return null;
+  }
+
+  try {
+    return envelope.mode === 'safeStorage' && safeStorage.isEncryptionAvailable()
+      ? safeStorage.decryptString(Buffer.from(envelope.payload, 'base64'))
+      : Buffer.from(envelope.payload, 'base64').toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
+async function readStoredProviderSecrets(): Promise<StoredInternalProviderSecrets> {
+  const payload = decodeProtectedPayload(await readJsonFile(providerSecretsPath()));
+  if (!payload) {
     return { ...EMPTY_INTERNAL_PROVIDER_SECRETS };
   }
 
   try {
-    const payload =
-      envelope.mode === 'safeStorage' && safeStorage.isEncryptionAvailable()
-        ? safeStorage.decryptString(Buffer.from(envelope.payload, 'base64'))
-        : Buffer.from(envelope.payload, 'base64').toString('utf8');
     return normalizeStoredInternalProviderSecrets(JSON.parse(payload) as Partial<StoredInternalProviderSecrets>);
   } catch {
     return { ...EMPTY_INTERNAL_PROVIDER_SECRETS };
@@ -3931,18 +3511,61 @@ async function writeStoredProviderSecrets(secrets: StoredInternalProviderSecrets
     return;
   }
 
-  const plaintext = JSON.stringify(normalizedSecrets);
-  const encryptionAvailable = safeStorage.isEncryptionAvailable();
-  const payload = encryptionAvailable
-    ? safeStorage.encryptString(plaintext).toString('base64')
-    : Buffer.from(plaintext, 'utf8').toString('base64');
-  const envelope: StoredProviderSecretsEnvelope = {
-    version: 1,
-    mode: encryptionAvailable ? 'safeStorage' : 'plaintext-fallback',
-    payload,
-  };
-
+  const envelope = encodeProtectedPayload(JSON.stringify(normalizedSecrets));
   await fs.writeFile(providerSecretsPath(), JSON.stringify(envelope, null, 2), 'utf8');
+}
+
+function normalizeStoredAuthSession(entry: Partial<StoredAuthSession> | null | undefined): StoredAuthSession | null {
+  if (
+    typeof entry?.email !== 'string'
+    || typeof entry.accessToken !== 'string'
+    || typeof entry.refreshToken !== 'string'
+    || typeof entry.rememberMe !== 'boolean'
+    || typeof entry.expiresAt !== 'number'
+  ) {
+    return null;
+  }
+
+  return {
+    email: entry.email,
+    accessToken: entry.accessToken,
+    refreshToken: entry.refreshToken,
+    rememberMe: entry.rememberMe,
+    expiresAt: entry.expiresAt,
+  };
+}
+
+async function readStoredAuthSession(): Promise<StoredAuthSession | null> {
+  const payload = decodeProtectedPayload(await readJsonFile(authSessionPath()));
+  if (!payload) {
+    return null;
+  }
+
+  try {
+    return normalizeStoredAuthSession(JSON.parse(payload) as Partial<StoredAuthSession>);
+  } catch {
+    return null;
+  }
+}
+
+async function writeStoredAuthSession(session: StoredAuthSession): Promise<StoredAuthSession> {
+  const normalizedSession = normalizeStoredAuthSession(session);
+  if (!normalizedSession) {
+    throw new Error('Invalid auth session payload.');
+  }
+
+  await fs.mkdir(path.dirname(authSessionPath()), { recursive: true });
+  const envelope = encodeProtectedPayload(JSON.stringify(normalizedSession));
+  await fs.writeFile(authSessionPath(), JSON.stringify(envelope, null, 2), 'utf8');
+  return normalizedSession;
+}
+
+async function clearStoredAuthSession(): Promise<void> {
+  try {
+    await fs.unlink(authSessionPath());
+  } catch {
+    // ignore missing file
+  }
 }
 
 async function readRawConfigEntry(): Promise<unknown | null> {
@@ -3972,7 +3595,7 @@ async function writeRawConfigEntry(entry: unknown): Promise<unknown> {
 
 async function readStoredInternalProviderConfig(): Promise<InternalProviderConfig> {
   const rawEntry = await readRawConfigEntry();
-  const parsed = parseStoredEngineConfig(rawEntry, defaultConfig.endpointUrl);
+  const parsed = parseStoredEngineConfig(rawEntry, DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL);
   const secureSecrets = await readStoredProviderSecrets();
   const mergedConfig = mergeStoredInternalProviderConfig(parsed?.engineDraft.internalProviderConfig, secureSecrets);
 
@@ -3988,8 +3611,35 @@ async function readStoredInternalProviderConfig(): Promise<InternalProviderConfi
 }
 
 async function readConfig(): Promise<AppConfig> {
-  const parsed = parseStoredEngineConfig(await readRawConfigEntry(), defaultConfig.endpointUrl);
+  const parsed = parseStoredEngineConfig(await readRawConfigEntry(), DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL);
   return parsed?.appConfig ?? defaultConfig;
+}
+
+function normalizeEngineConfigDraftPayload(draft: unknown): EngineDraftConfig {
+  if (!draft || typeof draft !== 'object') {
+    throw new Error('Invalid engine config draft payload.');
+  }
+
+  const record = draft as Record<string, unknown>;
+  const internalProviderConfig =
+    record.internalProviderConfig && typeof record.internalProviderConfig === 'object'
+      ? record.internalProviderConfig as Partial<InternalProviderConfig>
+      : undefined;
+
+  return buildEngineDraftConfig({
+    providerId: 'internal',
+    endpointUrl: typeof record.endpointUrl === 'string' ? record.endpointUrl : DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL,
+    accessToken: typeof record.accessToken === 'string' ? record.accessToken : '',
+    internalProviderConfig: {
+      openaiApiKey: typeof internalProviderConfig?.openaiApiKey === 'string' ? internalProviderConfig.openaiApiKey : '',
+      openaiBaseUrl: typeof internalProviderConfig?.openaiBaseUrl === 'string' ? internalProviderConfig.openaiBaseUrl : '',
+      openaiModels: typeof internalProviderConfig?.openaiModels === 'string' ? internalProviderConfig.openaiModels : '',
+      anthropicApiKey: typeof internalProviderConfig?.anthropicApiKey === 'string' ? internalProviderConfig.anthropicApiKey : '',
+      anthropicModels: typeof internalProviderConfig?.anthropicModels === 'string' ? internalProviderConfig.anthropicModels : '',
+      geminiApiKey: typeof internalProviderConfig?.geminiApiKey === 'string' ? internalProviderConfig.geminiApiKey : '',
+      geminiModels: typeof internalProviderConfig?.geminiModels === 'string' ? internalProviderConfig.geminiModels : '',
+    },
+  });
 }
 
 async function readHydratedEngineConfigEntry(): Promise<unknown | null> {
@@ -4001,95 +3651,283 @@ async function readHydratedEngineConfigEntry(): Promise<unknown | null> {
   return hydrateConfigEntryWithSecrets(rawEntry, await readStoredProviderSecrets());
 }
 
-async function writeConfig(config: AppConfig): Promise<AppConfig> {
-  const normalizedEndpointUrl = config.endpointUrl.trim();
+async function readDesktopBridgeEngineConfig(): Promise<DesktopBridgeEngineConfig> {
+  return parseDesktopBridgeEngineConfig(await readHydratedEngineConfigEntry(), DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL);
+}
 
-  const normalized = {
-    endpointUrl: normalizedEndpointUrl,
-    accessToken: config.accessToken.trim(),
-  };
+async function writeEngineConfigDraft(draft: unknown): Promise<DesktopBridgeEngineConfig> {
+  const normalizedDraft = normalizeEngineConfigDraftPayload(draft);
+  const preparedWrite = prepareEngineConfigWrite(normalizedDraft);
+  await writeRawConfigEntry(preparedWrite.providerAwareConfig);
+  return readDesktopBridgeEngineConfig();
+}
+
+async function writeConfig(config: AppConfig): Promise<AppConfig> {
+  const normalized = createAppConfigFromConnection(
+    endpointUrlFromAppConfig(config, DEFAULT_INTERNAL_ENGINE_ENDPOINT_URL),
+    accessTokenFromAppConfig(config).trim(),
+  );
 
   await writeRawConfigEntry(normalized);
   return normalized;
 }
 
-async function runHealthCheck(endpointUrl: string): Promise<HealthCheckResult> {
-  const normalizedBaseUrl = endpointUrl
-    .trim()
-    .replace(/^wss?:\/\//, (value) => (value === 'wss://' ? 'https://' : 'http://'))
-    .replace(/\/$/, '');
-  const candidates = ['/health', '/api/health', '/'];
+function normalizeRuntimeRetentionPolicyPayload(payload: unknown): {
+  runHistoryRetentionLimit?: number;
+  artifactHistoryRetentionLimit?: number;
+} {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Invalid runtime retention policy payload.');
+  }
 
-  for (const candidate of candidates) {
-    try {
-      const response = await fetch(`${normalizedBaseUrl}${candidate}`);
-      if (response.ok) {
-        return {
-          ok: true,
-          status: response.status,
-          message: `Runtime endpoint reachable at ${candidate}`,
-        };
-      }
-
-      return {
-        ok: false,
-        status: response.status,
-        message: `Backend responded with status ${response.status} at ${candidate}`,
-      };
-    } catch {
-      continue;
+  const record = payload as Record<string, unknown>;
+  const allowedKeys = new Set(['runHistoryRetentionLimit', 'artifactHistoryRetentionLimit']);
+  for (const key of Object.keys(record)) {
+    if (!allowedKeys.has(key)) {
+      throw new Error(`Unexpected runtime retention policy field: ${key}`);
     }
+  }
+
+  const update: {
+    runHistoryRetentionLimit?: number;
+    artifactHistoryRetentionLimit?: number;
+  } = {};
+
+  if ('runHistoryRetentionLimit' in record) {
+    if (typeof record.runHistoryRetentionLimit !== 'number' || !Number.isFinite(record.runHistoryRetentionLimit)) {
+      throw new Error('Runtime retention policy runHistoryRetentionLimit must be a finite number.');
+    }
+    update.runHistoryRetentionLimit = record.runHistoryRetentionLimit;
+  }
+
+  if ('artifactHistoryRetentionLimit' in record) {
+    if (typeof record.artifactHistoryRetentionLimit !== 'number' || !Number.isFinite(record.artifactHistoryRetentionLimit)) {
+      throw new Error('Runtime retention policy artifactHistoryRetentionLimit must be a finite number.');
+    }
+    update.artifactHistoryRetentionLimit = record.artifactHistoryRetentionLimit;
+  }
+
+  return update;
+}
+
+function normalizeRequiredString(value: unknown, fieldName: string, maxLength = 512): string {
+  if (typeof value !== 'string') {
+    throw new Error(`${fieldName} must be a string.`);
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new Error(`${fieldName} is required.`);
+  }
+  if (normalized.length > maxLength) {
+    throw new Error(`${fieldName} is too long.`);
+  }
+  return normalized;
+}
+
+function normalizeOptionalString(value: unknown, fieldName: string, maxLength = 512): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'string') {
+    throw new Error(`${fieldName} must be a string when provided.`);
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized.length > maxLength) {
+    throw new Error(`${fieldName} is too long.`);
+  }
+  return normalized;
+}
+
+function normalizeNullableString(value: unknown, fieldName: string, maxLength = 512): string | null | undefined {
+  if (value === undefined || value === null) {
+    return value as null | undefined;
+  }
+  return normalizeRequiredString(value, fieldName, maxLength);
+}
+
+function normalizeRequiredBoolean(value: unknown, fieldName: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new Error(`${fieldName} must be a boolean.`);
+  }
+  return value;
+}
+
+function normalizePositiveInteger(value: unknown, fieldName: string, maxValue = 1000): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`${fieldName} must be a finite number.`);
+  }
+  const normalized = Math.round(value);
+  if (normalized < 1) {
+    throw new Error(`${fieldName} must be at least 1.`);
+  }
+  return Math.min(normalized, maxValue);
+}
+
+function assertAllowedKeys(record: Record<string, unknown>, allowedKeys: string[], scope: string): void {
+  const allowed = new Set(allowedKeys);
+  for (const key of Object.keys(record)) {
+    if (!allowed.has(key)) {
+      throw new Error(`Unexpected ${scope} field: ${key}`);
+    }
+  }
+}
+
+function normalizeReadOnlyRequestedAction(action: unknown, index: number): EngineRequestedAction {
+  if (!action || typeof action !== 'object') {
+    throw new Error(`Requested action ${index + 1} is invalid.`);
+  }
+
+  const record = action as Record<string, unknown>;
+  const type = normalizeRequiredString(record.type, `requestedActions[${index}].type`, 32) as EngineRequestedAction['type'];
+  const id = record.id === undefined ? undefined : normalizeOptionalString(record.id, `requestedActions[${index}].id`, 256);
+
+  switch (type) {
+    case 'read_file':
+      return {
+        id,
+        type,
+        path: normalizeRequiredString(record.path, `requestedActions[${index}].path`),
+      };
+    case 'list_dir':
+      return {
+        id,
+        type,
+        path: normalizeOptionalString(record.path, `requestedActions[${index}].path`),
+      };
+    case 'exists':
+    case 'stat':
+      return {
+        id,
+        type,
+        path: normalizeRequiredString(record.path, `requestedActions[${index}].path`),
+      };
+    default:
+      throw new Error(`Unsupported requested action type: ${type}`);
+  }
+}
+
+function normalizeReadOnlyRequestedActions(actions: unknown, fieldName: string): EngineRequestedAction[] {
+  if (!Array.isArray(actions)) {
+    throw new Error(`${fieldName} must be an array.`);
+  }
+  return actions.map((action, index) => normalizeReadOnlyRequestedAction(action, index));
+}
+
+function normalizeRejectedApprovalAction(action: unknown, index: number): EngineRejectedApprovalAction {
+  if (!action || typeof action !== 'object') {
+    throw new Error(`Rejected action ${index + 1} is invalid.`);
+  }
+
+  const record = action as Record<string, unknown>;
+  const actionType = normalizeRequiredString(record.actionType, `rejectedActions[${index}].actionType`, 32) as EngineRequestedAction['type'];
+  if (!['read_file', 'list_dir', 'exists', 'stat'].includes(actionType)) {
+    throw new Error(`Unsupported rejected action type: ${actionType}`);
   }
 
   return {
-    ok: false,
-    message: 'Unable to reach the configured runtime endpoint. Check the URL, port, and network path.',
+    id: normalizeRequiredString(record.id, `rejectedActions[${index}].id`, 256),
+    actionId: normalizeRequiredString(record.actionId, `rejectedActions[${index}].actionId`, 256),
+    actionType,
+    path: normalizeRequiredString(record.path, `rejectedActions[${index}].path`),
+    approved: false as const,
+    ...(normalizeOptionalString(record.reason, `rejectedActions[${index}].reason`, 1000)
+      ? { reason: normalizeOptionalString(record.reason, `rejectedActions[${index}].reason`, 1000) }
+      : {}),
   };
 }
 
-// ---------------------------------------------------------------------------
-async function createWindow() {
-  const preloadPath = fileURLToPath(new URL('./preload.cjs', import.meta.url));
-
-  const window = new BrowserWindow({
-    width: 1480,
-    height: 980,
-    minWidth: 1200,
-    minHeight: 760,
-    backgroundColor: '#f4f3ee',
-    title: 'Cloffice',
-    frame: false,
-    autoHideMenuBar: true,
-    webPreferences: {
-      preload: preloadPath,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-
-  window.setMenuBarVisibility(false);
-  window.removeMenu();
-
-  if (isDev) {
-    const devUrl = 'http://localhost:5173';
-    let lastError: unknown;
-
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      try {
-        await window.loadURL(devUrl);
-        window.webContents.openDevTools({ mode: 'detach' });
-        return;
-      } catch (error) {
-        lastError = error;
-        await delay(350);
-      }
-    }
-
-    throw lastError;
+async function normalizePromptScheduleCreatePayload(payload: unknown): Promise<{
+  kind?: 'chat' | 'cowork';
+  prompt: string;
+  name?: string;
+  intervalMinutes?: number;
+  projectId?: string;
+  projectTitle?: string;
+  rootPath?: string;
+  model?: string | null;
+}> {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Invalid prompt schedule payload.');
   }
 
-  await window.loadFile(path.join(app.getAppPath(), 'dist', 'index.html'));
+  const record = payload as Record<string, unknown>;
+  assertAllowedKeys(
+    record,
+    ['kind', 'prompt', 'name', 'intervalMinutes', 'projectId', 'projectTitle', 'explorerId', 'model'],
+    'prompt schedule payload',
+  );
+
+  const kind = record.kind === 'cowork' ? 'cowork' : 'chat';
+  const explorerId = normalizeOptionalString(record.explorerId, 'prompt schedule payload explorerId', 256);
+
+  return {
+    kind,
+    prompt: normalizeRequiredString(record.prompt, 'prompt schedule payload prompt', 20000),
+    ...(normalizeOptionalString(record.name, 'prompt schedule payload name', 256)
+      ? { name: normalizeOptionalString(record.name, 'prompt schedule payload name', 256) }
+      : {}),
+    ...(record.intervalMinutes === undefined
+      ? {}
+      : { intervalMinutes: normalizePositiveInteger(record.intervalMinutes, 'prompt schedule payload intervalMinutes', 10080) }),
+    ...(normalizeOptionalString(record.projectId, 'prompt schedule payload projectId', 256)
+      ? { projectId: normalizeOptionalString(record.projectId, 'prompt schedule payload projectId', 256) }
+      : {}),
+    ...(normalizeOptionalString(record.projectTitle, 'prompt schedule payload projectTitle', 256)
+      ? { projectTitle: normalizeOptionalString(record.projectTitle, 'prompt schedule payload projectTitle', 256) }
+      : {}),
+    ...(kind === 'cowork'
+      ? { rootPath: await resolveLocalExplorerRoot(normalizeRequiredString(explorerId, 'prompt schedule payload explorerId', 256)) }
+      : {}),
+    ...(record.model === undefined ? {} : { model: normalizeNullableString(record.model, 'prompt schedule payload model', 256) ?? null }),
+  };
+}
+
+function normalizePromptScheduleUpdatePayload(payload: unknown): {
+  enabled?: boolean;
+  intervalMinutes?: number;
+  name?: string;
+  prompt?: string;
+  model?: string | null;
+  clearHistory?: boolean;
+} {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Invalid prompt schedule update payload.');
+  }
+
+  const record = payload as Record<string, unknown>;
+  assertAllowedKeys(record, ['enabled', 'intervalMinutes', 'name', 'prompt', 'model', 'clearHistory'], 'prompt schedule update payload');
+
+  return {
+    ...(record.enabled === undefined ? {} : { enabled: normalizeRequiredBoolean(record.enabled, 'prompt schedule update payload enabled') }),
+    ...(record.intervalMinutes === undefined ? {} : { intervalMinutes: normalizePositiveInteger(record.intervalMinutes, 'prompt schedule update payload intervalMinutes', 10080) }),
+    ...(record.name === undefined ? {} : { name: normalizeRequiredString(record.name, 'prompt schedule update payload name', 256) }),
+    ...(record.prompt === undefined ? {} : { prompt: normalizeRequiredString(record.prompt, 'prompt schedule update payload prompt', 20000) }),
+    ...(record.model === undefined ? {} : { model: normalizeNullableString(record.model, 'prompt schedule update payload model', 256) ?? null }),
+    ...(record.clearHistory === undefined ? {} : { clearHistory: normalizeRequiredBoolean(record.clearHistory, 'prompt schedule update payload clearHistory') }),
+  };
+}
+
+function normalizePendingApprovalDecisionPayload(decision: unknown): InternalEnginePendingApprovalDecision {
+  if (!decision || typeof decision !== 'object') {
+    throw new Error('Invalid approval decision payload.');
+  }
+
+  const record = decision as Record<string, unknown>;
+  assertAllowedKeys(record, ['approved', 'reason', 'expired'], 'approval decision payload');
+
+  return {
+    approved: normalizeRequiredBoolean(record.approved, 'approval decision payload approved'),
+    ...(normalizeOptionalString(record.reason, 'approval decision payload reason', 1000)
+      ? { reason: normalizeOptionalString(record.reason, 'approval decision payload reason', 1000) }
+      : {}),
+  };
+}
+
+function normalizeScheduleHistoryRetentionLimit(limit: unknown): number {
+  return normalizePositiveInteger(limit, 'schedule history retention limit', 1000);
 }
 
 app.whenReady().then(async () => {
@@ -4101,8 +3939,13 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('config:get', async () => readConfig());
   ipcMain.handle('config:save', async (_event, config: AppConfig) => writeConfig(config));
-  ipcMain.handle('engine-config:get', async () => readHydratedEngineConfigEntry());
-  ipcMain.handle('engine-config:save', async (_event, entry: unknown) => writeRawConfigEntry(entry));
+  ipcMain.handle('auth:get-session', async () => readStoredAuthSession());
+  ipcMain.handle('auth:save-session', async (_event, session: StoredAuthSession) => writeStoredAuthSession(session));
+  ipcMain.handle('auth:clear-session', async () => {
+    await clearStoredAuthSession();
+  });
+  ipcMain.handle('engine-config:get', async () => readDesktopBridgeEngineConfig());
+  ipcMain.handle('engine-config:save', async (_event, draft: unknown) => writeEngineConfigDraft(draft));
   ipcMain.handle('internal-engine:status', async () => internalEngineService.getStatus());
   ipcMain.handle('internal-engine:get-runtime-info', async () => internalEngineService.getRuntimeInfo());
   ipcMain.handle('internal-engine:get-run-history', async (_event, limit?: number) => internalEngineService.getRunHistory(limit));
@@ -4113,35 +3956,71 @@ app.whenReady().then(async () => {
   ipcMain.handle('internal-engine:get-active-session-key', async () => internalEngineService.getActiveSessionKey());
   ipcMain.handle('internal-engine:create-chat-session', async () => internalEngineService.createChatSession());
   ipcMain.handle('internal-engine:create-cowork-session', async () => internalEngineService.createCoworkSession());
-  ipcMain.handle('internal-engine:resolve-session-key', async (_event, preferredKey?: string) => internalEngineService.resolveSessionKey(preferredKey));
+  ipcMain.handle(
+    'internal-engine:resolve-session-key',
+    async (_event, preferredKey?: unknown) =>
+      internalEngineService.resolveSessionKey(normalizeOptionalString(preferredKey, 'preferred session key', 256)),
+  );
   ipcMain.handle('internal-engine:list-sessions', async (_event, limit?: number) => internalEngineService.listSessions(limit));
   ipcMain.handle('internal-engine:list-models', async () => internalEngineService.listModels());
-  ipcMain.handle('internal-engine:get-session-model', async (_event, sessionKey: string) => internalEngineService.getSessionModel(sessionKey));
-  ipcMain.handle('internal-engine:set-session-model', async (_event, sessionKey: string, modelValue: string | null) => internalEngineService.setSessionModel(sessionKey, modelValue));
-  ipcMain.handle('internal-engine:set-session-title', async (_event, sessionKey: string, title: string | null) => internalEngineService.setSessionTitle(sessionKey, title));
-  ipcMain.handle('internal-engine:delete-session', async (_event, sessionKey: string) => internalEngineService.deleteSession(sessionKey));
+  ipcMain.handle(
+    'internal-engine:get-session-model',
+    async (_event, sessionKey: unknown) => internalEngineService.getSessionModel(normalizeRequiredString(sessionKey, 'session key', 256)),
+  );
+  ipcMain.handle(
+    'internal-engine:set-session-model',
+    async (_event, sessionKey: unknown, modelValue: unknown) =>
+      internalEngineService.setSessionModel(
+        normalizeRequiredString(sessionKey, 'session key', 256),
+        normalizeNullableString(modelValue, 'session model', 256) ?? null,
+      ),
+  );
+  ipcMain.handle(
+    'internal-engine:set-session-title',
+    async (_event, sessionKey: unknown, title: unknown) =>
+      internalEngineService.setSessionTitle(
+        normalizeRequiredString(sessionKey, 'session key', 256),
+        normalizeNullableString(title, 'session title', 256) ?? null,
+      ),
+  );
+  ipcMain.handle(
+    'internal-engine:delete-session',
+    async (_event, sessionKey: unknown) => internalEngineService.deleteSession(normalizeRequiredString(sessionKey, 'session key', 256)),
+  );
   ipcMain.handle('internal-engine:get-history', async (_event, sessionKey: string, limit?: number) => internalEngineService.getHistory(sessionKey, limit));
   ipcMain.handle('internal-engine:list-cron-jobs', async () => internalEngineService.listCronJobs());
   ipcMain.handle('internal-engine:get-schedule-history-retention-limit', async () => internalEngineService.getScheduleHistoryRetentionLimit());
   ipcMain.handle(
     'internal-engine:create-prompt-schedule',
-    async (_event, payload: { kind?: 'chat' | 'cowork'; prompt: string; name?: string; intervalMinutes?: number; rootPath?: string; model?: string | null }) =>
-      internalEngineService.createPromptSchedule(payload),
+    async (_event, payload: unknown) =>
+      internalEngineService.createPromptSchedule(await normalizePromptScheduleCreatePayload(payload)),
   );
   ipcMain.handle(
     'internal-engine:update-prompt-schedule',
-    async (_event, id: string, payload: { enabled?: boolean; intervalMinutes?: number; name?: string; prompt?: string; model?: string | null }) =>
-      internalEngineService.updatePromptSchedule(id, payload),
+    async (_event, id: unknown, payload: unknown) =>
+      internalEngineService.updatePromptSchedule(
+        normalizeRequiredString(id, 'schedule id', 256),
+        normalizePromptScheduleUpdatePayload(payload),
+      ),
   );
-  ipcMain.handle('internal-engine:delete-prompt-schedule', async (_event, id: string) => internalEngineService.deletePromptSchedule(id));
-  ipcMain.handle('internal-engine:run-prompt-schedule-now', async (_event, id: string) => internalEngineService.runPromptScheduleNow(id));
+  ipcMain.handle(
+    'internal-engine:delete-prompt-schedule',
+    async (_event, id: unknown) => internalEngineService.deletePromptSchedule(normalizeRequiredString(id, 'schedule id', 256)),
+  );
+  ipcMain.handle(
+    'internal-engine:run-prompt-schedule-now',
+    async (_event, id: unknown) => internalEngineService.runPromptScheduleNow(normalizeRequiredString(id, 'schedule id', 256)),
+  );
   ipcMain.handle(
     'internal-engine:set-runtime-retention-policy',
-    async (_event, payload: { runHistoryRetentionLimit?: number; artifactHistoryRetentionLimit?: number }) =>
-      internalEngineService.setRuntimeRetentionPolicy(payload),
+    async (_event, payload: unknown) =>
+      internalEngineService.setRuntimeRetentionPolicy(normalizeRuntimeRetentionPolicyPayload(payload)),
   );
-  ipcMain.handle('internal-engine:set-schedule-history-retention-limit', async (_event, limit: number) =>
-    internalEngineService.setScheduleHistoryRetentionLimit(limit));
+  ipcMain.handle(
+    'internal-engine:set-schedule-history-retention-limit',
+    async (_event, limit: unknown) =>
+      internalEngineService.setScheduleHistoryRetentionLimit(normalizeScheduleHistoryRetentionLimit(limit)),
+  );
   ipcMain.handle('internal-engine:seed-provider-cowork-trend-e2e', async () => internalEngineService.seedProviderCoworkTrendForE2E());
   ipcMain.handle('internal-engine:seed-schedule-artifact-e2e', async (_event, id: string) => internalEngineService.seedScheduleArtifactForE2E(id));
   ipcMain.handle('internal-engine:send-chat', async (event, sessionKey: string, text: string) =>
@@ -4189,289 +4068,27 @@ app.whenReady().then(async () => {
       },
     ) => internalEngineService.debugBuildCoworkPrompt(payload),
   );
-  ipcMain.handle('internal-engine:continue-cowork-run', async (event, payload: InternalEngineCoworkContinuationRequest) =>
+  ipcMain.handle('internal-engine:continue-cowork-run', async (event, payload: unknown) =>
     internalEngineService.continueCoworkRun(payload, (frame) => {
       event.sender.send('internal-engine:event', frame);
     }));
   ipcMain.handle('internal-engine:list-pending-approvals', async () => internalEngineService.listPendingApprovals());
-  ipcMain.handle('internal-engine:save-pending-approval', async (_event, flow: InternalApprovalRecoveryFlow) => internalEngineService.savePendingApproval(flow));
-  ipcMain.handle('internal-engine:clear-pending-approval', async (_event, runId: string) => internalEngineService.clearPendingApproval(runId));
+  ipcMain.handle('internal-engine:save-pending-approval', async (_event, flow: unknown) => internalEngineService.savePendingApproval(flow));
+  ipcMain.handle(
+    'internal-engine:clear-pending-approval',
+    async (_event, runId: unknown) => internalEngineService.clearPendingApproval(normalizeRequiredString(runId, 'run id', 256)),
+  );
   ipcMain.handle(
     'internal-engine:apply-pending-approval-decision',
-    async (_event, runId: string, decision: InternalEnginePendingApprovalDecision) =>
-      internalEngineService.applyPendingApprovalDecision(runId, decision),
+    async (_event, runId: unknown, decision: unknown) =>
+      internalEngineService.applyPendingApprovalDecision(
+        normalizeRequiredString(runId, 'run id', 256),
+        normalizePendingApprovalDecisionPayload(decision),
+      ),
   );
-  ipcMain.handle('backend:health-check', async (_event, baseUrl: string) => runHealthCheck(baseUrl));
-  ipcMain.handle('window:minimize', (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender);
-    window?.minimize();
-  });
-  ipcMain.handle('window:toggle-maximize', (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender);
-    if (!window) {
-      return false;
-    }
-
-    if (window.isMaximized()) {
-      window.unmaximize();
-      return false;
-    }
-
-    window.maximize();
-    return true;
-  });
-  ipcMain.handle('window:is-maximized', (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender);
-    return Boolean(window?.isMaximized());
-  });
-  ipcMain.handle('window:show-system-menu', (event, position: { x: number; y: number }) => {
-    const window = BrowserWindow.fromWebContents(event.sender);
-    if (!window) {
-      return;
-    }
-
-    const menu = Menu.buildFromTemplate([
-      {
-        label: 'Restore',
-        enabled: window.isMaximized(),
-        click: () => window.unmaximize(),
-      },
-      {
-        label: 'Minimize',
-        click: () => window.minimize(),
-      },
-      {
-        label: window.isMaximized() ? 'Unmaximize' : 'Maximize',
-        click: () => {
-          if (window.isMaximized()) {
-            window.unmaximize();
-            return;
-          }
-          window.maximize();
-        },
-      },
-      { type: 'separator' },
-      {
-        label: 'Close',
-        click: () => window.close(),
-      },
-    ]);
-
-    menu.popup({
-      window,
-      x: Math.round(position.x),
-      y: Math.round(position.y),
-    });
-  });
-  ipcMain.handle('window:close', (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender);
-    window?.close();
-  });
-  ipcMain.handle('local:downloads-path', () => app.getPath('downloads'));
-  ipcMain.handle('local:select-folder', async (_event, initialPath?: string) => {
-    const result = await dialog.showOpenDialog({
-      title: 'Select working folder',
-      defaultPath: typeof initialPath === 'string' && initialPath.trim() ? initialPath : app.getPath('downloads'),
-      properties: ['openDirectory', 'createDirectory'],
-    });
-
-    if (result.canceled || result.filePaths.length === 0) {
-      return null;
-    }
-
-    return result.filePaths[0];
-  });
-  ipcMain.handle('local:plan-organize-folder', async (_event, rootPath: string) => {
-    if (typeof rootPath !== 'string' || !rootPath.trim()) {
-      throw new Error('A folder path is required.');
-    }
-
-    return planFolderOrganization(rootPath);
-  });
-  ipcMain.handle('local:apply-organize-folder-plan', async (_event, payload: { rootPath: string; actions: LocalFilePlanAction[] }) => {
-    if (!payload || typeof payload !== 'object') {
-      throw new Error('Invalid apply payload.');
-    }
-
-    const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath : '';
-    const actions = Array.isArray(payload.actions) ? payload.actions : [];
-    if (!rootPath.trim()) {
-      throw new Error('A folder path is required.');
-    }
-
-    return applyFolderOrganizationPlan(rootPath, actions);
-  });
-  ipcMain.handle('local:create-file-in-folder', async (_event, payload: { rootPath: string; relativePath: string; content: string; overwrite?: boolean }) => {
-    if (!payload || typeof payload !== 'object') {
-      throw new Error('Invalid create-file payload.');
-    }
-
-    const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath : '';
-    const relativePath = typeof payload.relativePath === 'string' ? payload.relativePath : '';
-    const content = typeof payload.content === 'string' ? payload.content : '';
-    const overwrite = typeof payload.overwrite === 'boolean' ? payload.overwrite : false;
-
-    if (!rootPath.trim()) {
-      throw new Error('A folder path is required.');
-    }
-
-    return writeFileInFolder(rootPath, relativePath, content, { overwrite });
-  });
-  ipcMain.handle('local:append-file-in-folder', async (_event, payload: { rootPath: string; relativePath: string; content: string }) => {
-    if (!payload || typeof payload !== 'object') {
-      throw new Error('Invalid append-file payload.');
-    }
-
-    const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath : '';
-    const relativePath = typeof payload.relativePath === 'string' ? payload.relativePath : '';
-    const content = typeof payload.content === 'string' ? payload.content : '';
-
-    if (!rootPath.trim()) {
-      throw new Error('A folder path is required.');
-    }
-
-    return appendFileInFolder(rootPath, relativePath, content);
-  });
-  ipcMain.handle('local:read-file-in-folder', async (_event, payload: { rootPath: string; relativePath: string }) => {
-    if (!payload || typeof payload !== 'object') {
-      throw new Error('Invalid read-file payload.');
-    }
-
-    const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath : '';
-    const relativePath = typeof payload.relativePath === 'string' ? payload.relativePath : '';
-
-    if (!rootPath.trim()) {
-      throw new Error('A folder path is required.');
-    }
-
-    return readFileInFolder(rootPath, relativePath);
-  });
-  ipcMain.handle('local:list-dir-in-folder', async (_event, payload: { rootPath: string; relativePath?: string }) => {
-    if (!payload || typeof payload !== 'object') {
-      throw new Error('Invalid list-dir payload.');
-    }
-
-    const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath : '';
-    const relativePath = typeof payload.relativePath === 'string' ? payload.relativePath : '';
-    if (!rootPath.trim()) {
-      throw new Error('A folder path is required.');
-    }
-
-    return listDirInFolder(rootPath, relativePath);
-  });
-  ipcMain.handle('local:exists-in-folder', async (_event, payload: { rootPath: string; relativePath: string }) => {
-    if (!payload || typeof payload !== 'object') {
-      throw new Error('Invalid exists payload.');
-    }
-
-    const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath : '';
-    const relativePath = typeof payload.relativePath === 'string' ? payload.relativePath : '';
-    if (!rootPath.trim()) {
-      throw new Error('A folder path is required.');
-    }
-
-    return existsInFolder(rootPath, relativePath);
-  });
-  ipcMain.handle('local:rename-in-folder', async (_event, payload: { rootPath: string; oldRelative: string; newRelative: string }) => {
-    if (!payload || typeof payload !== 'object') throw new Error('Invalid rename payload.');
-    const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath : '';
-    const oldRelative = typeof payload.oldRelative === 'string' ? payload.oldRelative : '';
-    const newRelative = typeof payload.newRelative === 'string' ? payload.newRelative : '';
-    if (!rootPath.trim()) throw new Error('A folder path is required.');
-    return renameInFolder(rootPath, oldRelative, newRelative);
-  });
-  ipcMain.handle('local:delete-in-folder', async (_event, payload: { rootPath: string; relativePath: string }) => {
-    if (!payload || typeof payload !== 'object') throw new Error('Invalid delete payload.');
-    const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath : '';
-    const relativePath = typeof payload.relativePath === 'string' ? payload.relativePath : '';
-    if (!rootPath.trim()) throw new Error('A folder path is required.');
-    return deleteInFolder(rootPath, relativePath);
-  });
-  ipcMain.handle('local:stat-in-folder', async (_event, payload: { rootPath: string; relativePath: string }) => {
-    if (!payload || typeof payload !== 'object') throw new Error('Invalid stat payload.');
-    const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath : '';
-    const relativePath = typeof payload.relativePath === 'string' ? payload.relativePath : '';
-    if (!rootPath.trim()) throw new Error('A folder path is required.');
-    return statInFolder(rootPath, relativePath);
-  });
-  ipcMain.handle('local:open-path', async (_event, payload: { targetPath: string }) => {
-    if (!payload || typeof payload !== 'object') {
-      throw new Error('Invalid open-path payload.');
-    }
-
-    const targetPath = typeof payload.targetPath === 'string' ? payload.targetPath : '';
-    return openLocalPath(targetPath);
-  });
-
-  /* â”€â”€ Shell exec IPC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-  ipcMain.handle('local:shell-exec', async (_event, payload: { rootPath: string; command: string; timeoutMs?: number }) => {
-    if (!payload || typeof payload !== 'object') throw new Error('Invalid shell-exec payload.');
-    const rootPath = typeof payload.rootPath === 'string' ? payload.rootPath.trim() : '';
-    const command = typeof payload.command === 'string' ? payload.command.trim() : '';
-    const timeoutMs = typeof payload.timeoutMs === 'number' && payload.timeoutMs > 0 ? payload.timeoutMs : 30_000;
-
-    if (!rootPath) throw new Error('A folder path is required.');
-    if (!command) throw new Error('A command is required.');
-
-    // Validate rootPath exists
-    const rootStat = await fs.stat(rootPath).catch(() => null);
-    if (!rootStat?.isDirectory()) throw new Error('Root path is not a valid directory.');
-
-    try {
-      const { stdout, stderr } = await execAsync(command, {
-        cwd: rootPath,
-        timeout: timeoutMs,
-        maxBuffer: 1024 * 1024, // 1 MB
-        shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/sh',
-      });
-
-      return { stdout: stdout || '', stderr: stderr || '', exitCode: 0, timedOut: false };
-    } catch (err: unknown) {
-      const execErr = err as { stdout?: string; stderr?: string; code?: number | string; killed?: boolean; signal?: string };
-      const timedOut = execErr.killed === true || execErr.signal === 'SIGTERM';
-      return {
-        stdout: typeof execErr.stdout === 'string' ? execErr.stdout : '',
-        stderr: typeof execErr.stderr === 'string' ? execErr.stderr : '',
-        exitCode: typeof execErr.code === 'number' ? execErr.code : 1,
-        timedOut,
-      };
-    }
-  });
-
-  /* â”€â”€ Web fetch IPC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-  ipcMain.handle('local:web-fetch', async (_event, payload: { url: string; options?: { method?: string; headers?: Record<string, string>; body?: string } }) => {
-    if (!payload || typeof payload !== 'object') throw new Error('Invalid web-fetch payload.');
-    const url = typeof payload.url === 'string' ? payload.url.trim() : '';
-    if (!url) throw new Error('URL is required.');
-
-    const opts = payload.options ?? {};
-    const method = typeof opts.method === 'string' ? opts.method.toUpperCase() : 'GET';
-
-    const fetchOptions: RequestInit = {
-      method,
-      headers: opts.headers ?? {},
-      signal: AbortSignal.timeout(30_000),
-    };
-
-    if (method !== 'GET' && method !== 'HEAD' && typeof opts.body === 'string') {
-      fetchOptions.body = opts.body;
-    }
-
-    const response = await fetch(url, fetchOptions);
-    const bodyText = await response.text();
-    const maxLen = 100_000;
-    const truncated = bodyText.length > maxLen;
-    const headersObj: Record<string, string> = {};
-    response.headers.forEach((value, key) => { headersObj[key] = value; });
-
-    return {
-      status: response.status,
-      statusText: response.statusText,
-      headers: headersObj,
-      body: truncated ? bodyText.slice(0, maxLen) : bodyText,
-      truncated,
-    };
-  });
+  registerWindowIpcHandlers(ipcMain);
+  registerScopedLocalFileIpcHandlers(ipcMain);
+  registerConnectorHostIpcHandlers(ipcMain);
 
   /* â”€â”€ Notification IPC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   ipcMain.handle('notify', async (_event, payload: { title: string; body?: string }) => {
@@ -4487,11 +4104,11 @@ app.whenReady().then(async () => {
     return { ok: false, message: 'Notifications not supported on this platform.' };
   });
 
-  await createWindow();
+  await createAppWindow({ isDev, delay });
 
   app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      await createWindow();
+      await createAppWindow({ isDev, delay });
     }
   });
 });

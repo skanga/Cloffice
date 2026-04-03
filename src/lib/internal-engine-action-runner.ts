@@ -35,6 +35,7 @@ export function isInternalReadOnlyAction(action: EngineRequestedAction): boolean
 
 export async function executeInternalReadOnlyEngineActions(params: {
   bridge: DesktopBridge;
+  explorerId: string;
   rootPath: string;
   actions: EngineRequestedAction[];
 }): Promise<InternalReadOnlyActionRunResult> {
@@ -63,14 +64,14 @@ export async function executeInternalReadOnlyEngineActions(params: {
 
     try {
       if (action.type === 'list_dir') {
-        const result = await params.bridge.listDirInFolder(params.rootPath, action.path || '');
+        const result = await params.bridge.listDirInFolder(params.explorerId, action.path || '');
         const listed = result.items.slice(0, 12).map((item) => `${item.kind === 'directory' ? '[dir]' : '[file]'} ${item.path}`);
         previews.push(`Listed ${action.path || '.'}\n${listed.join('\n') || '(empty directory)'}`);
       } else if (action.type === 'read_file') {
-        const result = await params.bridge.readFileInFolder(params.rootPath, action.path);
+        const result = await params.bridge.readFileInFolder(params.explorerId, action.path);
         previews.push(`Read ${action.path}\n${trimPreview(result.content)}`);
       } else {
-        const result = await params.bridge.existsInFolder(params.rootPath, action.path);
+        const result = await params.bridge.existsInFolder(params.explorerId, action.path);
         previews.push(`${action.path}: ${result.exists ? 'exists' : 'missing'}${result.exists ? ` (${result.kind})` : ''}`);
       }
 

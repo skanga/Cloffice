@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CoworkProject, MessageUsage } from '@/app-types';
 import { formatCostUsd, formatTokenCount } from '@/lib/token-usage';
 import {
@@ -58,7 +58,7 @@ import {
 } from '@/components/ui/sidebar';
 
 type AppPage = 'chat' | 'cowork' | 'project' | 'files' | 'local-files' | 'activity' | 'memory' | 'scheduled' | 'safety' | 'settings';
-type SettingsSection = 'Profile' | 'Appearance' | 'System Prompt' | 'Gateway' | 'Connectors' | 'Account' | 'Privacy' | 'Developer';
+type SettingsSection = 'Profile' | 'Appearance' | 'System Prompt' | 'Engine' | 'Connectors' | 'Account' | 'Privacy' | 'Developer';
 type AppLanguage = 'en' | 'de';
 
 type RecentSidebarItem = {
@@ -129,7 +129,7 @@ const settingsNavItems: { label: SettingsSection; icon: typeof User }[] = [
   { label: 'Profile', icon: User },
   { label: 'Appearance', icon: Palette },
   { label: 'System Prompt', icon: MessageSquareText },
-  { label: 'Gateway', icon: Wifi },
+  { label: 'Engine', icon: Wifi },
   { label: 'Connectors', icon: Link2 },
   { label: 'Account', icon: KeyRound },
   { label: 'Privacy', icon: Shield },
@@ -140,7 +140,7 @@ const sectionLabels: Record<SettingsSection, { en: string; de: string }> = {
   Profile: { en: 'Profile', de: 'Profil' },
   Appearance: { en: 'Appearance', de: 'Darstellung' },
   'System Prompt': { en: 'System Prompt', de: 'System-Prompt' },
-  Gateway: { en: 'Engine', de: 'Engine' },
+  Engine: { en: 'Engine', de: 'Engine' },
   Connectors: { en: 'Connectors', de: 'Konnektoren' },
   Account: { en: 'Account', de: 'Konto' },
   Privacy: { en: 'Privacy', de: 'Datenschutz' },
@@ -161,8 +161,6 @@ export function AppSidebar({
   coworkProjects,
   activeCoworkProjectId,
   workingFolder,
-  scheduledItems,
-  scheduledLoading,
   sessionUsage,
   onSelectRecentItem,
   onRenameRecentItem,
@@ -185,16 +183,14 @@ export function AppSidebar({
   const t = (en: string, de: string) => (language === 'de' ? de : en);
   const isChatView = activePage === 'chat';
   const isSettingsView = activePage === 'settings';
-  const isWorkspacePage = ['project', 'files', 'local-files', 'activity', 'memory', 'scheduled', 'safety'].includes(activePage);
   const compact = !sidebarOpen;
   const navItems = isChatView ? chatNavItems : coworkNavItems;
   const safeRecentItems = recentItems ?? [];
-  const safeScheduledItems = scheduledItems ?? [];
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [createProjectStep, setCreateProjectStep] = useState<'chooser' | 'form'>('chooser');
-  const [createProjectMode, setCreateProjectMode] = useState<'scratch' | 'existing'>('scratch');
+  const [, setCreateProjectMode] = useState<'scratch' | 'existing'>('scratch');
   const [projectTitleDraft, setProjectTitleDraft] = useState('');
   const [projectFolderDraft, setProjectFolderDraft] = useState('');
   const [projectDescriptionDraft, setProjectDescriptionDraft] = useState('');
@@ -233,7 +229,7 @@ export function AppSidebar({
     { value: 'de', label: 'Deutsch (Deutschland)' },
   ];
 
-  const safeCoworkProjects = coworkProjects ?? [];
+  const safeCoworkProjects = useMemo(() => coworkProjects ?? [], [coworkProjects]);
   const renameProjectTarget = safeCoworkProjects.find((project) => project.id === renameProjectId) ?? null;
   const deleteProjectTarget = safeCoworkProjects.find((project) => project.id === deleteProjectId) ?? null;
 

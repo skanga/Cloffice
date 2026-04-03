@@ -3,10 +3,22 @@ import path from 'node:path';
 
 const repoRoot = process.cwd();
 const electronMainPath = path.join(repoRoot, 'electron', 'main.ts');
-const appPath = path.join(repoRoot, 'src', 'App.tsx');
-const chatUtilsPath = path.join(repoRoot, 'src', 'lib', 'chat-utils.ts');
+const promptControllerPath = path.join(repoRoot, 'src', 'lib', 'engine-cowork-prompt-controller.ts');
 const safetyPolicyPath = path.join(repoRoot, 'src', 'lib', 'safety-policy.ts');
 const filesystemConnectorPath = path.join(repoRoot, 'src', 'lib', 'connectors', 'filesystem.ts');
+const preloadPath = path.join(repoRoot, 'electron', 'preload.cts');
+const connectorHostPath = path.join(repoRoot, 'electron', 'connector-host.ts');
+const localFilesPath = path.join(repoRoot, 'electron', 'local-files.ts');
+const useAuthPath = path.join(repoRoot, 'src', 'hooks', 'use-auth.ts');
+const windowManagementPath = path.join(repoRoot, 'electron', 'window-management.ts');
+const appPath = path.join(repoRoot, 'src', 'App.tsx');
+const fileServicePath = path.join(repoRoot, 'src', 'lib', 'file-service.ts');
+const filesPagePath = path.join(repoRoot, 'src', 'features', 'workspace', 'files-page.tsx');
+const onboardingPagePath = path.join(repoRoot, 'src', 'features', 'auth', 'onboarding-page.tsx');
+const settingsPagePath = path.join(repoRoot, 'src', 'features', 'settings', 'settings-page.tsx');
+const scheduledPagePath = path.join(repoRoot, 'src', 'features', 'workspace', 'scheduled-page.tsx');
+const connectorRegistryPath = path.join(repoRoot, 'src', 'lib', 'connectors', 'registry.ts');
+const chatUtilsPath = path.join(repoRoot, 'src', 'lib', 'chat-utils.ts');
 
 async function readText(filePath) {
   return readFile(filePath, 'utf8');
@@ -22,6 +34,13 @@ function assertIncludesAll(content, snippets, label) {
   const missing = snippets.filter((snippet) => !content.includes(snippet));
   if (missing.length > 0) {
     throw new Error(`Missing required safety snippets in ${label}: ${missing.join(', ')}`);
+  }
+}
+
+function assertExcludesAll(content, snippets, label) {
+  const present = snippets.filter((snippet) => content.includes(snippet));
+  if (present.length > 0) {
+    throw new Error(`Unexpected insecure snippets present in ${label}: ${present.join(', ')}`);
   }
 }
 
@@ -45,43 +64,70 @@ function extractFunctionBlock(source, functionName) {
   return source.slice(start, end);
 }
 
+function extractSection(source, startMarker, endMarker) {
+  const start = source.indexOf(startMarker);
+  if (start < 0) {
+    throw new Error(`Could not find section start: ${startMarker}`);
+  }
+  const end = source.indexOf(endMarker, start);
+  if (end < 0) {
+    throw new Error(`Could not find section end: ${endMarker}`);
+  }
+  return source.slice(start, end);
+}
+
 function assertFunctionContains(source, functionName, snippets) {
   const block = extractFunctionBlock(source, functionName);
   assertIncludesAll(block, snippets, `function ${functionName}`);
 }
 
 async function run() {
-  const [electronMain, appFile, chatUtils, safetyPolicy, filesystemConnector] = await Promise.all([
+  const [
+    electronMain,
+    promptController,
+    safetyPolicy,
+    filesystemConnector,
+    preloadFile,
+    connectorHostFile,
+    localFilesFile,
+    useAuthFile,
+    windowManagementFile,
+    appFile,
+    fileServiceFile,
+    filesPageFile,
+    onboardingPageFile,
+    settingsPageFile,
+    scheduledPageFile,
+    connectorRegistryFile,
+    chatUtilsFile,
+  ] = await Promise.all([
     readText(electronMainPath),
-    readText(appPath),
-    readText(chatUtilsPath),
+    readText(promptControllerPath),
     readText(safetyPolicyPath),
     readText(filesystemConnectorPath),
+    readText(preloadPath),
+    readText(connectorHostPath),
+    readText(localFilesPath),
+    readText(useAuthPath),
+    readText(windowManagementPath),
+    readText(appPath),
+    readText(fileServicePath),
+    readText(filesPagePath),
+    readText(onboardingPagePath),
+    readText(settingsPagePath),
+    readText(scheduledPagePath),
+    readText(connectorRegistryPath),
+    readText(chatUtilsPath),
   ]);
 
-  // App-side project-relative path validation.
-  assertIncludesAll(appFile, [
-    'function validateProjectRelativePath(inputPath: string',
+  // Project-relative path validation now lives in the prompt controller.
+  assertIncludesAll(promptController, [
+    'export function validateProjectRelativePath(',
     "return options?.allowEmpty ? { ok: true } : { ok: false, reason: 'Path is required.' };",
     "return { ok: false, reason: 'Path contains invalid control characters.' };",
     "return { ok: false, reason: 'Absolute paths are not allowed for project-bound actions.' };",
     "return { ok: false, reason: 'Parent directory traversal is not allowed.' };",
-  ], 'src/App.tsx');
-
-  // Parsing-side guardrails for engine file actions.
-  assertFunctionContains(chatUtils, 'parseEngineFileActions', [
-    "type !== 'create_file'",
-    "type !== 'append_file'",
-    "type !== 'read_file'",
-    "type !== 'list_dir'",
-    "type !== 'exists'",
-    "type !== 'rename'",
-    "type !== 'delete'",
-    'hasUnsafePathChars(filePath)',
-    "typeof record.new_path === 'string'",
-    "typeof record.toPath === 'string'",
-    "typeof record.to === 'string'",
-  ]);
+  ], 'src/lib/engine-cowork-prompt-controller.ts');
 
   // Safety policy includes all file handling scopes + action mapping.
   assertIncludesAll(
@@ -126,85 +172,321 @@ async function run() {
   );
 
   // Electron-side file operation safety checks.
-  assertFunctionContains(electronMain, 'writeFileInFolder', [
+  assertFunctionContains(localFilesFile, 'writeFileInFolder', [
     'normalizeRelativePath(relativePath)',
-    'path.isAbsolute(normalizedRelative)',
-    'isHiddenOrBlockedPath(normalizedRelative)',
+    'isHiddenOrBlockedPath(normalizedRelativePath)',
     'isPathInside(root, resolvedTargetPath)',
     'assertTargetPathAllowed(root, resolvedTargetPath',
   ]);
 
-  assertFunctionContains(electronMain, 'readFileInFolder', [
+  assertFunctionContains(localFilesFile, 'readFileInFolder', [
     'normalizeRelativePath(relativePath)',
-    'path.isAbsolute(normalizedRelative)',
+    'isHiddenOrBlockedPath(normalizedRelativePath)',
     'isPathInside(root, resolvedTargetPath)',
     'assertTargetPathAllowed(root, resolvedTargetPath',
-    'isHiddenOrBlockedPath(normalizedRelative)',
     'stats.size > MAX_READ_FILE_BYTES',
   ]);
 
-  assertFunctionContains(electronMain, 'appendFileInFolder', [
+  assertFunctionContains(localFilesFile, 'appendFileInFolder', [
     'normalizeRelativePath(relativePath)',
-    'path.isAbsolute(normalizedRelative)',
-    'isHiddenOrBlockedPath(normalizedRelative)',
+    'isHiddenOrBlockedPath(normalizedRelativePath)',
     'isPathInside(root, resolvedTargetPath)',
     'assertTargetPathAllowed(root, resolvedTargetPath',
   ]);
 
-  assertFunctionContains(electronMain, 'listDirInFolder', [
+  assertFunctionContains(localFilesFile, 'listDirInFolder', [
     'normalizeRelativePath(relativePath ?? \'\')',
-    'path.isAbsolute(normalizedRelative)',
-    'isHiddenOrBlockedPath(normalizedRelative)',
-    'isPathInside(root, targetPath)',
-    'assertRealPathInsideRoot(rootRealPath, targetPath',
-    'isHiddenOrBlockedPath(entryRelative)',
-  ]);
-
-  assertFunctionContains(electronMain, 'existsInFolder', [
-    'normalizeRelativePath(relativePath)',
-    'path.isAbsolute(normalizedRelative)',
-    'isHiddenOrBlockedPath(normalizedRelative)',
     'isPathInside(root, resolvedTargetPath)',
     'assertTargetPathAllowed(root, resolvedTargetPath',
+    'isHiddenOrBlockedPath(entry.name)',
+    'truncated: entries.length > items.length',
   ]);
 
-  assertFunctionContains(electronMain, 'renameInFolder', [
+  assertFunctionContains(localFilesFile, 'existsInFolder', [
+    'normalizeRelativePath(relativePath)',
+    'isHiddenOrBlockedPath(normalizedRelativePath)',
+    'isPathInside(root, resolvedTargetPath)',
+    'assertTargetPathAllowed(root, resolvedTargetPath',
+    "kind: 'none'",
+  ]);
+
+  assertFunctionContains(localFilesFile, 'renameInFolder', [
     'normalizeRelativePath(oldRelative)',
     'normalizeRelativePath(newRelative)',
-    'path.isAbsolute(normalizedOld) || path.isAbsolute(normalizedNew)',
     'isHiddenOrBlockedPath(normalizedOld) || isHiddenOrBlockedPath(normalizedNew)',
     'isPathInside(root, resolvedOld) || !isPathInside(root, resolvedNew)',
     'assertTargetPathAllowed(root, resolvedOld',
-    'assertRealPathInsideRoot(rootRealPath, path.dirname(resolvedNew)',
-    'A file or directory already exists at the destination path.',
+    'assertTargetPathAllowed(root, resolvedNew',
   ]);
 
-  assertFunctionContains(electronMain, 'deleteInFolder', [
+  assertFunctionContains(localFilesFile, 'deleteInFolder', [
     'normalizeRelativePath(relativePath)',
-    'path.isAbsolute(normalized)',
-    'isHiddenOrBlockedPath(normalized)',
+    'isHiddenOrBlockedPath(normalizedRelativePath)',
     'isPathInside(root, resolved)',
     'assertTargetPathAllowed(root, resolved',
-    'if (resolved === root)',
+    'fs.rm(resolved, { recursive: true, force: false })',
   ]);
 
-  assertFunctionContains(electronMain, 'statInFolder', [
+  assertFunctionContains(localFilesFile, 'statInFolder', [
     'normalizeRelativePath(relativePath)',
-    'path.isAbsolute(normalized)',
-    'isHiddenOrBlockedPath(normalized)',
     'isPathInside(root, resolved)',
     'assertTargetPathAllowed(root, resolved',
   ]);
 
   // Shared helpers that support symlink / traversal protections.
   assertIncludesAll(
-    electronMain,
+    localFilesFile,
     [
       'function isPathInside(rootPath: string, targetPath: string): boolean',
       'function isHiddenOrBlockedPath(targetPath: string): boolean',
-      'async function assertRealPathInsideRoot(',
+      'async function resolveNearestExistingAncestorPath(',
       'async function assertTargetPathAllowed(',
       "throw new Error('Symbolic links are blocked for local file actions.')",
+    ],
+    'electron/local-files.ts',
+  );
+
+  // Connector host primitives remain available only behind the development bridge.
+  const developmentBridgeBlock = extractSection(
+    preloadFile,
+    'if (enableDevelopmentBridge) {',
+    "contextBridge.exposeInMainWorld('cloffice', desktopBridgeApi);",
+  );
+  const productionBridgeBlock = extractSection(
+    preloadFile,
+    'const desktopBridgeApi = {',
+    'if (enableDevelopmentBridge) {',
+  );
+
+  assertIncludesAll(
+    developmentBridgeBlock,
+    [
+      'shellExec: (rootPath: string, command: string, timeoutMs?: number)',
+      'webFetch: (',
+      'options?: { method?: string; headers?: Record<string, string>; body?: string },',
+      "ipcRenderer.invoke('connector:shell-exec', {",
+      "ipcRenderer.invoke('connector:web-fetch', {",
+    ],
+    'electron/preload.cts development bridge block',
+  );
+
+  assertExcludesAll(
+    productionBridgeBlock,
+    [
+      'shellExec: (rootPath: string, command: string, timeoutMs?: number)',
+      'webFetch: (',
+      "ipcRenderer.invoke('connector:shell-exec', {",
+      "ipcRenderer.invoke('connector:web-fetch', {",
+    ],
+    'electron/preload.cts production bridge block',
+  );
+
+  assertIncludesAll(
+    connectorHostFile,
+    [
+      "ipcMain.handle('connector:shell-exec'",
+      "ipcMain.handle('connector:web-fetch'",
+      'Shell working directory must be inside a currently selected local folder.',
+      'Only http/https URLs are allowed',
+    ],
+    'electron/connector-host.ts',
+  );
+
+  // Auth tokens must not be persisted in renderer storage.
+  assertExcludesAll(
+    useAuthFile,
+    [
+      'writeLocalStorageItem(AUTH_LOCAL_STORAGE_KEY',
+      'writeSessionStorageItem(AUTH_SESSION_STORAGE_KEY',
+      'const serialized = JSON.stringify(session);',
+    ],
+    'src/hooks/use-auth.ts',
+  );
+
+  // External links must be kept out of the privileged renderer process.
+  assertIncludesAll(
+    windowManagementFile,
+    [
+      "window.webContents.setWindowOpenHandler(({ url }) => {",
+      "return { action: 'deny' };",
+      "window.webContents.on('will-navigate', (event, url) => {",
+      'shell.openExternal(url)',
+    ],
+    'electron/window-management.ts',
+  );
+
+  // App shell text must stay free of the mojibake that previously broke shortcuts
+  // comments and markdown export output.
+  assertIncludesAll(
+    appFile,
+    [
+      '// Ctrl+N -> new chat / new task',
+      '// Ctrl+K -> open search',
+      '// Ctrl+Shift+S -> settings',
+      "const markdown = `# Chat Export - ${new Date().toLocaleDateString()}\\n\\n${lines.join('\\n\\n---\\n\\n')}\\n`;",
+    ],
+    'src/App.tsx',
+  );
+
+  assertExcludesAll(
+    appFile,
+    ['Ã', 'Â', 'â€', 'â€¢', 'â€”', '�'],
+    'src/App.tsx',
+  );
+
+  for (const [label, content] of [
+    ['src/features/auth/onboarding-page.tsx', onboardingPageFile],
+    ['src/features/settings/settings-page.tsx', settingsPageFile],
+    ['src/features/workspace/scheduled-page.tsx', scheduledPageFile],
+    ['src/lib/connectors/registry.ts', connectorRegistryFile],
+    ['src/lib/chat-utils.ts', chatUtilsFile],
+  ]) {
+    assertExcludesAll(
+      content,
+      ['Ã', 'Â', 'â€', 'â€¢', 'â€”', '�'],
+      label,
+    );
+  }
+
+  // Deprecated remote-runtime compatibility paths must stay removed from the live
+  // filesystem service and Files page UI.
+  assertIncludesAll(
+    fileServiceFile,
+    [
+      'Desktop filesystem abstraction backed by the Electron bridge.',
+      'constructor(private readonly explorerId: string) {}',
+      'export class LocalFileService implements FileService {',
+      'export function createFileService(explorerId: string): FileService {',
+      'return new LocalFileService(explorerId);',
+    ],
+    'src/lib/file-service.ts',
+  );
+
+  assertExcludesAll(
+    fileServiceFile,
+    [
+      'RemoteFileService',
+      'WorkspaceRpcUnsupportedError',
+      'isRemoteUrl(',
+      'workspace.*',
+      'compatibility plugin',
+      "readonly mode:",
+      "'remote'",
+    ],
+    'src/lib/file-service.ts',
+  );
+
+  assertIncludesAll(
+    preloadFile,
+    [
+      'const enableDevelopmentBridge =',
+      'Object.assign(desktopBridgeApi, {',
+      "ipcRenderer.invoke('engine-config:get') as Promise<DesktopBridgeEngineConfig>",
+      "ipcRenderer.invoke('engine-config:save', draft) as Promise<DesktopBridgeEngineConfig>",
+      'createInternalPromptSchedule: (payload: { kind?: \'chat\' | \'cowork\'; prompt: string; name?: string; intervalMinutes?: number; projectId?: string; projectTitle?: string; explorerId?: string; model?: string | null }) =>',
+      "selectFolder: (initialPath?: string) => ipcRenderer.invoke('local:select-folder', initialPath)",
+      'explorerId',
+      "ipcRenderer.invoke('local:create-file-in-folder', {",
+      "ipcRenderer.invoke('local:list-dir-in-folder', {",
+    ],
+    'electron/preload.cts',
+  );
+
+  assertExcludesAll(
+    preloadFile,
+    [
+      'healthCheck: (baseUrl: string)',
+      'checkRuntimeHealth: async (baseUrl: string)',
+      "ipcRenderer.invoke('backend:health-check'",
+    ],
+    'electron/preload.cts',
+  );
+
+  assertIncludesAll(
+    electronMain,
+    [
+      'async function readDesktopBridgeEngineConfig(): Promise<DesktopBridgeEngineConfig>',
+      'async function writeEngineConfigDraft(draft: unknown): Promise<DesktopBridgeEngineConfig>',
+      'prepareEngineConfigWrite(normalizedDraft);',
+      'async function normalizePromptScheduleCreatePayload(payload: unknown): Promise<{',
+      'await resolveLocalExplorerRoot(normalizeRequiredString(explorerId, \'prompt schedule payload explorerId\', 256))',
+      'const validatePendingApprovalFlow = async (flow: unknown): Promise<InternalApprovalRecoveryFlow> => {',
+      'Pending approval flow root path must be inside a currently selected local folder.',
+      'const canonicalizeContinuationPayload = async (payload: unknown): Promise<InternalEngineCoworkContinuationRequest> => {',
+      'Cowork continuation payload does not match the saved approval flow.',
+      'registerWindowIpcHandlers(ipcMain);',
+      'registerScopedLocalFileIpcHandlers(ipcMain);',
+      'await createAppWindow({ isDev, delay });',
+      "ipcMain.handle('engine-config:get', async () => readDesktopBridgeEngineConfig());",
+      "ipcMain.handle('engine-config:save', async (_event, draft: unknown) => writeEngineConfigDraft(draft));",
+      'normalizeRuntimeRetentionPolicyPayload(payload)',
+    ],
+    'electron/main.ts',
+  );
+
+  assertExcludesAll(
+    electronMain,
+    [
+      'async function runHealthCheck(endpointUrl: string)',
+      "ipcMain.handle('backend:health-check'",
+    ],
+    'electron/main.ts',
+  );
+
+  assertIncludesAll(
+    localFilesFile,
+    [
+      'export async function registerLocalExplorer(rootPath: string): Promise<LocalExplorerSelection>',
+      'export async function requireLocalExplorerRoot(explorerId: string): Promise<string>',
+      'export function isPathWithinRegisteredExplorerRoots(targetPath: string): boolean {',
+      'if (!isPathWithinRegisteredExplorerRoots(resolved)) {',
+      'Target path must be inside a currently selected local folder.',
+      'export function registerLocalFileIpcHandlers(ipcMain: IpcMain): void {',
+      'return registerLocalExplorer(result.filePaths[0]);',
+      'const rootPath = await requireLocalExplorerRoot(explorerId);',
+    ],
+    'electron/local-files.ts',
+  );
+
+  assertIncludesAll(
+    windowManagementFile,
+    [
+      'export async function createAppWindow(params: {',
+      "window.webContents.setWindowOpenHandler(({ url }) => {",
+      "window.webContents.on('will-navigate', (event, url) => {",
+      'export function registerWindowIpcHandlers(ipcMain: IpcMain): void {',
+    ],
+    'electron/window-management.ts',
+  );
+
+  assertExcludesAll(
+    preloadFile,
+    [
+      'function parseDesktopBridgeEngineConfig(',
+      'function prepareDesktopBridgeEngineConfigWrite(',
+      'preparedWrite.activeEntry',
+      'projectTitle?: string; rootPath?: string; model?: string | null }) =>',
+    ],
+    'electron/preload.cts',
+  );
+
+  assertExcludesAll(
+    filesPageFile,
+    [
+      'WorkspaceRpcUnsupportedError',
+      'remoteUnsupported',
+      'isRemote',
+      'remote server',
+      'legacy runtime',
+      'Workspace access unavailable',
+    ],
+    'src/features/workspace/files-page.tsx',
+  );
+
+  assertExcludesAll(
+    electronMain,
+    [
+      "ipcMain.handle('engine-config:save', async (_event, entry: unknown) => writeRawConfigEntry(entry));",
     ],
     'electron/main.ts',
   );

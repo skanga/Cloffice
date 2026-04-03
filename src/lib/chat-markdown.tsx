@@ -1,3 +1,5 @@
+/* eslint-disable react-refresh/only-export-components */
+
 import { useState } from 'react';
 import type { Components } from 'react-markdown';
 import { Check, Copy } from 'lucide-react';

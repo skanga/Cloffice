@@ -24,6 +24,7 @@ export async function executeEngineLocalActionPlan(params: {
   actions: EngineRequestedAction[];
   maxActionsPerRun: number;
   bridge: DesktopBridgeApi;
+  explorerId: string;
   rootPath: string;
   runId: string;
   projectId?: string;
@@ -178,7 +179,7 @@ export async function executeEngineLocalActionPlan(params: {
 
     if (action.type === 'create_file' && !action.overwrite && params.bridge.existsInFolder) {
       try {
-        const existing = await params.bridge.existsInFolder(params.rootPath, action.path) as {
+        const existing = await params.bridge.existsInFolder(params.explorerId, action.path) as {
           exists: boolean;
         };
         if (existing.exists) {
@@ -318,7 +319,7 @@ export async function executeEngineLocalActionPlan(params: {
         }
 
         const result = await params.bridge.createFileInFolder(
-          params.rootPath,
+          params.explorerId,
           action.path,
           action.content,
           createFileOverwriteApproved ? true : action.overwrite,
@@ -348,7 +349,7 @@ export async function executeEngineLocalActionPlan(params: {
           continue;
         }
 
-        const result = await params.bridge.appendFileInFolder(params.rootPath, action.path, action.content) as {
+        const result = await params.bridge.appendFileInFolder(params.explorerId, action.path, action.content) as {
           filePath: string;
           bytesAppended: number;
         };
@@ -378,7 +379,7 @@ export async function executeEngineLocalActionPlan(params: {
           continue;
         }
 
-        const result = await params.bridge.readFileInFolder(params.rootPath, action.path) as {
+        const result = await params.bridge.readFileInFolder(params.explorerId, action.path) as {
           filePath: string;
           content: string;
         };
@@ -410,7 +411,7 @@ export async function executeEngineLocalActionPlan(params: {
           continue;
         }
 
-        const result = await params.bridge.listDirInFolder(params.rootPath, action.path || '') as {
+        const result = await params.bridge.listDirInFolder(params.explorerId, action.path || '') as {
           items: Array<{ kind: 'directory' | 'file'; path: string }>;
           truncated?: boolean;
         };
@@ -444,7 +445,7 @@ export async function executeEngineLocalActionPlan(params: {
           continue;
         }
 
-        const result = await params.bridge.existsInFolder(params.rootPath, action.path) as {
+        const result = await params.bridge.existsInFolder(params.explorerId, action.path) as {
           path: string;
           exists: boolean;
           kind?: string;
@@ -475,7 +476,7 @@ export async function executeEngineLocalActionPlan(params: {
           continue;
         }
 
-        const result = await params.bridge.statInFolder(params.rootPath, action.path) as {
+        const result = await params.bridge.statInFolder(params.explorerId, action.path) as {
           path: string;
           kind: string;
           size: number;
@@ -510,7 +511,7 @@ export async function executeEngineLocalActionPlan(params: {
           continue;
         }
 
-        const result = await params.bridge.renameInFolder(params.rootPath, action.path, action.newPath) as {
+        const result = await params.bridge.renameInFolder(params.explorerId, action.path, action.newPath) as {
           oldPath: string;
           newPath: string;
         };
@@ -540,7 +541,7 @@ export async function executeEngineLocalActionPlan(params: {
           continue;
         }
 
-        const result = await params.bridge.deleteInFolder(params.rootPath, action.path) as {
+        const result = await params.bridge.deleteInFolder(params.explorerId, action.path) as {
           path: string;
         };
         actionReceipts.push({
@@ -555,94 +556,30 @@ export async function executeEngineLocalActionPlan(params: {
       }
 
       if (action.type === 'shell_exec') {
-        if (!params.bridge.shellExec) {
-          const message = `${actionPath}: shell_exec is unavailable in this app context.`;
-          errors.push(message);
-          actionReceipts.push({
-            id: actionId,
-            type: 'shell_exec',
-            path: actionPath,
-            status: 'error',
-            errorCode: 'UNAVAILABLE',
-            message,
-          });
-          continue;
-        }
-
-        const timeoutMs = typeof action.timeoutMs === 'number' ? action.timeoutMs : 30_000;
-        const result = await params.bridge.shellExec(params.rootPath, action.command, timeoutMs) as {
-          exitCode: number;
-          stdout?: string;
-          stderr?: string;
-          timedOut?: boolean;
-        };
-        const ok = result.exitCode === 0;
+        const message = `${actionPath}: shell_exec is not supported by the internal engine action runner.`;
+        errors.push(message);
         actionReceipts.push({
           id: actionId,
           type: 'shell_exec',
           path: actionPath,
-          status: ok ? 'ok' : 'error',
-          message: result.timedOut ? 'Command timed out' : (ok ? 'Exit 0' : `Exit ${result.exitCode}`),
+          status: 'error',
+          errorCode: 'UNAVAILABLE',
+          message,
         });
-        previews.push(`$ ${action.command}`);
-        if (result.stdout) {
-          previews.push('```');
-          previews.push(result.stdout.slice(0, 2000));
-          previews.push('```');
-        }
-        if (result.stderr) {
-          previews.push('stderr:');
-          previews.push('```');
-          previews.push(result.stderr.slice(0, 1000));
-          previews.push('```');
-        }
         continue;
       }
 
       if (action.type === 'web_fetch') {
-        if (!params.bridge.webFetch) {
-          const message = `${actionPath}: web_fetch is unavailable in this app context.`;
-          errors.push(message);
-          actionReceipts.push({
-            id: actionId,
-            type: 'web_fetch',
-            path: actionPath,
-            status: 'error',
-            errorCode: 'UNAVAILABLE',
-            message,
-          });
-          continue;
-        }
-
-        const method = typeof action.method === 'string' ? action.method : 'GET';
-        const headers: Record<string, string> = {};
-        if (typeof action.contentType === 'string') {
-          headers['Content-Type'] = action.contentType;
-        }
-        const result = await params.bridge.webFetch(action.url, {
-          method,
-          headers,
-          body: action.body,
-        }) as {
-          status: number;
-          statusText: string;
-          truncated?: boolean;
-          body?: string;
-        };
-        const ok = result.status >= 200 && result.status < 400;
+        const message = `${action.url}: web_fetch is not supported by the internal engine action runner.`;
+        errors.push(message);
         actionReceipts.push({
           id: actionId,
           type: 'web_fetch',
           path: action.url,
-          status: ok ? 'ok' : 'error',
-          message: `${result.status} ${result.statusText}${result.truncated ? ' (truncated)' : ''}`,
+          status: 'error',
+          errorCode: 'UNAVAILABLE',
+          message,
         });
-        previews.push(`> fetch ${method} ${action.url} => ${result.status}`);
-        if (result.body) {
-          previews.push('```');
-          previews.push(result.body.slice(0, 2000));
-          previews.push('```');
-        }
         continue;
       }
     } catch (error) {

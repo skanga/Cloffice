@@ -1,5 +1,8 @@
-﻿import { _electron as electron, expect, test } from '@playwright/test';
+import { _electron as electron, expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import type { LocalExplorerSelection } from '@/app-types';
 
 const ONBOARDING_COMPLETE_KEY = 'cloffice.onboarding.complete';
 const USAGE_MODE_KEY = 'cloffice.usage.mode';
@@ -8,6 +11,25 @@ const COWORK_PROJECTS_KEY = 'cloffice.cowork.projects.v1';
 const COWORK_ACTIVE_PROJECT_KEY = 'cloffice.cowork.projects.active.v1';
 const COWORK_TASKS_KEY = 'cloffice.cowork.tasks.v1';
 const LOCAL_CONFIG_KEY = 'cloffice.config';
+
+type ScheduleExportWindow = Window & {
+  __scheduleExportText?: string | null;
+  __restoreScheduleExportHooks?: () => void;
+};
+
+type SettingsScheduleExportWindow = Window & {
+  __settingsScheduleExportText?: string | null;
+  __restoreSettingsScheduleExportHooks?: () => void;
+};
+
+function isAppPage(page: Page): boolean {
+  if (page.isClosed()) {
+    return false;
+  }
+
+  const url = page.url();
+  return !url.startsWith('devtools://');
+}
 
 function pendingApprovalCards(page: Page) {
   return page.getByTestId(/^pending-approval-(?!s-card$)(?!approve-)(?!reject-)(?!reason-).+/);
@@ -26,8 +48,9 @@ async function clearStoredState(page: Page) {
 
     const bridge = window.cloffice;
     await bridge?.saveConfig?.({
-      endpointUrl: 'ws://127.0.0.1:65534',
-      accessToken: '',
+      internalRuntimeDebug: {
+        endpointUrl: 'ws://127.0.0.1:65534',
+      },
     });
     await bridge?.saveEngineConfig?.({
       providerId: 'internal',
@@ -57,27 +80,81 @@ async function clearStoredState(page: Page) {
 }
 
 async function prepareProjectRoot(page: Page) {
-  return page.evaluate(async () => {
+  const downloads = await page.evaluate(async () => {
     const bridge = window.cloffice;
-    if (!bridge?.getDownloadsPath || !bridge.createFileInFolder) {
+    if (!bridge?.getDownloadsPath) {
       throw new Error('Desktop bridge unavailable for project setup.');
     }
 
-    const downloads = await bridge.getDownloadsPath();
-    const folderName = 'cloffice-internal-ui-e2e';
-    await bridge.createFileInFolder(downloads, `${folderName}/README.md`, '# Internal UI E2E\n', true);
-    return `${downloads}${downloads.endsWith('\\') ? '' : '\\'}${folderName}`;
+    return bridge.getDownloadsPath();
   });
+
+  const rootFolder = path.join(downloads, 'cloffice-internal-ui-e2e');
+  await mkdir(rootFolder, { recursive: true });
+  await writeFile(path.join(rootFolder, 'README.md'), '# Internal UI E2E\n', 'utf8');
+  return rootFolder;
 }
 
-async function createProjectFromSidebar(page: Page, params: { title: string; description: string; rootFolder: string }) {
-  await page.getByTitle('Add project').click();
-  await page.getByTestId('create-project-mode-existing').click();
-  await page.getByPlaceholder('Project name').fill(params.title);
-  await page.getByPlaceholder('Project description (what this project is about)').fill(params.description);
-  await page.getByPlaceholder('Choose project location').fill(params.rootFolder);
-  await page.getByRole('button', { name: 'Create' }).click();
-  await expect(page.locator('[data-testid^="project-select-"]', { hasText: params.title })).toBeVisible();
+async function ensureNavigationProject(page: Page, params?: { title?: string; description?: string }): Promise<Page> {
+  const projectButtons = page.getByTestId(/^project-select-/);
+  if ((await projectButtons.count()) > 0) {
+    return page;
+  }
+
+  const rootFolder = await prepareProjectRoot(page);
+  const seeded = await seedCoworkProject(page, {
+    title: params?.title ?? 'Internal Navigation Project',
+    description: params?.description ?? 'Project used to access cowork-scoped workspace pages in E2E.',
+    rootFolder,
+  });
+  return seeded.page;
+}
+
+async function seedCoworkProject(page: Page, params: { title: string; description: string; rootFolder: string }) {
+  page = await resolveActivePage(page);
+  const projectId = `e2e-project-${Date.now()}`;
+  const timestamp = Date.now();
+  await page.evaluate(([projectsKey, activeProjectKey, project]) => {
+    localStorage.setItem(projectsKey, JSON.stringify([project]));
+    localStorage.setItem(activeProjectKey, project.id);
+  }, [
+    COWORK_PROJECTS_KEY,
+    COWORK_ACTIVE_PROJECT_KEY,
+    {
+      id: projectId,
+      name: params.title,
+      description: params.description,
+      instructions: params.description,
+      workspaceFolder: params.rootFolder,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+  ] as const);
+  await page.reload();
+  await page.waitForLoadState('domcontentloaded');
+  return {
+    page: await resolveActivePage(page),
+    projectId,
+  };
+}
+
+async function authorizeFolderForE2E(page: Page, rootFolder: string): Promise<LocalExplorerSelection> {
+  const selection = await page.evaluate(async (targetRoot) => {
+    const bridge = window.cloffice;
+    if (!bridge?.authorizeFolderForE2E) {
+      throw new Error('Folder authorization test bridge unavailable.');
+    }
+
+    return bridge.authorizeFolderForE2E(targetRoot);
+  }, rootFolder);
+
+  await page.evaluate((nextSelection) => {
+    window.dispatchEvent(new CustomEvent('cloffice:e2e-working-folder-selection', {
+      detail: nextSelection,
+    }));
+  }, selection);
+
+  return selection;
 }
 
 async function openProjectCowork(page: Page, projectTitle: string) {
@@ -180,18 +257,13 @@ async function connectInternalProviderFromOnboarding(page: Page) {
   await expect(page.getByText('Internal runtime diagnostics')).toBeVisible({ timeout: 30000 });
 }
 
-async function finishOnboarding(page: Page) {
-  const startUsingButton = page.getByRole('button', { name: 'Start using Cloffice' });
-  if (await startUsingButton.isVisible({ timeout: 5000 })) {
-    await startUsingButton.click();
-  }
-}
-
 async function resolveActivePage(page: Page): Promise<Page> {
-  if (!page.isClosed()) {
+  if (isAppPage(page)) {
     return page;
   }
-  const replacement = page.context().pages().find((candidate) => !candidate.isClosed());
+
+  const replacement = page.context().pages().find((candidate) => isAppPage(candidate))
+    ?? page.context().pages().find((candidate) => !candidate.isClosed());
   if (!replacement) {
     throw new Error('No active Electron page is available.');
   }
@@ -223,17 +295,23 @@ async function markOnboardingComplete(page: Page): Promise<Page> {
 }
 
 async function connectInternalProviderFromSettings(page: Page) {
-  if (await page.getByTitle('Add project').isVisible({ timeout: 5000 }).catch(() => false)) {
-    return;
-  }
-  if (await page.getByText('Internal runtime diagnostics').isVisible({ timeout: 5000 }).catch(() => false)) {
+  page = await resolveActivePage(page);
+  const addProjectButton = page.getByTitle('Add project');
+  const diagnosticsPanel = page.getByText('Internal runtime diagnostics');
+  const coworkTab = page.getByRole('tab', { name: /cowork/i });
+
+  if (await diagnosticsPanel.isVisible({ timeout: 5000 }).catch(() => false)) {
     await page.getByRole('button', { name: 'Back' }).click();
-    await page.getByRole('tab', { name: /cowork/i }).click();
+    await coworkTab.click();
+    await expect(addProjectButton).toBeVisible({ timeout: 15000 });
     return;
   }
 
   const offlineBanner = page.getByText('Cowork is offline');
   if (!(await offlineBanner.isVisible({ timeout: 5000 }).catch(() => false))) {
+    if (await addProjectButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await expect(addProjectButton).toBeVisible({ timeout: 15000 });
+    }
     return;
   }
 
@@ -244,9 +322,10 @@ async function connectInternalProviderFromSettings(page: Page) {
   await expect(settingsProviderButton).toBeEnabled({ timeout: 20000 });
   await settingsProviderButton.click();
   await page.getByRole('button', { name: 'Save and connect' }).click();
-  await expect(page.getByText('Internal runtime diagnostics')).toBeVisible({ timeout: 30000 });
+  await expect(diagnosticsPanel).toBeVisible({ timeout: 30000 });
   await page.getByRole('button', { name: 'Back' }).click();
-  await page.getByRole('tab', { name: /cowork/i }).click();
+  await coworkTab.click();
+  await expect(addProjectButton).toBeVisible({ timeout: 15000 });
 }
 
 async function clearInternalSchedules(page: Page) {
@@ -293,32 +372,23 @@ async function waitForFirstApproval(page: Page, timeout = 30000) {
   return { approvalCard, approvalId };
 }
 
-async function waitForPromptStatus(page: Page, promptTag: string, status: 'running' | 'completed' | 'failed') {
-  await expect
-    .poll(
-      async () =>
-        page.evaluate(([tasksKey, tag]) => {
-          const raw = localStorage.getItem(tasksKey);
-          if (!raw) {
-            return null;
-          }
-          try {
-            const parsed = JSON.parse(raw) as Array<{ prompt?: string; status?: string }>;
-            const match = parsed.find((entry) => typeof entry.prompt === 'string' && entry.prompt.includes(tag));
-            return match?.status ?? null;
-          } catch {
-            return null;
-          }
-        }, [COWORK_TASKS_KEY, promptTag] as const),
-      { timeout: 45000 },
-    )
-    .toBe(status);
-}
-
 async function openSchedulePage(page: Page) {
+  page = await ensureNavigationProject(page);
   await expect(async () => {
-    const scheduleControl = page.getByRole('button', { name: 'Schedule', exact: true })
+    let scheduleControl = page.getByRole('button', { name: 'Schedule', exact: true })
       .or(page.getByRole('tab', { name: 'Schedule', exact: true }));
+
+    if (!(await scheduleControl.first().isVisible().catch(() => false))) {
+      const firstProjectButton = page.getByTestId(/^project-select-/).first();
+      await expect(firstProjectButton).toBeVisible();
+      await firstProjectButton.click();
+      if (!(await scheduleControl.first().isVisible().catch(() => false))) {
+        await firstProjectButton.click();
+      }
+      scheduleControl = page.getByRole('button', { name: 'Schedule', exact: true })
+        .or(page.getByRole('tab', { name: 'Schedule', exact: true }));
+    }
+
     await expect(scheduleControl.first()).toBeVisible();
     await scheduleControl.first().click();
   }).toPass({ timeout: 15000 });
@@ -326,16 +396,22 @@ async function openSchedulePage(page: Page) {
 }
 
 async function openActivityPage(page: Page) {
+  page = await ensureNavigationProject(page);
   await expect(async () => {
     const activityControl = page.getByRole('button', { name: 'Activity', exact: true })
       .or(page.getByRole('tab', { name: 'Activity', exact: true }));
     if (!(await activityControl.first().isVisible().catch(() => false))) {
-      const backButton = page.getByRole('button', { name: 'Back' });
-      if (await backButton.isVisible().catch(() => false)) {
-        await backButton.click();
+      const firstProjectButton = page.getByTestId(/^project-select-/).first();
+      await expect(firstProjectButton).toBeVisible();
+      await firstProjectButton.click();
+      if (!(await activityControl.first().isVisible().catch(() => false))) {
+        await firstProjectButton.click();
       }
-      if (!(await activityControl.first().isVisible().catch(() => false)) && await backButton.isVisible().catch(() => false)) {
-        await backButton.click();
+      if (!(await activityControl.first().isVisible().catch(() => false))) {
+        const backButton = page.getByRole('button', { name: 'Back' });
+        if (await backButton.isVisible().catch(() => false)) {
+          await backButton.click();
+        }
       }
     }
     await expect(activityControl.first()).toBeVisible();
@@ -365,6 +441,7 @@ test.describe('Internal engine UI flow', () => {
       env: {
         ...process.env,
         CLOFFICE_ENABLE_INTERNAL_ENGINE: '1',
+        CLOFFICE_ENABLE_TEST_BRIDGE: '1',
       },
     });
 
@@ -385,15 +462,14 @@ test.describe('Internal engine UI flow', () => {
 
   test('operator can approve a live cowork read-only action through the internal runtime UI flow', async () => {
     page = await markOnboardingComplete(page);
-    await connectInternalProviderFromSettings(page);
-    await expect(page.getByTitle('Add project')).toBeVisible({ timeout: 15000 });
-
     const rootFolder = await prepareProjectRoot(page);
-    await createProjectFromSidebar(page, {
+    ({ page } = await seedCoworkProject(page, {
       title: 'Internal UI Project',
       description: 'Exercise the developer-only internal runtime through the live Cloffice UI.',
       rootFolder,
-    });
+    }));
+    await authorizeFolderForE2E(page, rootFolder);
+    await connectInternalProviderFromSettings(page);
     await openProjectCowork(page, 'Internal UI Project');
     await selectCoworkPlannerModel(page);
 
@@ -436,13 +512,6 @@ test.describe('Internal engine UI flow', () => {
     page = await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);
     await clearInternalSchedules(page);
-    const rootFolder = await prepareProjectRoot(page);
-    await createProjectFromSidebar(page, {
-      title: 'Internal Schedule UI Project',
-      description: 'Exercise internal schedule controls through the live UI.',
-      rootFolder,
-    });
-    await openProjectCowork(page, 'Internal Schedule UI Project');
 
     const createdJob = await page.evaluate(async () => {
       const bridge = window.cloffice;
@@ -486,12 +555,6 @@ test.describe('Internal engine UI flow', () => {
     page = await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);
     await clearInternalSchedules(page);
-    const rootFolder = await prepareProjectRoot(page);
-    await createProjectFromSidebar(page, {
-      title: 'Internal Bulk Schedule Project',
-      description: 'Exercise bulk internal schedule controls through the live UI.',
-      rootFolder,
-    });
 
     const createdJobs = await page.evaluate(async () => {
       const bridge = window.cloffice;
@@ -534,7 +597,7 @@ test.describe('Internal engine UI flow', () => {
     await expect.poll(async () => page.evaluate(async (jobIds) => {
       const bridge = window.cloffice;
       const jobs = await bridge.listInternalCronJobs();
-      return jobIds.every((jobId: string) => jobs.some((job: any) => job?.id === jobId && job?.lastRunAt));
+      return jobIds.every((jobId: string) => jobs.some((job) => job.id === jobId && job.lastRunAt));
     }, createdJobs.map((job) => job.id)), { timeout: 15000 }).toBe(true);
 
     await page.getByTestId('schedule-select-all-visible').check();
@@ -542,7 +605,7 @@ test.describe('Internal engine UI flow', () => {
     await expect.poll(async () => page.evaluate(async () => {
       const bridge = window.cloffice;
       const jobs = await bridge.listInternalCronJobs();
-      return jobs.filter((job: any) => job?.name === 'UI bulk schedule one copy' || job?.name === 'UI bulk schedule two copy').length;
+      return jobs.filter((job) => job.name === 'UI bulk schedule one copy' || job.name === 'UI bulk schedule two copy').length;
     }), { timeout: 15000 }).toBe(2);
 
     await page.getByTestId(`scheduled-job-select-${createdJobs[0].id}`).check();
@@ -557,7 +620,7 @@ test.describe('Internal engine UI flow', () => {
       const bridge = window.cloffice;
       const jobs = await bridge.listInternalCronJobs();
       return jobIds.map((jobId: string) => {
-        const match = jobs.find((job: any) => job?.id === jobId);
+        const match = jobs.find((job) => job.id === jobId);
         return match
           ? {
               totalRunCount: match.totalRunCount ?? 0,
@@ -581,18 +644,12 @@ test.describe('Internal engine UI flow', () => {
     page = await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);
     await clearInternalSchedules(page);
-    const rootFolder = await prepareProjectRoot(page);
-    await createProjectFromSidebar(page, {
-      title: 'Internal Direct Schedule Project',
-      description: 'Exercise direct schedule page creation and editing.',
-      rootFolder,
-    });
 
     await openSchedulePage(page);
-    await page.getByTestId('schedule-create-kind-cowork').click();
+    await page.getByTestId('schedule-create-kind-chat').click();
     await page.getByTestId('schedule-filter-all').click();
     await page.getByTestId('schedule-create-name').fill('UI direct schedule');
-    await page.getByTestId('schedule-create-prompt').fill('Inspect the current project root and summarize the next migration step.');
+    await page.getByTestId('schedule-create-prompt').fill('Summarize the next migration step.');
     await page.getByTestId('schedule-create-interval-5').click();
     await page.getByTestId('schedule-create-model-select').selectOption({ index: 1 });
     await page.getByTestId('schedule-create-submit').click();
@@ -600,32 +657,32 @@ test.describe('Internal engine UI flow', () => {
     await expect.poll(async () => page.evaluate(async () => {
       const bridge = window.cloffice;
       const jobs = await bridge.listInternalCronJobs();
-      return jobs.some((job: any) => job?.name === 'UI direct schedule');
+      return jobs.some((job) => job.name === 'UI direct schedule');
     }), { timeout: 15000 }).toBe(true);
 
     const createdJobId = await page.evaluate(async () => {
       const bridge = window.cloffice;
       const jobs = await bridge.listInternalCronJobs();
-      const match = jobs.find((job: any) => job?.name === 'UI direct schedule');
+      const match = jobs.find((job) => job.name === 'UI direct schedule');
       return match?.id ?? null;
     });
     expect(createdJobId).not.toBeNull();
     const createdJobCard = page.getByTestId(`scheduled-job-${createdJobId}`);
     await expect(createdJobCard).toBeVisible({ timeout: 15000 });
     await expect(createdJobCard).toContainText('UI direct schedule');
-    await expect(createdJobCard).toContainText('Cowork');
+    await expect(createdJobCard).toContainText('Chat');
     await expect(createdJobCard).toContainText('every 5 minutes');
 
     await page.getByTestId(`scheduled-job-edit-${createdJobId}`).click();
     await page.getByTestId(`scheduled-job-edit-name-${createdJobId}`).fill('UI direct schedule edited');
-    await page.getByTestId(`scheduled-job-edit-prompt-${createdJobId}`).fill('Inspect README.md and summarize the next migration step.');
+    await page.getByTestId(`scheduled-job-edit-prompt-${createdJobId}`).fill('Summarize the latest migration step.');
     await page.getByTestId(`scheduled-job-edit-model-${createdJobId}`).selectOption({ index: 0 });
     await page.getByTestId(`scheduled-job-edit-save-${createdJobId}`).click();
 
     await expect.poll(async () => page.evaluate(async (targetJobId) => {
       const bridge = window.cloffice;
       const jobs = await bridge.listInternalCronJobs();
-      const match = jobs.find((job: any) => job?.id === targetJobId);
+      const match = jobs.find((job) => job.id === targetJobId);
       return match
         ? {
             name: match.name,
@@ -635,7 +692,7 @@ test.describe('Internal engine UI flow', () => {
         : null;
     }, createdJobId), { timeout: 15000 }).toEqual({
       name: 'UI direct schedule edited',
-      prompt: 'Inspect README.md and summarize the next migration step.',
+      prompt: 'Summarize the latest migration step.',
       model: null,
     });
 
@@ -645,20 +702,30 @@ test.describe('Internal engine UI flow', () => {
     await expect.poll(async () => page.evaluate(async () => {
       const bridge = window.cloffice;
       const jobs = await bridge.listInternalCronJobs();
-      return jobs.some((job: any) => job?.name === 'UI direct schedule edited copy');
-    }), { timeout: 15000 }).toBe(true);
+      const match = jobs.find((job) => job.name === 'UI direct schedule edited copy');
+      return match
+        ? {
+            intervalMinutes: match.intervalMinutes ?? null,
+            schedule: match.schedule,
+          }
+        : null;
+    }), { timeout: 15000 }).toEqual({
+      intervalMinutes: 5,
+      schedule: 'every 5 minutes',
+    });
 
     await page.getByTestId('schedule-search').fill('edited copy');
     await expect(page.getByText('Showing 1 of')).toBeVisible();
     const duplicatedCard = page.getByTestId(/^scheduled-job-/).filter({ hasText: 'UI direct schedule edited copy' }).first();
     await expect(duplicatedCard).toBeVisible({ timeout: 15000 });
+    await expect(duplicatedCard).toContainText('every 5 minutes');
 
     await page.getByTestId('schedule-search').fill('UI direct schedule edited');
     await page.getByTestId(`scheduled-job-run-now-${createdJobId}`).click();
     await expect.poll(async () => page.evaluate(async (targetJobId) => {
       const bridge = window.cloffice;
       const jobs = await bridge.listInternalCronJobs();
-      const match = jobs.find((job: any) => job?.id === targetJobId);
+      const match = jobs.find((job) => job.id === targetJobId);
       return Boolean(match?.lastRunAt);
     }, createdJobId), { timeout: 15000 }).toBe(true);
   });
@@ -667,23 +734,15 @@ test.describe('Internal engine UI flow', () => {
     page = await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);
     await clearInternalSchedules(page);
-    const rootFolder = await prepareProjectRoot(page);
-    await createProjectFromSidebar(page, {
-      title: 'Internal Grouped Schedule Project',
-      description: 'Exercise schedule grouping in the live UI.',
-      rootFolder,
-    });
-
-    await page.evaluate(async (selectedRootPath) => {
+    await page.evaluate(async () => {
       const bridge = window.cloffice;
       await bridge.createInternalPromptSchedule({
-        kind: 'cowork',
+        kind: 'chat',
         name: 'Grouped project schedule',
-        prompt: 'Inspect the grouped project root.',
+        prompt: 'Summarize the grouped project state.',
         intervalMinutes: 5,
         projectId: 'internal-grouped-schedule-project',
         projectTitle: 'Internal Grouped Schedule Project',
-        rootPath: selectedRootPath,
         model: 'internal/dev-planner',
       });
       await bridge.createInternalPromptSchedule({
@@ -693,7 +752,7 @@ test.describe('Internal engine UI flow', () => {
         intervalMinutes: 15,
         model: null,
       });
-    }, rootFolder);
+    });
 
     await openSchedulePage(page);
     await expect(page.getByText('Grouped project schedule')).toBeVisible({ timeout: 15000 });
@@ -718,60 +777,54 @@ test.describe('Internal engine UI flow', () => {
     page = await markOnboardingComplete(page);
     await connectInternalProviderFromSettings(page);
     await clearInternalSchedules(page);
-    const rootFolder = await prepareProjectRoot(page);
-    await createProjectFromSidebar(page, {
-      title: 'Internal Import Export Project',
-      description: 'Exercise schedule export and import through the live UI.',
-      rootFolder,
-    });
 
-    const createdJob = await page.evaluate(async (selectedRootPath) => {
+    const createdJob = await page.evaluate(async () => {
       const bridge = window.cloffice;
       const created = await bridge.createInternalPromptSchedule({
-        kind: 'cowork',
+        kind: 'chat',
         name: 'UI export import schedule',
-        prompt: 'Inspect the current project root and summarize the next migration step.',
+        prompt: 'Summarize the next migration step.',
         intervalMinutes: 5,
-        rootPath: selectedRootPath,
-        model: 'internal/dev-planner',
+        model: null,
       });
       await bridge.updateInternalPromptSchedule(created.id, { enabled: false });
       return created;
-    }, rootFolder);
+    });
 
     await openSchedulePage(page);
     await expect(page.getByTestId(`scheduled-job-${createdJob.id}`)).toBeVisible({ timeout: 15000 });
 
     await page.evaluate(() => {
+      const exportWindow = window as ScheduleExportWindow;
       const originalCreateObjectURL = URL.createObjectURL.bind(URL);
       const originalAnchorClick = HTMLAnchorElement.prototype.click;
-      (window as any).__scheduleExportText = null;
+      exportWindow.__scheduleExportText = null;
       URL.createObjectURL = ((blob: Blob) => {
         void blob.text().then((text) => {
-          (window as any).__scheduleExportText = text;
+          exportWindow.__scheduleExportText = text;
         });
         return originalCreateObjectURL(blob);
       }) as typeof URL.createObjectURL;
       HTMLAnchorElement.prototype.click = function click() {
         return;
       };
-      (window as any).__restoreScheduleExportHooks = () => {
+      exportWindow.__restoreScheduleExportHooks = () => {
         URL.createObjectURL = originalCreateObjectURL;
         HTMLAnchorElement.prototype.click = originalAnchorClick;
       };
     });
     await page.getByTestId('schedule-export-visible').click();
-    await expect.poll(async () => page.evaluate(() => (window as any).__scheduleExportText), {
+    await expect.poll(async () => page.evaluate(() => (window as ScheduleExportWindow).__scheduleExportText), {
       timeout: 15000,
     }).not.toBeNull();
-    const exportText = await page.evaluate(() => (window as any).__scheduleExportText as string);
+    const exportText = await page.evaluate(() => (window as ScheduleExportWindow).__scheduleExportText as string);
     await page.evaluate(() => {
-      (window as any).__restoreScheduleExportHooks?.();
+      (window as ScheduleExportWindow).__restoreScheduleExportHooks?.();
     });
     const exported = JSON.parse(exportText) as { schedules: Array<{ name: string; enabled: boolean; kind: string }> };
     expect(exported.schedules[0]?.name).toBe('UI export import schedule');
     expect(exported.schedules[0]?.enabled).toBe(false);
-    expect(exported.schedules[0]?.kind).toBe('cowork');
+    expect(exported.schedules[0]?.kind).toBe('chat');
 
     await clearInternalSchedules(page);
     await page.getByRole('button', { name: 'Refresh' }).click();
@@ -786,7 +839,7 @@ test.describe('Internal engine UI flow', () => {
     await expect.poll(async () => page.evaluate(async () => {
       const bridge = window.cloffice;
       const jobs = await bridge.listInternalCronJobs();
-      const match = jobs.find((job: any) => job?.name === 'UI export import schedule');
+      const match = jobs.find((job) => job.name === 'UI export import schedule');
       return match
         ? {
             enabled: match.enabled,
@@ -797,7 +850,7 @@ test.describe('Internal engine UI flow', () => {
     }), { timeout: 15000 }).toEqual({
       enabled: false,
       schedule: 'every 5 minutes',
-      kind: 'cowork',
+      kind: 'chat',
     });
   });
 
@@ -820,30 +873,31 @@ test.describe('Internal engine UI flow', () => {
     await openDeveloperSettings(page);
 
     await page.evaluate(() => {
+      const exportWindow = window as SettingsScheduleExportWindow;
       const originalCreateObjectURL = URL.createObjectURL.bind(URL);
       const originalAnchorClick = HTMLAnchorElement.prototype.click;
-      (window as any).__settingsScheduleExportText = null;
+      exportWindow.__settingsScheduleExportText = null;
       URL.createObjectURL = ((blob: Blob) => {
         void blob.text().then((text) => {
-          (window as any).__settingsScheduleExportText = text;
+          exportWindow.__settingsScheduleExportText = text;
         });
         return originalCreateObjectURL(blob);
       }) as typeof URL.createObjectURL;
       HTMLAnchorElement.prototype.click = function click() {
         return;
       };
-      (window as any).__restoreSettingsScheduleExportHooks = () => {
+      exportWindow.__restoreSettingsScheduleExportHooks = () => {
         URL.createObjectURL = originalCreateObjectURL;
         HTMLAnchorElement.prototype.click = originalAnchorClick;
       };
     });
     await page.getByTestId('settings-schedule-export').click();
-    await expect.poll(async () => page.evaluate(() => (window as any).__settingsScheduleExportText), {
+    await expect.poll(async () => page.evaluate(() => (window as SettingsScheduleExportWindow).__settingsScheduleExportText), {
       timeout: 15000,
     }).not.toBeNull();
-    const exportText = await page.evaluate(() => (window as any).__settingsScheduleExportText as string);
+    const exportText = await page.evaluate(() => (window as SettingsScheduleExportWindow).__settingsScheduleExportText as string);
     await page.evaluate(() => {
-      (window as any).__restoreSettingsScheduleExportHooks?.();
+      (window as SettingsScheduleExportWindow).__restoreSettingsScheduleExportHooks?.();
     });
     const exported = JSON.parse(exportText) as { schedules: Array<{ name: string; kind: string }> };
     expect(exported.schedules[0]?.name).toBe('Settings backup schedule');
@@ -859,7 +913,7 @@ test.describe('Internal engine UI flow', () => {
     await expect.poll(async () => page.evaluate(async () => {
       const bridge = window.cloffice;
       const jobs = await bridge.listInternalCronJobs();
-      const match = jobs.find((job: any) => job?.name === 'Settings backup schedule');
+      const match = jobs.find((job) => job.name === 'Settings backup schedule');
       return match
         ? {
             schedule: match.schedule,
@@ -874,28 +928,18 @@ test.describe('Internal engine UI flow', () => {
 
   test('scheduled internal cowork run surfaces approval recovery in the live UI', async () => {
     page = await markOnboardingComplete(page);
-    await connectInternalProviderFromSettings(page);
-    await clearInternalSchedules(page);
-    await expect(page.getByTitle('Add project')).toBeVisible({ timeout: 15000 });
-
     const rootFolder = await prepareProjectRoot(page);
-    await createProjectFromSidebar(page, {
+    const authorizedFolder = await authorizeFolderForE2E(page, rootFolder);
+    const seededProject = await seedCoworkProject(page, {
       title: 'Internal Scheduled Project',
       description: 'Exercise scheduled cowork approval recovery through the live UI.',
       rootFolder,
     });
-    await openProjectCowork(page, 'Internal Scheduled Project');
-    const projectSelectTestId = await page
-      .locator('[data-testid^="project-select-"]', { hasText: 'Internal Scheduled Project' })
-      .first()
-      .getAttribute('data-testid');
-    const projectId = projectSelectTestId?.replace('project-select-', '');
-    if (!projectId) {
-      throw new Error('Unable to resolve scheduled cowork project id from the live UI.');
-    }
+    page = seededProject.page;
+    await connectInternalProviderFromSettings(page);
 
     const scheduleName = `UI scheduled cowork ${Date.now()}`;
-    await page.evaluate(async ({ name, rootPath, projectId }) => {
+    await page.evaluate(async ({ name, explorerId, projectId }) => {
       const bridge = window.cloffice;
       const created = await bridge.createInternalPromptSchedule({
         kind: 'cowork',
@@ -903,12 +947,12 @@ test.describe('Internal engine UI flow', () => {
         prompt: 'SCHEDULED-COWORK-1: Inspect the current project root and capture root metadata before planning the next migration step.',
         projectId,
         projectTitle: 'Internal Scheduled Project',
-        rootPath,
+        explorerId,
         intervalMinutes: 1,
         model: 'internal/dev-planner',
       });
       await bridge.runInternalPromptScheduleNow(created.id);
-    }, { name: scheduleName, rootPath: rootFolder, projectId });
+    }, { name: scheduleName, explorerId: authorizedFolder.explorerId, projectId: seededProject.projectId });
 
     const approvalCard = pendingApprovalCards(page).filter({ hasText: 'List directory .' }).first();
     await expect(approvalCard).toBeVisible({ timeout: 90000 });
@@ -925,22 +969,19 @@ test.describe('Internal engine UI flow', () => {
 
   test('schedule page shows artifact drill-down for a completed internal schedule', async () => {
     page = await markOnboardingComplete(page);
+    const rootFolder = await prepareProjectRoot(page);
+    const authorizedFolder = await authorizeFolderForE2E(page, rootFolder);
     await connectInternalProviderFromSettings(page);
     await clearInternalSchedules(page);
-    const rootFolder = await prepareProjectRoot(page);
-    await createProjectFromSidebar(page, {
-      title: 'Internal Schedule Artifact Project',
-      description: 'Exercise seeded schedule artifact drill-down rendering through the live UI.',
-      rootFolder,
-    });
 
-    const seededJob = await page.evaluate(async () => {
+    const seededJob = await page.evaluate(async (explorerId) => {
       const bridge = window.cloffice;
       const created = await bridge.createInternalPromptSchedule({
         kind: 'cowork',
         name: 'UI schedule artifact drilldown',
         prompt: 'Seeded artifact drilldown prompt.',
         intervalMinutes: 5,
+        explorerId,
         model: 'internal/dev-planner',
       });
       if (!bridge.seedInternalScheduleArtifactForE2E) {
@@ -948,13 +989,13 @@ test.describe('Internal engine UI flow', () => {
       }
       await bridge.seedInternalScheduleArtifactForE2E(created.id);
       return created;
-    });
+    }, authorizedFolder.explorerId);
 
     await expect.poll(
       async () => page.evaluate(async (jobId) => {
         const bridge = window.cloffice;
         const jobs = await bridge.listInternalCronJobs();
-        const job = jobs.find((entry: any) => entry?.id === jobId);
+        const job = jobs.find((entry) => entry.id === jobId);
         return Boolean(job?.lastArtifactSummary);
       }, seededJob.id),
       { timeout: 15000, message: 'expected seeded schedule artifact summary to be visible in the bridge state' },
@@ -994,14 +1035,6 @@ test.describe('Internal engine UI flow', () => {
     await connectInternalProviderFromSettings(page);
     await clearInternalSchedules(page);
 
-    const rootFolder = await prepareProjectRoot(page);
-    await createProjectFromSidebar(page, {
-      title: 'Activity Schedule Project',
-      description: 'Exercise activity-page visibility for scheduled and runtime events.',
-      rootFolder,
-    });
-    await openProjectCowork(page, 'Activity Schedule Project');
-
     const scheduledJob = await page.evaluate(async () => {
       const bridge = window.cloffice;
       const created = await bridge.createInternalPromptSchedule({
@@ -1019,14 +1052,14 @@ test.describe('Internal engine UI flow', () => {
       async () => page.evaluate(async (jobId) => {
         const bridge = window.cloffice;
         const runs = await bridge.getInternalRunHistory(24);
-        return runs.some((run: any) => run?.scheduleId === jobId && run?.status === 'completed');
+        return runs.some((run) => run.scheduleId === jobId && run.status === 'completed');
       }, scheduledJob.id),
       { timeout: 20000, message: 'expected scheduled runtime event to land in internal run history' },
     ).toBe(true);
     const scheduledRunId = await page.evaluate(async (jobId) => {
       const bridge = window.cloffice;
       const runs = await bridge.getInternalRunHistory(24);
-      const match = runs.find((run: any) => run?.scheduleId === jobId && run?.status === 'completed');
+      const match = runs.find((run) => run.scheduleId === jobId && run.status === 'completed');
       return match?.runId ?? null;
     }, scheduledJob.id);
 
@@ -1039,7 +1072,7 @@ test.describe('Internal engine UI flow', () => {
       async () => page.evaluate(async () => {
         const bridge = window.cloffice;
         const runs = await bridge.getInternalRunHistory(24);
-        return runs.some((run: any) => !run?.scheduleId && run?.sessionKind === 'chat' && run?.status === 'completed');
+        return runs.some((run) => !run.scheduleId && run.sessionKind === 'chat' && run.status === 'completed');
       }),
       { timeout: 20000, message: 'expected non-scheduled runtime event to land in internal run history' },
     ).toBe(true);
@@ -1076,7 +1109,7 @@ test.describe('Internal engine UI flow', () => {
     await expect.poll(async () => page.evaluate(async () => {
       const bridge = window.cloffice;
       const info = await bridge.getInternalEngineRuntimeInfo();
-      return info.providerCoworkNormalizationTrendByProvider.map((entry: any) => entry.providerId).sort().join(',');
+      return info.providerCoworkNormalizationTrendByProvider.map((entry) => entry.providerId).sort().join(',');
     }), { timeout: 15000 }).toBe('anthropic,gemini,openai');
 
     await openDeveloperSettings(page);

@@ -1,9 +1,7 @@
-﻿import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useEffect } from 'react';
 import {
-  AlertTriangle,
   CalendarDays,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -74,9 +72,9 @@ function formatTime(value: string | null): string {
 }
 
 function formatTimeShort(value: string | null): string {
-  if (!value) return 'â€”';
+  if (!value) return '-';
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return 'â€”';
+  if (Number.isNaN(parsed.getTime())) return '-';
   return new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit' }).format(parsed);
 }
 
@@ -642,7 +640,7 @@ export function ScheduledPage({
                     <Badge variant="outline" className="font-sans text-[10px]">{metric.total} job{metric.total === 1 ? '' : 's'}</Badge>
                   </div>
                   <p className="mt-1 font-sans text-[11px] text-muted-foreground">
-                    {metric.active} active Â· {metric.pending} pending approval Â· {metric.completed} completed
+                    {metric.active} active | {metric.pending} pending approval | {metric.completed} completed
                   </p>
                 </div>
               ))}
@@ -666,7 +664,7 @@ export function ScheduledPage({
                     <Badge variant="outline" className="font-sans text-[10px]">{metric.total} job{metric.total === 1 ? '' : 's'}</Badge>
                   </div>
                   <p className="mt-1 font-sans text-[11px] text-muted-foreground">
-                    {metric.active} active Â· {metric.pending} pending approval Â· {metric.completed} completed
+                    {metric.active} active | {metric.pending} pending approval | {metric.completed} completed
                   </p>
                 </div>
               ))}

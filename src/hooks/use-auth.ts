@@ -1,10 +1,12 @@
-﻿import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   getSupabaseAuthConfigError,
   restoreSupabaseSession,
   signInWithPassword,
   signOutSupabase,
+  type PersistedAuthSession,
 } from '@/lib/supabase-auth';
+import { getDesktopBridge } from '@/lib/desktop-bridge';
 import {
   LEGACY_STORAGE_KEYS,
   readLocalStorageItem,
@@ -13,26 +15,16 @@ import {
   removeSessionStorageItem,
   STORAGE_KEYS,
   writeLocalStorageItem,
-  writeSessionStorageItem,
 } from '@/lib/storage-keys';
 
-/* â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-
-export type AuthSession = {
-  email: string;
-  accessToken: string;
-  refreshToken: string;
-  rememberMe: boolean;
-  expiresAt: number;
-};
+/* Storage-backed auth session type */
+export type AuthSession = PersistedAuthSession;
 
 type LoginCredentials = {
   email: string;
   password: string;
   rememberMe: boolean;
 };
-
-/* â”€â”€ Storage constants (private) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 const AUTH_LOCAL_STORAGE_KEY = STORAGE_KEYS.authLocal;
 const AUTH_LOCAL_STORAGE_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.authLocal] as const;
@@ -43,24 +35,12 @@ const CLOFFICE_USAGE_MODE_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.usageMode] as const
 const CLOFFICE_ONBOARDING_KEY = STORAGE_KEYS.onboardingComplete;
 const CLOFFICE_ONBOARDING_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.onboardingComplete] as const;
 
-/* â”€â”€ Storage helpers (private) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-
 function clearAuthStorage() {
   removeLocalStorageItem(AUTH_LOCAL_STORAGE_KEY, AUTH_LOCAL_STORAGE_LEGACY_KEYS);
   removeSessionStorageItem(AUTH_SESSION_STORAGE_KEY, AUTH_SESSION_STORAGE_LEGACY_KEYS);
 }
 
-function persistAuthSession(session: AuthSession) {
-  clearAuthStorage();
-  const serialized = JSON.stringify(session);
-  if (session.rememberMe) {
-    writeLocalStorageItem(AUTH_LOCAL_STORAGE_KEY, serialized, AUTH_LOCAL_STORAGE_LEGACY_KEYS);
-    return;
-  }
-  writeSessionStorageItem(AUTH_SESSION_STORAGE_KEY, serialized, AUTH_SESSION_STORAGE_LEGACY_KEYS);
-}
-
-function readStoredAuthSession(): AuthSession | null {
+function readLegacyStoredAuthSession(): AuthSession | null {
   const localRaw = readLocalStorageItem(AUTH_LOCAL_STORAGE_KEY, AUTH_LOCAL_STORAGE_LEGACY_KEYS);
   const sessionRaw = readSessionStorageItem(AUTH_SESSION_STORAGE_KEY, AUTH_SESSION_STORAGE_LEGACY_KEYS);
   const raw = localRaw ?? sessionRaw;
@@ -91,15 +71,33 @@ function readStoredAuthSession(): AuthSession | null {
   }
 }
 
-/* â”€â”€ Hook â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+async function readStoredAuthSession(): Promise<AuthSession | null> {
+  const bridge = getDesktopBridge();
+  const stored = bridge?.getAuthSession ? await bridge.getAuthSession() : null;
+  return stored ?? null;
+}
+
+async function persistAuthSession(session: AuthSession): Promise<void> {
+  const bridge = getDesktopBridge();
+  if (bridge?.saveAuthSession) {
+    await bridge.saveAuthSession(session);
+  }
+  clearAuthStorage();
+}
+
+async function clearPersistedAuthSession(): Promise<void> {
+  const bridge = getDesktopBridge();
+  if (bridge?.clearAuthSession) {
+    await bridge.clearAuthSession();
+  }
+  clearAuthStorage();
+}
 
 type UseAuthOptions = {
   onStatusChange?: (message: string) => void;
 };
 
 export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
-  // Use a ref so the setup effect always calls the latest version of the
-  // callback without needing to be in the dependency array.
   const statusRef = useRef(onStatusChange);
   useEffect(() => {
     statusRef.current = onStatusChange;
@@ -113,7 +111,6 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
     () => readLocalStorageItem(CLOFFICE_ONBOARDING_KEY, CLOFFICE_ONBOARDING_LEGACY_KEYS) === 'true',
   );
 
-  // Session recovery on mount
   useEffect(() => {
     const storedUsageMode = readLocalStorageItem(CLOFFICE_USAGE_MODE_KEY, CLOFFICE_USAGE_MODE_LEGACY_KEYS);
     if (storedUsageMode === 'guest') {
@@ -121,19 +118,31 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
       statusRef.current?.('Running in local mode.');
     }
 
-    const storedSession = readStoredAuthSession();
-    if (!storedSession) {
-      const configError = getSupabaseAuthConfigError();
-      if (configError && storedUsageMode !== 'guest') {
-        setAuthError(configError);
-      }
-      return;
-    }
-
     let cancelled = false;
-    setAuthenticating(true);
 
     const recoverSession = async () => {
+      const secureSession = await readStoredAuthSession();
+      const legacySession = readLegacyStoredAuthSession();
+      const storedSession = secureSession ?? legacySession;
+      if (legacySession) {
+        clearAuthStorage();
+      }
+      if (!secureSession && legacySession) {
+        await persistAuthSession(legacySession);
+      }
+
+      if (!storedSession) {
+        const configError = getSupabaseAuthConfigError();
+        if (configError && storedUsageMode !== 'guest' && !cancelled) {
+          setAuthError(configError);
+        }
+        return;
+      }
+
+      if (!cancelled) {
+        setAuthenticating(true);
+      }
+
       try {
         const restored = await restoreSupabaseSession(storedSession);
         if (cancelled) {
@@ -142,13 +151,13 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
         setAuthSession(restored);
         setGuestMode(false);
         writeLocalStorageItem(CLOFFICE_USAGE_MODE_KEY, 'auth', CLOFFICE_USAGE_MODE_LEGACY_KEYS);
-        persistAuthSession(restored);
+        await persistAuthSession(restored);
         statusRef.current?.(`Signed in as ${restored.email}.`);
       } catch {
         if (cancelled) {
           return;
         }
-        clearAuthStorage();
+        await clearPersistedAuthSession();
         setAuthError('Session expired or invalid. Please login again.');
       } finally {
         if (!cancelled) {
@@ -162,10 +171,9 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleLogin = async (credentials: LoginCredentials) => {
+  const handleLogin = useCallback(async (credentials: LoginCredentials) => {
     setAuthError('');
 
     const configError = getSupabaseAuthConfigError();
@@ -191,7 +199,7 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
       setAuthSession(session);
       setGuestMode(false);
       writeLocalStorageItem(CLOFFICE_USAGE_MODE_KEY, 'auth', CLOFFICE_USAGE_MODE_LEGACY_KEYS);
-      persistAuthSession(session);
+      await persistAuthSession(session);
       statusRef.current?.(`Signed in as ${session.email}.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Invalid credentials.';
@@ -199,36 +207,35 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
     } finally {
       setAuthenticating(false);
     }
-  };
+  }, []);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     if (authSession) {
       void signOutSupabase().catch(() => {
         // local cleanup below still ends the desktop session
       });
     }
+    void clearPersistedAuthSession();
     setAuthSession(null);
     setGuestMode(false);
     removeLocalStorageItem(CLOFFICE_USAGE_MODE_KEY, CLOFFICE_USAGE_MODE_LEGACY_KEYS);
-    clearAuthStorage();
     setAuthError('');
     statusRef.current?.('Signed out.');
-  };
+  }, [authSession]);
 
-  const handleContinueAsGuest = () => {
+  const handleContinueAsGuest = useCallback(() => {
     setGuestMode(true);
     setAuthError('');
     setAuthSession(null);
-    clearAuthStorage();
+    void clearPersistedAuthSession();
     writeLocalStorageItem(CLOFFICE_USAGE_MODE_KEY, 'guest', CLOFFICE_USAGE_MODE_LEGACY_KEYS);
     statusRef.current?.('Running in local mode. Sign in anytime for hosted cloud features.');
-  };
+  }, []);
 
-  /** Sets onboarding as complete. Caller is responsible for navigation side-effects. */
-  const completeOnboarding = () => {
+  const completeOnboarding = useCallback(() => {
     writeLocalStorageItem(CLOFFICE_ONBOARDING_KEY, 'true', CLOFFICE_ONBOARDING_LEGACY_KEYS);
     setOnboardingComplete(true);
-  };
+  }, []);
 
   return {
     authSession,
@@ -245,4 +252,3 @@ export function useAuth({ onStatusChange }: UseAuthOptions = {}) {
     completeOnboarding,
   };
 }
-

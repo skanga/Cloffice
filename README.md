@@ -92,9 +92,15 @@ npm run package             # Build and package app to release/
 npm run lint                # ESLint
 npm run typecheck           # TS type checks (renderer + electron)
 npm run verify              # lint + typecheck + smoke tests
+npm run verify:release      # release gate, includes internal-engine UI E2E
 npm run test:local-actions  # Local actions smoke tests
 npm run test:e2e            # Electron E2E tests
 ```
+
+Internal-engine UI E2E:
+
+- `npm run test:e2e:internal-engine-ui` runs the full internal-engine UI suite.
+- For low-memory debugging on Windows `cmd`, run `npm.cmd run dev:e2e` in one window, then run a single Playwright test from a second window with `npx.cmd playwright test -c playwright.electron.config.ts tests/e2e/internal-engine-ui.spec.ts --workers=1 --grep "<test name>"`.
 
 ## Documentation
 

@@ -1,14 +1,11 @@
-﻿import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   BookOpen,
   Brain,
   ChevronDown,
   ChevronRight,
-  Clock,
   Edit3,
-  FileText,
   Plus,
-  RefreshCw,
   Search,
   Sparkles,
   Tag,
@@ -20,10 +17,8 @@ import {
 import type { MemoryEntry } from '@/app-types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { MEMORY_STORAGE_KEY } from '@/lib/memory-context';
 
@@ -61,7 +56,8 @@ function timeAgo(timestamp: number): string {
   return `${days} day${days === 1 ? '' : 's'} ago`;
 }
 
-export function MemoryPage({ engineConnected }: MemoryPageProps) {
+export function MemoryPage(props: MemoryPageProps) {
+  void props;
   const [entries, setEntries] = useState<MemoryEntry[]>(loadEntriesFromStorage);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<MemoryEntry['category'] | 'all'>('all');

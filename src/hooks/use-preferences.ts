@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { UserPreferences } from '@/app-types';
 import { LEGACY_STORAGE_KEYS, readLocalStorageItem, STORAGE_KEYS, writeLocalStorageItem } from '@/lib/storage-keys';
 
@@ -29,7 +29,9 @@ export function usePreferences() {
           style: parsed.style ?? defaultPreferences.style,
         };
       }
-    } catch { /* ignore */ }
+    } catch {
+      // ignore malformed local state and fall back to defaults
+    }
     return defaultPreferences;
   });
 
@@ -41,7 +43,6 @@ export function usePreferences() {
     });
   }, []);
 
-  // Apply theme class to document
   useEffect(() => {
     const root = document.documentElement;
     if (preferences.theme === 'dark') {
@@ -70,8 +71,4 @@ export function usePreferences() {
   return { preferences, updatePreferences };
 }
 
-// Re-export the type alias so callers can import it from this module if needed
 export type { UserPreferences };
-
-
-

@@ -1,17 +1,13 @@
-﻿import { getDesktopBridge } from '@/lib/desktop-bridge';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   AlertTriangle,
-  ArrowLeft,
   Check,
-  ChevronDown,
   ChevronRight,
   Clock,
   Code,
   Copy,
-  Edit3,
   Eye,
   File,
   FileCode,
@@ -25,8 +21,6 @@ import {
   FolderUp,
   GitCompare,
   HardDrive,
-  Lock,
-  MoreHorizontal,
   Pencil,
   RefreshCw,
   RotateCcw,
@@ -40,7 +34,6 @@ import {
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogClose,
@@ -56,7 +49,6 @@ import { Separator } from '@/components/ui/separator';
 import type { LocalFileListItem } from '@/app-types';
 import { chatMarkdownComponents } from '@/lib/chat-markdown';
 import type { FileService } from '@/lib/file-service';
-import { WorkspaceRpcUnsupportedError } from '@/lib/file-service';
 
 /* ═══════════════════════════════════════════ Types ═══════════════════════════════════════════ */
 
@@ -64,9 +56,8 @@ type FilesPageProps = {
   workingFolder: string;
   desktopBridgeAvailable: boolean;
   onPickFolder: () => void;
-  fileService: FileService;
+  fileService?: FileService | null;
   localFileService?: FileService | null;
-  engineUrl?: string;
   /** Lock the page to a specific root. Omit to allow switching via tab bar. */
   root?: ExplorerRoot;
 };
@@ -205,7 +196,6 @@ function computeLineDiff(oldText: string, newText: string): { type: 'same' | 'ad
   const oldLines = oldText.split('\n');
   const newLines = newText.split('\n');
   const result: { type: 'same' | 'added' | 'removed'; text: string }[] = [];
-  const maxLen = Math.max(oldLines.length, newLines.length);
   let oi = 0;
   let ni = 0;
   while (oi < oldLines.length || ni < newLines.length) {
@@ -280,7 +270,7 @@ const FILE_PERMISSIONS: PermissionRef[] = [
 
 /* ═══════════════════════════════════════════ Main Component ═══════════════════════════════════════════ */
 
-export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder, fileService, localFileService, engineUrl, root: rootProp }: FilesPageProps) {
+export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder, fileService, localFileService, root: rootProp }: FilesPageProps) {
   /* ── State ── */
   const [currentRelPath, setCurrentRelPath] = useState('');
   const [items, setItems] = useState<LocalFileListItem[]>([]);
@@ -345,14 +335,7 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
   // Markdown rendered vs source toggle
   const [mdRendered, setMdRendered] = useState(true);
 
-  // Remote unsupported state
-  const [remoteUnsupported, setRemoteUnsupported] = useState(false);
-  const [agentTools, setAgentTools] = useState<Array<{ name: string; group?: string }>>([]);
-  const [agentHasFileTools, setAgentHasFileTools] = useState(false);
-  const isRemote = fileService.mode === 'remote';
-
   const activeRoot: ExplorerRoot = rootProp ?? 'workspace';
-  const isLocalRuntime = !engineUrl || /127\.0\.0\.1|localhost/.test(engineUrl);
 
   const activeExplorerService = useMemo(() => {
     if (activeRoot === 'working-folder' && localFileService) {
@@ -361,7 +344,7 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
     return fileService;
   }, [activeRoot, localFileService, fileService]);
 
-  const activeRootPath = activeRoot === 'working-folder' ? workingFolder : (isRemote ? '' : workingFolder);
+  const activeRootPath = workingFolder;
 
   /* ── Directory Loading ── */
   const loadDirectory = useCallback(
@@ -369,7 +352,11 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
       setLoading(true);
       setError('');
       try {
-        const result = await activeExplorerService.listDir(activeRootPath, relPath || undefined);
+        if (!activeExplorerService) {
+          throw new Error('Folder access unavailable. Re-select the folder.');
+        }
+
+        const result = await activeExplorerService.listDir(relPath || undefined);
         const sorted = [...result.items].sort((a, b) => {
           if (a.kind !== b.kind) return a.kind === 'directory' ? -1 : 1;
           return a.path.localeCompare(b.path, undefined, { sensitivity: 'base' });
@@ -381,32 +368,25 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
         setDiffOldContent('');
         setDiffNewContent('');
         setFileInfo(null);
-        setRemoteUnsupported(false);
       } catch (err) {
-        if (err instanceof WorkspaceRpcUnsupportedError) {
-          setRemoteUnsupported(true);
-          setError('');
-          // Fetch tool catalog to show what the agent can do
-          fileService.fetchToolsCatalog().then((tools) => {
-            if (tools) setAgentTools(tools.map((t) => ({ name: t.name, group: t.group })));
-          }).catch(() => {});
-          fileService.hasFileTools().then(setAgentHasFileTools).catch(() => {});
-        } else {
-          setError(err instanceof Error ? err.message : 'Fehler beim Laden');
-        }
+        setError(err instanceof Error ? err.message : 'Fehler beim Laden');
         setItems([]);
       } finally {
         setLoading(false);
       }
     },
-    [activeExplorerService, activeRootPath, fileService],
+    [activeExplorerService],
   );
 
   const loadSubDir = useCallback(
     async (relPath: string) => {
       setLoadingDirs((prev) => new Set(prev).add(relPath));
       try {
-        const result = await activeExplorerService.listDir(activeRootPath, relPath);
+        if (!activeExplorerService) {
+          throw new Error('Folder access unavailable. Re-select the folder.');
+        }
+
+        const result = await activeExplorerService.listDir(relPath);
         setChildCache((prev) => new Map(prev).set(relPath, result.items));
       } finally {
         setLoadingDirs((prev) => {
@@ -416,14 +396,14 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
         });
       }
     },
-    [activeExplorerService, activeRootPath],
+    [activeExplorerService],
   );
 
   useEffect(() => {
-    if ((desktopBridgeAvailable || isRemote) && (activeRootPath || isRemote)) {
+    if (desktopBridgeAvailable && activeRootPath) {
       void loadDirectory('');
     }
-  }, [activeRootPath, desktopBridgeAvailable, isRemote, loadDirectory]);
+  }, [activeRootPath, desktopBridgeAvailable, loadDirectory]);
 
   /* ── Navigation ── */
   const navigateUp = useCallback(() => {
@@ -467,11 +447,15 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
       setDiffOldContent('');
       setDiffNewContent('');
       try {
-        const result = await activeExplorerService.readFile(activeRootPath, node.relativePath);
+        if (!activeExplorerService) {
+          throw new Error('Folder access unavailable. Re-select the folder.');
+        }
+
+        const result = await activeExplorerService.readFile(node.relativePath);
         setPreviewContent(result.content);
         // Also load file info
         try {
-          const stat = await activeExplorerService.stat(activeRootPath, node.relativePath);
+          const stat = await activeExplorerService.stat(node.relativePath);
           setFileInfo({ size: stat.size, createdMs: stat.createdMs, modifiedMs: stat.modifiedMs, kind: stat.kind });
         } catch {
           setFileInfo(null);
@@ -483,12 +467,16 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
         setPreviewLoading(false);
       }
     },
-    [activeExplorerService, activeRootPath],
+    [activeExplorerService],
   );
 
   /* ── File Operations ── */
   const handleRename = useCallback(async () => {
     if (!renameTarget || !renameValue.trim()) return;
+    if (!activeExplorerService) {
+      setError('Folder access unavailable. Re-select the folder.');
+      return;
+    }
     setRenameLoading(true);
     try {
       const dir = renameTarget.relativePath.includes('/')
@@ -499,11 +487,11 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
       let oldContent: string | undefined;
       if (renameTarget.kind === 'file') {
         try {
-          const r = await activeExplorerService.readFile(activeRootPath, renameTarget.relativePath);
+          const r = await activeExplorerService.readFile(renameTarget.relativePath);
           oldContent = r.content;
         } catch { /* ok */ }
       }
-      await activeExplorerService.rename(activeRootPath, renameTarget.relativePath, newRelPath);
+      await activeExplorerService.rename(renameTarget.relativePath, newRelPath);
       setUndoStack((prev) => [...prev, {
         id: crypto.randomUUID(),
         ts: Date.now(),
@@ -521,21 +509,25 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
     } finally {
       setRenameLoading(false);
     }
-  }, [activeExplorerService, activeRootPath, renameTarget, renameValue, currentRelPath, loadDirectory]);
+  }, [activeExplorerService, renameTarget, renameValue, currentRelPath, loadDirectory]);
 
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
+    if (!activeExplorerService) {
+      setError('Folder access unavailable. Re-select the folder.');
+      return;
+    }
     setDeleteLoading(true);
     try {
       // Save content for undo if file
       let oldContent: string | undefined;
       if (deleteTarget.kind === 'file') {
         try {
-          const r = await activeExplorerService.readFile(activeRootPath, deleteTarget.relativePath);
+          const r = await activeExplorerService.readFile(deleteTarget.relativePath);
           oldContent = r.content;
         } catch { /* ok */ }
       }
-      await activeExplorerService.deleteFile(activeRootPath, deleteTarget.relativePath);
+      await activeExplorerService.deleteFile(deleteTarget.relativePath);
       setUndoStack((prev) => [...prev, {
         id: crypto.randomUUID(),
         ts: Date.now(),
@@ -556,18 +548,22 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
     } finally {
       setDeleteLoading(false);
     }
-  }, [activeExplorerService, activeRootPath, deleteTarget, currentRelPath, selectedPath, loadDirectory]);
+  }, [activeExplorerService, deleteTarget, currentRelPath, selectedPath, loadDirectory]);
 
   const handleCreate = useCallback(async () => {
     if (!createName.trim()) return;
+    if (!activeExplorerService) {
+      setError('Folder access unavailable. Re-select the folder.');
+      return;
+    }
     setCreateLoading(true);
     try {
       const relPath = currentRelPath ? `${currentRelPath}/${createName.trim()}` : createName.trim();
       if (createKind === 'file') {
-        await activeExplorerService.createFile(activeRootPath, relPath, '');
+        await activeExplorerService.createFile(relPath, '');
       } else {
         // Create a directory by creating a placeholder file
-        await activeExplorerService.createFile(activeRootPath, `${relPath}/.gitkeep`, '');
+        await activeExplorerService.createFile(`${relPath}/.gitkeep`, '');
       }
       setUndoStack((prev) => [...prev, {
         id: crypto.randomUUID(),
@@ -585,16 +581,20 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
     } finally {
       setCreateLoading(false);
     }
-  }, [activeExplorerService, activeRootPath, createName, createKind, currentRelPath, loadDirectory]);
+  }, [activeExplorerService, createName, createKind, currentRelPath, loadDirectory]);
 
   const handleUndo = useCallback(async (entry: UndoEntry) => {
+    if (!activeExplorerService) {
+      setError('Folder access unavailable. Re-select the folder.');
+      return;
+    }
     try {
       if (entry.type === 'rename' && entry.newPath) {
-        await activeExplorerService.rename(activeRootPath, entry.newPath, entry.oldPath);
+        await activeExplorerService.rename(entry.newPath, entry.oldPath);
       } else if (entry.type === 'delete' && entry.content !== undefined) {
-        await activeExplorerService.createFile(activeRootPath, entry.oldPath, entry.content);
+        await activeExplorerService.createFile(entry.oldPath, entry.content);
       } else if (entry.type === 'create') {
-        await activeExplorerService.deleteFile(activeRootPath, entry.oldPath);
+        await activeExplorerService.deleteFile(entry.oldPath);
       }
       setUndoStack((prev) => prev.filter((e) => e.id !== entry.id));
       setChangeLog((prev) => {
@@ -607,7 +607,7 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Undo failed');
     }
-  }, [activeExplorerService, activeRootPath, currentRelPath, loadDirectory]);
+  }, [activeExplorerService, currentRelPath, loadDirectory]);
 
   /* ── Drop handler ── */
   const handleDrop = useCallback(
@@ -615,6 +615,10 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
       e.preventDefault();
       e.stopPropagation();
       setDragOverPath(null);
+      if (!activeExplorerService) {
+        setError('Folder access unavailable. Re-select the folder.');
+        return;
+      }
       const files = e.dataTransfer?.files;
       if (!files || files.length === 0) return;
       for (let i = 0; i < files.length; i++) {
@@ -622,13 +626,13 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
         try {
           const text = await file.text();
           const relPath = targetDir ? `${targetDir}/${file.name}` : file.name;
-          await activeExplorerService.createFile(activeRootPath, relPath, text);
+          await activeExplorerService.createFile(relPath, text);
           setChangeLog((prev) => new Map(prev).set(relPath, 'created'));
         } catch { /* skip failed drops */ }
       }
       void loadDirectory(currentRelPath);
     },
-    [activeExplorerService, activeRootPath, currentRelPath, loadDirectory],
+    [activeExplorerService, currentRelPath, loadDirectory],
   );
 
   /* ── Context menu close on click outside ── */
@@ -741,65 +745,36 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
   }
 
   /* ── Render: not available ── */
-  if (!desktopBridgeAvailable && !isRemote) {
+  if (!desktopBridgeAvailable) {
     return (
       <section className="flex h-full items-center justify-center">
         <div className="text-center">
           <HardDrive className="mx-auto mb-3 size-10 text-muted-foreground/50" />
           <h2 className="text-lg font-medium">Filesystem unavailable</h2>
           <p className="mt-1 font-sans text-sm text-muted-foreground">
-            The File Explorer requires the desktop app or a connection to a remote server.
+            The File Explorer requires the desktop app.
           </p>
         </div>
       </section>
     );
   }
 
-  /* ── Render: compatibility workspace access unavailable ── */
-  const showPluginInstallUi = rootProp !== 'working-folder' &&
-    (remoteUnsupported && activeRoot === 'workspace');
-  if (showPluginInstallUi) {
+  if (!activeExplorerService) {
     return (
-      <section className="flex h-full items-center justify-center overflow-y-auto p-6">
-        <div className="w-full max-w-md">
-          <div className="mb-6 text-center">
-            <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl border border-primary/30 bg-primary/10">
-              <HardDrive className="size-7 text-primary" />
-            </div>
-            <h2 className="text-base font-semibold">Workspace access unavailable</h2>
-            <p className="mt-1.5 text-sm text-muted-foreground">
-              Cloffice no longer guides legacy runtime workspace setup here.
-              Use the internal engine for built-in workspace access, or keep this legacy runtime only for older session data that has not been migrated yet.
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-border bg-card p-5">
-            <p className="text-sm font-medium">Recommended next step</p>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Switch to the internal engine in Settings if you need local workspace browsing, read-only inspections, scheduling, or governed cowork actions.
-            </p>
-          </div>
-
-          <div className="mt-4 flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setRemoteUnsupported(false);
-                void loadDirectory('');
-              }}
-            >
-              <RefreshCw className="mr-1.5 size-3.5" />
-              Retry
-            </Button>
-            {rootProp !== 'workspace' && desktopBridgeAvailable && (
-              <Button type="button" variant="outline" size="sm" onClick={onPickFolder}>
-                <Folder className="mr-1.5 size-3.5" />
-                    Pick project folder
-              </Button>
-            )}
-          </div>
+      <section className="flex h-full items-center justify-center">
+        <div className="text-center">
+          <HardDrive className="mx-auto mb-3 size-10 text-muted-foreground/50" />
+          <h2 className="text-lg font-medium">Folder access unavailable</h2>
+          <p className="mt-1 font-sans text-sm text-muted-foreground">
+            Re-select the local folder to restore explorer access for this session.
+          </p>
+          <button
+            type="button"
+            className="mt-4 rounded-lg border border-border px-4 py-2 font-sans text-sm font-medium hover:bg-accent"
+            onClick={onPickFolder}
+          >
+            Pick folder
+          </button>
         </div>
       </section>
     );
@@ -924,7 +899,7 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
               type="button"
               className="shrink-0 rounded px-1 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
               onClick={() => void loadDirectory('')}
-              title={activeRootPath || 'Remote Workspace'}
+              title={activeRootPath || 'Workspace'}
             >
               <HardDrive className="inline size-3" />
             </button>
@@ -945,13 +920,6 @@ export function FilesPage({ workingFolder, desktopBridgeAvailable, onPickFolder,
               </span>
             ))}
           </div>
-
-          {/* Remote mode indicator */}
-          {isRemote && (
-            <Badge variant="outline" className="ml-1 shrink-0 border-blue-500/40 bg-blue-50 text-[10px] text-blue-700 dark:bg-blue-950/30 dark:text-blue-400">
-                    {activeRoot === 'workspace' ? 'Workspace' : 'Project Folder'}
-            </Badge>
-          )}
 
           {/* Action buttons */}
           <div className="ml-auto flex items-center gap-0.5">

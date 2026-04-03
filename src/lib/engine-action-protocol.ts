@@ -194,6 +194,7 @@ export function buildInternalEngineActionInstruction(): string {
 }
 
 export function buildEngineActionInstruction(_providerId: EngineProviderId): string {
+  void _providerId;
   return buildInternalEngineActionInstruction();
 }
 

@@ -38,7 +38,7 @@ async function ensureE2ESafetyPolicy(page: Page) {
 }
 
 async function sendCoworkPrompt(page: Page, prompt: string) {
-  const visibleComposer = page.locator('textarea[aria-label=\"Task prompt\"]:visible').first();
+  const visibleComposer = page.locator('textarea[aria-label="Task prompt"]:visible').first();
   if (!(await visibleComposer.count())) {
     const backToCowork = page.getByRole('button', { name: 'Back to Cowork' });
     if (await backToCowork.count()) {
@@ -51,11 +51,11 @@ async function sendCoworkPrompt(page: Page, prompt: string) {
     }
   }
 
-  const promptBox = page.locator('textarea[aria-label=\"Task prompt\"]:visible').first();
+  const promptBox = page.locator('textarea[aria-label="Task prompt"]:visible').first();
   await expect(promptBox).toBeVisible();
   await promptBox.fill(prompt);
 
-  const sendButton = page.locator('button[aria-label=\"Send task\"]:visible').first();
+  const sendButton = page.locator('button[aria-label="Send task"]:visible').first();
   if (await sendButton.isDisabled()) {
     const firstProject = page.locator('[data-testid^="project-select-"]').first();
     if (await firstProject.count()) {
@@ -152,7 +152,11 @@ test.describe('Cowork project runtime rules', () => {
 
     await page.evaluate(async () => {
       if (!window.cloffice?.saveConfig) return;
-      await window.cloffice.saveConfig({ endpointUrl: 'ws://127.0.0.1:18789', accessToken: '' });
+      await window.cloffice.saveConfig({
+        internalRuntimeDebug: {
+          endpointUrl: 'ws://127.0.0.1:18789',
+        },
+      });
     });
 
     await page.reload();

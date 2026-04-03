@@ -33,7 +33,7 @@ Renderer (React/Vite UI)
         | preload bridge / IPC
         v
 Electron Main
-  config · secure secret storage · notifications · filesystem · shell · web fetch
+  config · secure secret storage · notifications · scoped filesystem
   internal engine host
         |
         v
@@ -63,7 +63,9 @@ It does not own:
 - durable runtime truth
 - provider API orchestration
 - scheduler execution
-- direct high-trust host actions
+- generic high-trust host actions such as shell execution or arbitrary network fetch
+
+Renderer-initiated workspace file actions are an explicit exception for operator UX. They are routed through Electron main with selected-folder authority and path validation, not arbitrary host access.
 
 ### 4.2 Electron main
 
@@ -72,8 +74,8 @@ Electron main is the trusted host boundary.
 It owns:
 
 - filesystem access
-- shell execution
-- web fetch under host policy
+- operator-scoped local filesystem actions
+- development-only shell and web-fetch helper bridges
 - notifications
 - desktop integration
 - config loading and saving
@@ -116,6 +118,8 @@ In practice this means:
 5. results and receipts are recorded back into the run
 
 This is the core product model for consequential actions.
+
+Separate from that approval flow, the renderer may issue direct operator-driven workspace intents such as listing files, opening artifacts, or editing files inside the currently selected local folder. Those actions are still executed and validated in Electron main, but they are not model-proposed actions.
 
 ## 6. Provider model
 

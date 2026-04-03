@@ -1,12 +1,12 @@
-﻿/**
+/**
  * Pure utility functions and shared types for chat, cowork, and thread management.
- * No React imports â€” safe to use anywhere.
+ * No React imports; safe to use anywhere.
  */
 import type { ChatActivityItem, ChatMessage } from '@/app-types';
 import type { EngineErrorInfo } from './engine-runtime-types';
 import { LEGACY_STORAGE_KEYS, readLocalStorageItem, STORAGE_KEYS } from './storage-keys';
 
-/* â”€â”€ Exported types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Exported types */
 
 export type ChatThread = {
   id: string;
@@ -28,7 +28,7 @@ export type RecentWorkspaceEntry = {
 };
 
 
-/* â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Constants */
 
 export const CLOFFICE_RECENTS_KEY = STORAGE_KEYS.recents;
 const CLOFFICE_RECENTS_LEGACY_KEYS = [LEGACY_STORAGE_KEYS.recents] as const;
@@ -44,7 +44,7 @@ const SIDEBAR_RECENTS_LIMIT = 7;
 const SIDEBAR_RECENT_LABEL_LIMIT = 88;
 const MAX_THREAD_STORE_ITEMS = 100;
 
-/* â”€â”€ Message extraction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Message extraction */
 
 export function extractChatText(message: unknown): string {
   if (!message || typeof message !== 'object') {
@@ -87,7 +87,7 @@ export function extractChatRole(message: unknown): ChatMessage['role'] {
   return role === 'user' || role === 'assistant' || role === 'system' ? role : 'assistant';
 }
 
-/* â”€â”€ Context building â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Context building */
 
 function truncateForContext(text: string, maxChars: number): string {
   if (text.length <= maxChars) {
@@ -126,7 +126,7 @@ export function buildOutboundChatPrompt(userText: string, recentMessages: ChatMe
   ].join('\n');
 }
 
-/* â”€â”€ Label / key utilities â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Label / key utilities */
 
 export function toRecentSidebarLabel(text: string): string {
   const normalized = text.replace(/\s+/g, ' ').trim();
@@ -181,7 +181,7 @@ export function findMatchingSessionKey(sessionKeys: string[], requestedKey: stri
   return byTail ? normalizeSessionKey(byTail) : null;
 }
 
-/* â”€â”€ Thread utilities â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Thread utilities */
 
 export function deriveThreadTitleFromMessages(messages: ChatMessage[]): string {
   const firstUserMessage = messages.find((message) => message.role === 'user');
@@ -293,7 +293,7 @@ export function toRecentSidebarItems(threads: ChatThread[], kind: 'chat' | 'cowo
     }));
 }
 
-/* â”€â”€ Runtime error helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Runtime error helpers */
 
 function extractUuidFromMessage(msg?: string): string | undefined {
   if (!msg) return undefined;

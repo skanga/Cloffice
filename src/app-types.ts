@@ -1,17 +1,8 @@
 export type AppConfig = {
-  endpointUrl: string;
-  accessToken: string;
-};
-
-export type EngineConnectionProfile = {
-  id: string;
-  name: string;
-  endpointUrl: string;
-  accessToken: string;
-  providerId: EngineProviderId;
-  createdAt: number;
-  updatedAt: number;
-  lastUsedAt?: number;
+  internalRuntimeDebug?: {
+    endpointUrl?: string;
+    accessToken?: string;
+  };
 };
 
 export type EngineChatEventState = 'delta' | 'final' | 'aborted' | 'error';
@@ -208,6 +199,11 @@ export type LocalFileApplyResult = {
   applied: number;
   skipped: number;
   errors: string[];
+};
+
+export type LocalExplorerSelection = {
+  explorerId: string;
+  rootPath: string;
 };
 
 export type LocalFileCreateResult = {

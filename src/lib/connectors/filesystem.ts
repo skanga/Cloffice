@@ -86,52 +86,56 @@ export function createFilesystemConnector(): ConnectorDefinition {
     ],
     test: async () => ({ ok: true, message: 'File system connector is always available locally.' }),
     execute: async (actionId: string, params: Record<string, unknown>, ctx: ConnectorExecutionContext): Promise<ConnectorActionResult> => {
-      const { rootPath, bridge } = ctx;
+      const { explorerId, bridge } = ctx;
       const path = typeof params.path === 'string' ? params.path : '';
+
+      if (!explorerId) {
+        return { ok: false, errorCode: 'UNAVAILABLE', message: 'Filesystem explorer handle unavailable.' };
+      }
 
       switch (actionId) {
         case 'filesystem.read_file': {
           if (!bridge.readFileInFolder) return { ok: false, errorCode: 'UNAVAILABLE', message: 'read_file bridge unavailable' };
-          const result = await bridge.readFileInFolder(rootPath, path);
+          const result = await bridge.readFileInFolder(explorerId, path);
           return { ok: true, data: result };
         }
         case 'filesystem.create_file': {
           if (!bridge.createFileInFolder) return { ok: false, errorCode: 'UNAVAILABLE', message: 'create_file bridge unavailable' };
           const content = typeof params.content === 'string' ? params.content : '';
           const overwrite = typeof params.overwrite === 'boolean' ? params.overwrite : false;
-          const result = await bridge.createFileInFolder(rootPath, path, content, overwrite);
+          const result = await bridge.createFileInFolder(explorerId, path, content, overwrite);
           return { ok: true, data: result };
         }
         case 'filesystem.append_file': {
           if (!bridge.appendFileInFolder) return { ok: false, errorCode: 'UNAVAILABLE', message: 'append_file bridge unavailable' };
           const content = typeof params.content === 'string' ? params.content : '';
-          const result = await bridge.appendFileInFolder(rootPath, path, content);
+          const result = await bridge.appendFileInFolder(explorerId, path, content);
           return { ok: true, data: result };
         }
         case 'filesystem.list_dir': {
           if (!bridge.listDirInFolder) return { ok: false, errorCode: 'UNAVAILABLE', message: 'list_dir bridge unavailable' };
-          const result = await bridge.listDirInFolder(rootPath, path || undefined);
+          const result = await bridge.listDirInFolder(explorerId, path || undefined);
           return { ok: true, data: result };
         }
         case 'filesystem.exists': {
           if (!bridge.existsInFolder) return { ok: false, errorCode: 'UNAVAILABLE', message: 'exists bridge unavailable' };
-          const result = await bridge.existsInFolder(rootPath, path);
+          const result = await bridge.existsInFolder(explorerId, path);
           return { ok: true, data: result };
         }
         case 'filesystem.rename': {
           if (!bridge.renameInFolder) return { ok: false, errorCode: 'UNAVAILABLE', message: 'rename bridge unavailable' };
           const newPath = typeof params.newPath === 'string' ? params.newPath : '';
-          const result = await bridge.renameInFolder(rootPath, path, newPath);
+          const result = await bridge.renameInFolder(explorerId, path, newPath);
           return { ok: true, data: result };
         }
         case 'filesystem.delete': {
           if (!bridge.deleteInFolder) return { ok: false, errorCode: 'UNAVAILABLE', message: 'delete bridge unavailable' };
-          const result = await bridge.deleteInFolder(rootPath, path);
+          const result = await bridge.deleteInFolder(explorerId, path);
           return { ok: true, data: result };
         }
         case 'filesystem.stat': {
           if (!bridge.statInFolder) return { ok: false, errorCode: 'UNAVAILABLE', message: 'stat bridge unavailable' };
-          const result = await bridge.statInFolder(rootPath, path);
+          const result = await bridge.statInFolder(explorerId, path);
           return { ok: true, data: result };
         }
         default:
